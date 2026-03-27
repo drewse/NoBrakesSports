@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, TrendingUp, BarChart3, Activity, Bell,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
-  LineChart, GitCompare
+  LineChart, GitCompare, Star, Percent
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Markets', href: '/markets', icon: BarChart3 },
+  { label: 'Top Lines', href: '/top-lines', icon: Star, isPro: true },
+  { label: 'Arbitrage', href: '/arbitrage', icon: Percent, isPro: true },
   { label: 'Line Movement', href: '/line-movement', icon: TrendingUp, isPro: true },
   { label: 'Pred. Markets', href: '/prediction-markets', icon: GitCompare, isPro: true },
   { label: 'Alerts', href: '/alerts', icon: Bell, isPro: true },
