@@ -1,0 +1,16 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/sync-odds",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-kalshi",
+      "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-polymarket",
+      "schedule": "30 * * * *"
+    }
+  ]
+}
