@@ -7,7 +7,10 @@ export const maxDuration = 30
 
 function verifyCron(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
-  return secret === process.env.CRON_SECRET
+  return (
+    secret === process.env.CRON_SECRET ||
+    secret === process.env.VERCEL_AUTOMATION_BYPASS_SECRET
+  )
 }
 
 export async function GET(request: NextRequest) {
