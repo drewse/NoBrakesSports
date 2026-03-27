@@ -12,5 +12,10 @@
       "path": "/api/cron/sync-polymarket",
       "schedule": "30 * * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/cron/sync-odds/route.ts": { "maxDuration": 60 },
+    "app/api/cron/sync-kalshi/route.ts": { "maxDuration": 30 },
+    "app/api/cron/sync-polymarket/route.ts": { "maxDuration": 30 }
+  }
 }
