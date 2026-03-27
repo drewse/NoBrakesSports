@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
       for (const market of bookmaker.markets) {
         const home = market.outcomes.find(o => o.name === game.home_team)
         const away = market.outcomes.find(o => o.name === game.away_team)
+        const draw = market.outcomes.find(o => o.name === 'Draw')
         const over = market.outcomes.find(o => o.name === 'Over')
 
         snapshots.push({
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
           market_type: marketKeyToType(market.key),
           home_price: home?.price ?? over?.price ?? null,
           away_price: away?.price ?? null,
+          draw_price: draw?.price ?? null,
           spread_value: home?.point ?? null,
           total_value: over?.point ?? null,
           home_implied_prob: home ? americanToImpliedProb(home.price) : null,

@@ -123,6 +123,53 @@ export function getInitials(name: string): string {
     .slice(0, 2)
 }
 
+// ============================================================
+// MARKET SHAPE
+// ============================================================
+
+// Sports whose standard h2h/moneyline market is 3-way (home/draw/away)
+const THREE_WAY_SPORTS = new Set(['soccer', 'football_soccer'])
+
+// League slugs that are 3-way (EPL, MLS, etc.)
+const THREE_WAY_LEAGUES = new Set(['epl', 'mls', 'ncaasoccer'])
+
+export type MarketShape = '2way' | '3way'
+
+export function getMarketShape(
+  leagueSlug: string | null | undefined,
+  sportSlug: string | null | undefined,
+  marketType: string
+): MarketShape {
+  if (marketType !== 'moneyline') return '2way'
+  if (leagueSlug && THREE_WAY_LEAGUES.has(leagueSlug)) return '3way'
+  if (sportSlug && THREE_WAY_SPORTS.has(sportSlug)) return '3way'
+  return '2way'
+}
+
+export function isValidArbMarket(
+  shape: MarketShape,
+  homePrice: number | null,
+  drawPrice: number | null,
+  awayPrice: number | null
+): boolean {
+  if (shape === '3way') {
+    return homePrice != null && drawPrice != null && awayPrice != null
+  }
+  return homePrice != null && awayPrice != null
+}
+
+export function calcCombinedProb(
+  shape: MarketShape,
+  homeProb: number,
+  drawProb: number | null,
+  awayProb: number
+): number {
+  if (shape === '3way' && drawProb != null) {
+    return homeProb + drawProb + awayProb
+  }
+  return homeProb + awayProb
+}
+
 export function isProUser(profile: { subscription_tier: string; subscription_status: string } | null): boolean {
   if (!profile) return false
   return profile.subscription_tier === 'pro' && profile.subscription_status === 'active'

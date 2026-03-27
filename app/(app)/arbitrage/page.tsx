@@ -3,9 +3,23 @@ import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProGate } from '@/components/shared/pro-gate'
-import { formatOdds, formatRelativeTime, americanToImpliedProb } from '@/lib/utils'
+import {
+  formatOdds,
+  formatRelativeTime,
+  americanToImpliedProb,
+  getMarketShape,
+  calcCombinedProb,
+  type MarketShape,
+} from '@/lib/utils'
 
 export const metadata = { title: 'Arbitrage' }
+
+// League abbreviation -> slug mapping used for shape detection
+const ABBREV_TO_SLUG: Record<string, string> = {
+  EPL: 'epl',
+  MLS: 'mls',
+  'NCAA Soccer': 'ncaasoccer',
+}
 
 export default async function ArbitragePage() {
   const supabase = await createClient()
@@ -28,8 +42,8 @@ export default async function ArbitragePage() {
     .from('market_snapshots')
     .select(
       `
-      event_id, source_id, market_type, home_price, away_price, snapshot_time,
-      event:events(id, title, start_time, status, league:leagues(name, abbreviation)),
+      event_id, source_id, market_type, home_price, away_price, draw_price, snapshot_time,
+      event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug)),
       source:market_sources(id, name, slug)
     `
     )
@@ -38,10 +52,8 @@ export default async function ArbitragePage() {
     .order('snapshot_time', { ascending: false })
     .limit(2000)
 
-  const byEvent = new Map<
-    string,
-    typeof snapshots extends (infer T)[] | null ? T[] : never
-  >()
+  // Group snapshots by event_id
+  const byEvent = new Map<string, (typeof snapshots extends (infer T)[] | null ? T : never)[]>()
   for (const snap of snapshots ?? []) {
     const ev = (snap as any).event
     if (!ev) continue
@@ -52,11 +64,15 @@ export default async function ArbitragePage() {
   const arbs: {
     eventTitle: string
     league: string
+    shape: MarketShape
     bestHomePrice: number
     bestHomeSource: string
+    bestDrawPrice: number | null
+    bestDrawSource: string | null
     bestAwayPrice: number
     bestAwaySource: string
     homeProb: number
+    drawProb: number | null
     awayProb: number
     combinedProb: number
     profitPct: number
@@ -64,42 +80,68 @@ export default async function ArbitragePage() {
   }[] = []
 
   for (const snaps of byEvent.values()) {
-    const withHome = snaps.filter((s) => s.home_price != null)
-    const withAway = snaps.filter((s) => s.away_price != null)
+    const event = (snaps[0] as any).event
+    const leagueAbbrev: string = event?.league?.abbreviation ?? ''
+    const leagueSlug: string =
+      event?.league?.slug ?? ABBREV_TO_SLUG[leagueAbbrev] ?? ''
+
+    const shape = getMarketShape(leagueSlug || null, null, 'moneyline')
+
+    const withHome = snaps.filter((s: any) => s.home_price != null)
+    const withAway = snaps.filter((s: any) => s.away_price != null)
+    const withDraw = snaps.filter((s: any) => s.draw_price != null)
+
+    // Need at least 2 books for home and away to have an arb
     if (withHome.length < 2 || withAway.length < 2) continue
 
-    const bestHome = withHome.reduce((b, s) =>
+    // For 3-way markets, require draw data from at least one book
+    if (shape === '3way' && withDraw.length === 0) continue
+
+    const bestHome = withHome.reduce((b: any, s: any) =>
       s.home_price! > b.home_price! ? s : b
     )
-    const bestAway = withAway.reduce((b, s) =>
+    const bestAway = withAway.reduce((b: any, s: any) =>
       s.away_price! > b.away_price! ? s : b
     )
+    const bestDrawSnap =
+      withDraw.length > 0
+        ? withDraw.reduce((b: any, s: any) =>
+            s.draw_price! > b.draw_price! ? s : b
+          )
+        : null
 
-    if (
-      (bestHome as any).source?.slug === (bestAway as any).source?.slug
-    )
-      continue
+    // For 3-way, we need a draw price to compute a valid arb
+    if (shape === '3way' && bestDrawSnap == null) continue
 
     const homeProb = americanToImpliedProb(bestHome.home_price!)
     const awayProb = americanToImpliedProb(bestAway.away_price!)
-    const combinedProb = homeProb + awayProb
+    const drawProb =
+      bestDrawSnap != null
+        ? americanToImpliedProb(bestDrawSnap.draw_price!)
+        : null
+
+    const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
 
     if (combinedProb < 1.0) {
       const profitPct = (1 / combinedProb - 1) * 100
-      const event = (snaps[0] as any).event
       arbs.push({
         eventTitle: event?.title ?? '—',
-        league: event?.league?.abbreviation ?? '—',
+        league: leagueAbbrev || '—',
+        shape,
         bestHomePrice: bestHome.home_price!,
         bestHomeSource: (bestHome as any).source?.name ?? '—',
+        bestDrawPrice: bestDrawSnap?.draw_price ?? null,
+        bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
         bestAwayPrice: bestAway.away_price!,
         bestAwaySource: (bestAway as any).source?.name ?? '—',
         homeProb,
+        drawProb,
         awayProb,
         combinedProb,
         profitPct,
         lastUpdated: snaps.reduce(
-          (max, s) => (s.snapshot_time > max ? s.snapshot_time : max),
+          (max: string, s: any) =>
+            s.snapshot_time > max ? s.snapshot_time : max,
           snaps[0].snapshot_time
         ),
       })
@@ -197,7 +239,13 @@ export default async function ArbitragePage() {
                         League
                       </th>
                       <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
+                        Shape
+                      </th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                         Best Home
+                      </th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
+                        Draw
                       </th>
                       <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                         Best Away
@@ -232,6 +280,17 @@ export default async function ArbitragePage() {
                           </span>
                         </td>
                         <td className="px-4 py-2.5">
+                          <span
+                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              arb.shape === '3way'
+                                ? 'bg-nb-800 text-nb-300'
+                                : 'bg-nb-800 text-nb-500'
+                            }`}
+                          >
+                            {arb.shape === '3way' ? '3W' : '2W'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5">
                           <div className="flex flex-col gap-0.5">
                             <span className="font-mono text-xs text-white">
                               {formatOdds(arb.bestHomePrice)}
@@ -240,6 +299,20 @@ export default async function ArbitragePage() {
                               {arb.bestHomeSource}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {arb.shape === '3way' && arb.bestDrawPrice != null ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-xs text-white">
+                                {formatOdds(arb.bestDrawPrice)}
+                              </span>
+                              <span className="text-[10px] text-nb-400">
+                                {arb.bestDrawSource}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-mono text-xs text-nb-600">—</span>
+                          )}
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex flex-col gap-0.5">

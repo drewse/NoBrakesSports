@@ -3,9 +3,16 @@ import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProGate } from '@/components/shared/pro-gate'
-import { formatOdds, formatRelativeTime } from '@/lib/utils'
+import { formatOdds, formatRelativeTime, getMarketShape, type MarketShape } from '@/lib/utils'
 
 export const metadata = { title: 'Top Lines' }
+
+// League abbreviation -> slug mapping for shape detection
+const ABBREV_TO_SLUG: Record<string, string> = {
+  EPL: 'epl',
+  MLS: 'mls',
+  'NCAA Soccer': 'ncaasoccer',
+}
 
 export default async function TopLinesPage({
   searchParams,
@@ -32,9 +39,9 @@ export default async function TopLinesPage({
     .from('market_snapshots')
     .select(
       `
-      id, event_id, source_id, market_type, home_price, away_price,
+      id, event_id, source_id, market_type, home_price, away_price, draw_price,
       spread_value, total_value, snapshot_time,
-      event:events(id, title, start_time, status, league:leagues(name, abbreviation)),
+      event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug)),
       source:market_sources(id, name, slug)
     `
     )
@@ -56,52 +63,84 @@ export default async function TopLinesPage({
 
   const topLines = Array.from(grouped.values())
     .map((snaps) => {
-      const withHome = snaps.filter((s) => s.home_price != null)
-      const withAway = snaps.filter((s) => s.away_price != null)
+      const event = (snaps[0] as any).event
+      const leagueAbbrev: string = event?.league?.abbreviation ?? ''
+      const leagueSlug: string =
+        event?.league?.slug ?? ABBREV_TO_SLUG[leagueAbbrev] ?? ''
+      const marketType = snaps[0].market_type as string
+
+      const shape: MarketShape = getMarketShape(leagueSlug || null, null, marketType)
+
+      const withHome = snaps.filter((s: any) => s.home_price != null)
+      const withAway = snaps.filter((s: any) => s.away_price != null)
+      const withDraw = snaps.filter((s: any) => s.draw_price != null)
+
       if (withHome.length === 0 || withAway.length === 0) return null
 
-      const bestHome = withHome.reduce((b, s) =>
+      // For 3-way moneyline markets, exclude if no draw data exists at all
+      if (shape === '3way' && withDraw.length === 0) return null
+
+      const bestHome = withHome.reduce((b: any, s: any) =>
         s.home_price! > b.home_price! ? s : b
       )
-      const bestAway = withAway.reduce((b, s) =>
+      const bestAway = withAway.reduce((b: any, s: any) =>
         s.away_price! > b.away_price! ? s : b
       )
+      const bestDrawSnap =
+        withDraw.length > 0
+          ? withDraw.reduce((b: any, s: any) =>
+              s.draw_price! > b.draw_price! ? s : b
+            )
+          : null
+
       const avgHome =
-        withHome.reduce((sum, s) => sum + s.home_price!, 0) / withHome.length
+        withHome.reduce((sum: number, s: any) => sum + s.home_price!, 0) /
+        withHome.length
       const avgAway =
-        withAway.reduce((sum, s) => sum + s.away_price!, 0) / withAway.length
-      const event = (snaps[0] as any).event
+        withAway.reduce((sum: number, s: any) => sum + s.away_price!, 0) /
+        withAway.length
+      const avgDraw =
+        withDraw.length > 0
+          ? withDraw.reduce((sum: number, s: any) => sum + s.draw_price!, 0) /
+            withDraw.length
+          : null
 
       return {
         eventTitle: event?.title ?? '—',
         eventStart: event?.start_time ?? '',
-        league: event?.league?.abbreviation ?? '—',
+        league: leagueAbbrev || '—',
         leagueName: event?.league?.name ?? '—',
-        marketType: snaps[0].market_type as string,
+        marketType,
+        shape,
         bestHomePrice: bestHome.home_price!,
         bestHomeSource: (bestHome as any).source?.name ?? '—',
+        bestDrawPrice: bestDrawSnap?.draw_price ?? null,
+        bestDrawSource:
+          bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
         bestAwayPrice: bestAway.away_price!,
         bestAwaySource: (bestAway as any).source?.name ?? '—',
         homeEdge: bestHome.home_price! - avgHome,
+        drawEdge:
+          bestDrawSnap != null && avgDraw != null
+            ? bestDrawSnap.draw_price! - avgDraw
+            : null,
         awayEdge: bestAway.away_price! - avgAway,
         spreadValue: snaps[0].spread_value,
         totalValue: snaps[0].total_value,
         lastUpdated: snaps.reduce(
-          (max, s) => (s.snapshot_time > max ? s.snapshot_time : max),
+          (max: string, s: any) =>
+            s.snapshot_time > max ? s.snapshot_time : max,
           snaps[0].snapshot_time
         ),
       }
     })
-    .filter(Boolean) as NonNullable<
-    ReturnType<typeof Array.prototype.map>[0]
-  >[]
+    .filter(Boolean) as NonNullable<ReturnType<typeof Array.prototype.map>[0]>[]
 
-  topLines.sort((a, b) => {
+  topLines.sort((a: any, b: any) => {
     const order = ['moneyline', 'spread', 'total']
     return (
-      order.indexOf((a as any).marketType) -
-        order.indexOf((b as any).marketType) ||
-      (a as any).eventTitle.localeCompare((b as any).eventTitle)
+      order.indexOf(a.marketType) - order.indexOf(b.marketType) ||
+      a.eventTitle.localeCompare(b.eventTitle)
     )
   })
 
@@ -128,7 +167,8 @@ export default async function TopLinesPage({
     filtered.map((l: any) => l.eventTitle)
   ).size
 
-  function EdgeDisplay({ value }: { value: number }) {
+  function EdgeDisplay({ value }: { value: number | null }) {
+    if (value == null) return <span className="font-mono text-xs text-nb-600">—</span>
     const rounded = Math.round(value)
     if (rounded > 0) {
       return (
@@ -221,10 +261,16 @@ export default async function TopLinesPage({
                       Best Home
                     </th>
                     <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
+                      Best Draw
+                    </th>
+                    <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                       Best Away
                     </th>
                     <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                       Home Edge
+                    </th>
+                    <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
+                      Draw Edge
                     </th>
                     <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                       Away Edge
@@ -238,7 +284,7 @@ export default async function TopLinesPage({
                   {visibleLines.length === 0 ? (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={10}
                         className="px-4 py-8 text-center text-nb-400 text-xs"
                       >
                         No lines found for the selected filters.
@@ -279,6 +325,20 @@ export default async function TopLinesPage({
                           </div>
                         </td>
                         <td className="px-4 py-2.5">
+                          {line.shape === '3way' && line.bestDrawPrice != null ? (
+                            <div className="flex flex-col gap-0.5">
+                              <span className="font-mono text-xs text-white">
+                                {formatOdds(line.bestDrawPrice)}
+                              </span>
+                              <span className="text-[10px] text-nb-400">
+                                {line.bestDrawSource}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-mono text-xs text-nb-600">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5">
                           <div className="flex flex-col gap-0.5">
                             <span className="font-mono text-xs text-white">
                               {formatOdds(line.bestAwayPrice)}
@@ -290,6 +350,9 @@ export default async function TopLinesPage({
                         </td>
                         <td className="px-4 py-2.5">
                           <EdgeDisplay value={line.homeEdge} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <EdgeDisplay value={line.drawEdge} />
                         </td>
                         <td className="px-4 py-2.5">
                           <EdgeDisplay value={line.awayEdge} />

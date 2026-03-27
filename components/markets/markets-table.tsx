@@ -77,6 +77,17 @@ export function MarketsTable({ snapshots, isPro }: MarketsTableProps) {
       },
     },
     {
+      accessorKey: 'draw_price',
+      header: 'Draw',
+      cell: ({ row }) => (
+        <span className="text-xs font-mono text-nb-300">
+          {(row.original as any).draw_price != null
+            ? formatOdds((row.original as any).draw_price)
+            : '—'}
+        </span>
+      ),
+    },
+    {
       accessorKey: 'away_price',
       header: 'Away',
       cell: ({ row }) => (
