@@ -6,10 +6,12 @@ export interface KalshiMarket {
   title: string
   category: string
   status: string
-  yes_bid: number   // cents (0–99)
+  yes_bid: number         // integer cents if present (legacy)
   yes_ask: number
   no_bid: number
   no_ask: number
+  yes_bid_dollars?: string  // string decimal e.g. "0.5500" — actual current field
+  no_bid_dollars?: string
   last_price: number
   volume: number
   open_interest: number
@@ -52,7 +54,12 @@ export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
   return (data.markets ?? []).filter(isSportsMarket)
 }
 
-// Kalshi prices are in cents (0–99), convert to 0–1 probability
-export function kalshiPriceToProb(cents: number): number {
-  return cents / 100
+// Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer
+export function kalshiPriceToProb(market: KalshiMarket, side: 'yes' | 'no'): number {
+  if (side === 'yes') {
+    if (market.yes_bid_dollars != null) return parseFloat(market.yes_bid_dollars)
+    return (market.yes_bid ?? 0) / 100
+  }
+  if (market.no_bid_dollars != null) return parseFloat(market.no_bid_dollars)
+  return (market.no_bid ?? 0) / 100
 }

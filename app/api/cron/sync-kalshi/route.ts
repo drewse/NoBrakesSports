@@ -49,8 +49,8 @@ export async function GET(request: NextRequest) {
   const snapshots: object[] = []
 
   for (const market of markets) {
-    const yesProb = kalshiPriceToProb(market.yes_bid)
-    const noProb = kalshiPriceToProb(market.no_bid)
+    const yesProb = kalshiPriceToProb(market, 'yes')
+    const noProb = kalshiPriceToProb(market, 'no')
 
     const titleWords = market.title.toLowerCase().split(/\s+/)
     const matchedEvent = events?.find(e => {
@@ -94,8 +94,10 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    marketsFromApi: markets.length,
     marketsFound: snapshots.length,
     marketsInserted: inserted,
+    sampleMarket: markets[0] ?? null,
     errors: errors.length ? errors : undefined,
   })
 }

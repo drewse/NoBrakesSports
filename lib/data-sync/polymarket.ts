@@ -41,13 +41,25 @@ export async function fetchPolymarketEvents(): Promise<PolymarketEvent[]> {
   if (!res.ok) throw new Error(`Polymarket API ${res.status}: ${await res.text()}`)
 
   const data = await res.json()
-  return Array.isArray(data) ? data : (data.events ?? [])
+  const events: PolymarketEvent[] = Array.isArray(data) ? data : (data.events ?? [])
+
+  // Normalize: some API responses omit the markets array — treat as empty
+  return events.map(e => ({ ...e, markets: e.markets ?? [] }))
+}
+
+function parseJsonField<T>(field: unknown): T | null {
+  if (Array.isArray(field)) return field as T
+  if (typeof field === 'string') {
+    try { return JSON.parse(field) } catch { return null }
+  }
+  return null
 }
 
 export function parsePolymarketPrices(market: PolymarketMarket): { yes: number; no: number } | null {
   try {
-    const prices: string[] = JSON.parse(market.outcomePrices)
-    const outcomes: string[] = JSON.parse(market.outcomes)
+    const prices = parseJsonField<string[]>(market.outcomePrices)
+    const outcomes = parseJsonField<string[]>(market.outcomes)
+    if (!prices || !outcomes) return null
     const yesIdx = outcomes.findIndex(o => o.toLowerCase() === 'yes')
     const noIdx = outcomes.findIndex(o => o.toLowerCase() === 'no')
     if (yesIdx === -1 || noIdx === -1) return null

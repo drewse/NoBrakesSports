@@ -48,13 +48,17 @@ export async function GET(request: NextRequest) {
 
   const now = new Date().toISOString()
   const snapshots: object[] = []
+  let skippedInactive = 0
+  let skippedNoPrices = 0
+  let skippedNoMarkets = 0
 
   for (const polyEvent of polyEvents) {
-    for (const market of polyEvent.markets ?? []) {
-      if (!market.active || market.closed) continue
+    if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
+    for (const market of polyEvent.markets) {
+      if (!market.active || market.closed) { skippedInactive++; continue }
 
       const prices = parsePolymarketPrices(market)
-      if (!prices) continue
+      if (!prices) { skippedNoPrices++; continue }
 
       const question = market.question.toLowerCase()
       const matchedEvent = dbEvents?.find(e => {
@@ -99,8 +103,12 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    eventsFound: polyEvents.length,
     marketsFound: snapshots.length,
     marketsInserted: inserted,
+    skippedNoMarkets,
+    skippedInactive,
+    skippedNoPrices,
     errors: errors.length ? errors : undefined,
   })
 }
