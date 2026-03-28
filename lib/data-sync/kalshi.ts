@@ -51,7 +51,15 @@ export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
   }
 
   const data: KalshiResponse = await res.json()
-  return (data.markets ?? []).filter(isSportsMarket)
+  const all = data.markets ?? []
+  const sports = all.filter(isSportsMarket)
+  // If the sports filter drops everything, fall back to all open markets
+  // (Kalshi may use category="Sports" or titles that don't match our keyword list)
+  if (all.length > 0 && sports.length === 0) {
+    console.log(`[kalshi] sports filter dropped all ${all.length} markets — returning all. Sample category: ${all[0]?.category}, title: ${all[0]?.title}`)
+    return all
+  }
+  return sports
 }
 
 // Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer
