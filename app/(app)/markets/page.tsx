@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation'
 import { MarketsEventTable } from '@/components/markets/markets-event-table'
 import { MarketsFilters } from '@/components/markets/markets-filters'
 import { TableSkeleton } from '@/components/shared/loading-skeleton'
+import { upcomingCutoff } from '@/lib/queries'
 
 export const metadata = { title: 'Markets' }
 
@@ -31,11 +32,12 @@ export default async function MarketsPage({
     .order('display_order')
   const leagues = (leaguesRaw ?? []) as any[]
 
-  // Fetch scheduled events, optionally filtered by league
+  // Fetch only pre-game (upcoming) events — start_time must be in the future
+  const now = upcomingCutoff()
   let eventQuery = supabase
     .from('events')
     .select('id, title, start_time, status, league_id, league:leagues(id, name, abbreviation, slug)')
-    .eq('status', 'scheduled')
+    .gt('start_time', now)
     .order('start_time')
     .limit(isPro ? 300 : 60)
 
@@ -108,7 +110,7 @@ export default async function MarketsPage({
         <div>
           <h1 className="text-lg font-bold text-white">Markets</h1>
           <p className="text-xs text-nb-400 mt-0.5">
-            {eventSummaries.length} upcoming events
+            Pre-game market data · {eventSummaries.length} upcoming events
             {!isPro && ' · Upgrade Pro for full access'}
           </p>
         </div>

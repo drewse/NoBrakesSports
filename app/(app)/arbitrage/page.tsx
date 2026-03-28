@@ -11,6 +11,7 @@ import {
   calcCombinedProb,
   type MarketShape,
 } from '@/lib/utils'
+import { isUpcomingEvent } from '@/lib/queries'
 
 export const metadata = { title: 'Arbitrage' }
 
@@ -52,7 +53,7 @@ export default async function ArbitragePage() {
     .order('snapshot_time', { ascending: false })
     .limit(2000)
 
-  // Group snapshots by event_id
+  // Group snapshots by event_id — skip events without embedded event data
   const byEvent = new Map<string, (typeof snapshots extends (infer T)[] | null ? T : never)[]>()
   for (const snap of snapshots ?? []) {
     const ev = (snap as any).event
@@ -81,6 +82,8 @@ export default async function ArbitragePage() {
 
   for (const snaps of byEvent.values()) {
     const event = (snaps[0] as any).event
+    // Pre-game only: skip events that have already started
+    if (!isUpcomingEvent(event?.start_time)) continue
     const leagueAbbrev: string = event?.league?.abbreviation ?? ''
     const leagueSlug: string =
       event?.league?.slug ?? ABBREV_TO_SLUG[leagueAbbrev] ?? ''

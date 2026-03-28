@@ -5,6 +5,7 @@ import { DashboardMarketTable } from '@/components/dashboard/market-table'
 import { DivergenceCard } from '@/components/dashboard/divergence-card'
 import { WatchlistSummary } from '@/components/dashboard/watchlist-summary'
 import { formatRelativeTime } from '@/lib/utils'
+import { upcomingCutoff, isUpcomingEvent } from '@/lib/queries'
 
 export const metadata = { title: 'Dashboard' }
 
@@ -27,7 +28,7 @@ export default async function DashboardPage() {
     supabase
       .from('events')
       .select('*, league:leagues(name, abbreviation), home_team:teams!events_home_team_id_fkey(name, abbreviation), away_team:teams!events_away_team_id_fkey(name, abbreviation)')
-      .eq('status', 'scheduled')
+      .gt('start_time', upcomingCutoff())
       .order('start_time', { ascending: true })
       .limit(10),
     supabase.from('market_sources').select('*').eq('is_active', true).order('display_order'),
@@ -35,20 +36,25 @@ export default async function DashboardPage() {
       .from('prediction_market_snapshots')
       .select('*, event:events(title, start_time), source:market_sources(name)')
       .order('snapshot_time', { ascending: false })
-      .limit(5),
+      .limit(20),
     supabase
       .from('watchlist_items')
       .select('*, team:teams(name), league:leagues(name), event:events(title, start_time)')
       .limit(5),
   ])
 
+  // Filter predictions to only those tied to upcoming events (or unmatched contracts)
+  const upcomingPredictions = predictions?.filter(
+    p => isUpcomingEvent((p as any).event?.start_time ?? null) || !(p as any).event
+  ) ?? []
+
   const activeEvents = events?.length ?? 0
   const healthySources = sources?.filter(s => s.health_status === 'healthy').length ?? 0
   const totalSources = sources?.length ?? 0
 
-  // Find biggest divergence
-  const biggestDivergence = predictions
-    ?.filter(p => p.divergence_pct != null)
+  // Find biggest divergence among upcoming-only predictions
+  const biggestDivergence = upcomingPredictions
+    .filter(p => p.divergence_pct != null)
     .sort((a, b) => Math.abs(b.divergence_pct!) - Math.abs(a.divergence_pct!))[0]
 
   return (
@@ -58,7 +64,7 @@ export default async function DashboardPage() {
         <div>
           <h1 className="text-lg font-bold text-white">Overview</h1>
           <p className="text-xs text-nb-400 mt-0.5">
-            Market intelligence dashboard · Updated {formatRelativeTime(new Date().toISOString())}
+            Pre-game market intelligence · Updated {formatRelativeTime(new Date().toISOString())}
           </p>
         </div>
         {!isPro && (
@@ -106,7 +112,7 @@ export default async function DashboardPage() {
 
         {/* Right column */}
         <div className="space-y-4">
-          <DivergenceCard predictions={predictions ?? []} />
+          <DivergenceCard predictions={upcomingPredictions.slice(0, 5)} />
           <WatchlistSummary items={watchlist ?? []} />
         </div>
       </div>

@@ -6,6 +6,7 @@ import { redirect } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { MarketComparisonSection } from '@/components/markets/market-comparison-section'
 import { formatEventTime, formatRelativeTime, getMarketShape } from '@/lib/utils'
+import { isUpcomingEvent } from '@/lib/queries'
 import type { MarketSnapshot } from '@/types'
 
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,34 @@ export default async function EventDetailPage({
   if (!eventRaw) notFound()
 
   const event = eventRaw as any
+
+  // Guard: this app is pre-game only. Show unavailable state for started events.
+  if (!isUpcomingEvent(event.start_time)) {
+    return (
+      <div className="p-6 space-y-6 max-w-[1100px]">
+        <Link
+          href="/markets"
+          className="inline-flex items-center gap-1.5 text-xs text-nb-400 hover:text-nb-200 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Back to Markets
+        </Link>
+        <div className="rounded-lg border border-border bg-nb-900/40 px-6 py-16 text-center space-y-3">
+          <p className="text-sm font-semibold text-white">{event.title}</p>
+          <p className="text-xs text-nb-400 max-w-sm mx-auto leading-relaxed">
+            This event is no longer available in the pre-game dashboard.
+            Only upcoming events are shown.
+          </p>
+          <Link
+            href="/markets"
+            className="inline-flex items-center gap-1.5 text-xs text-nb-300 hover:text-white transition-colors underline"
+          >
+            View upcoming events
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   // Fetch all snapshots for this event, newest first
   const { data: snapshotsRaw } = await supabase

@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { ProGate } from '@/components/shared/pro-gate'
 import { formatOdds, formatRelativeTime, getMarketShape, type MarketShape } from '@/lib/utils'
+import { isUpcomingEvent } from '@/lib/queries'
 
 export const metadata = { title: 'Top Lines' }
 
@@ -56,6 +57,8 @@ export default async function TopLinesPage({
   for (const snap of snapshots ?? []) {
     const ev = (snap as any).event
     if (!ev) continue
+    // Pre-game only: skip events that have already started
+    if (!isUpcomingEvent(ev.start_time)) continue
     const key = `${snap.event_id}::${snap.market_type}`
     if (!grouped.has(key)) grouped.set(key, [])
     grouped.get(key)!.push(snap as any)
@@ -191,7 +194,7 @@ export default async function TopLinesPage({
           <Badge variant="pro">PRO</Badge>
         </div>
         <p className="text-xs text-nb-400">
-          Best available lines across {uniqueEventCount} events
+          Best available pre-game lines across {uniqueEventCount} upcoming events
         </p>
       </div>
 
