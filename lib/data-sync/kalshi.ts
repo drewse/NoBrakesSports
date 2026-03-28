@@ -42,11 +42,22 @@ export function isSportsMarket(market: KalshiMarket): boolean {
   return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k) || ticker.includes(k))
 }
 
-export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
+export interface KalshiFetchResult {
+  markets: KalshiMarket[]
+  debug: {
+    totalFetched: number
+    afterMveFilter: number
+    afterLiquidityFilter: number
+    afterKeywordFilter: number
+    sampleRaw: KalshiMarket | null
+    sampleNonMve: KalshiMarket | null
+  }
+}
+
+export async function fetchKalshiMarkets(): Promise<KalshiFetchResult> {
   const allMarkets: KalshiMarket[] = []
   let cursor: string | undefined
 
-  // Paginate up to 5 pages (1000 markets) to find sports markets beyond MVE pages
   for (let page = 0; page < 5; page++) {
     const params = new URLSearchParams({ status: 'open', limit: '200' })
     if (cursor) params.set('cursor', cursor)
@@ -69,7 +80,28 @@ export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
     cursor = data.cursor
   }
 
-  return allMarkets.filter(isSportsMarket)
+  const nonMve = allMarkets.filter(m => !m.mve_collection_ticker)
+  const withLiquidity = nonMve.filter(
+    m => !(m.liquidity_dollars === '0.0000' && m.yes_bid_dollars === '0.0000')
+  )
+  const sports = withLiquidity.filter(m => {
+    const cat = (m.category ?? '').toLowerCase()
+    const title = (m.title ?? '').toLowerCase()
+    const ticker = (m.ticker ?? '').toLowerCase()
+    return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k) || ticker.includes(k))
+  })
+
+  return {
+    markets: sports,
+    debug: {
+      totalFetched: allMarkets.length,
+      afterMveFilter: nonMve.length,
+      afterLiquidityFilter: withLiquidity.length,
+      afterKeywordFilter: sports.length,
+      sampleRaw: allMarkets[0] ?? null,
+      sampleNonMve: nonMve[0] ?? null,
+    },
+  }
 }
 
 // Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer

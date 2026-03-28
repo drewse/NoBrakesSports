@@ -31,14 +31,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Kalshi source not found in DB' }, { status: 500 })
   }
 
-  let markets
+  let fetchResult
   try {
-    markets = await fetchKalshiMarkets()
+    fetchResult = await fetchKalshiMarkets()
   } catch (err) {
-    // Return the actual error so we can see it in Vercel logs
     const message = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: message }, { status: 500 })
   }
+
+  const { markets, debug } = fetchResult
 
   const { data: events } = await db
     .from('events')
@@ -94,10 +95,9 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    marketsFromApi: markets.length,
     marketsFound: snapshots.length,
     marketsInserted: inserted,
-    sampleMarket: markets[0] ?? null,
+    debug,
     errors: errors.length ? errors : undefined,
   })
 }
