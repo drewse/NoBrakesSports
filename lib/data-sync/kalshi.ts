@@ -6,14 +6,17 @@ export interface KalshiMarket {
   title: string
   category: string
   status: string
-  yes_bid: number         // integer cents if present (legacy)
+  yes_bid: number
   yes_ask: number
   no_bid: number
   no_ask: number
-  yes_bid_dollars?: string  // string decimal e.g. "0.5500" — actual current field
+  yes_bid_dollars?: string  // string decimal e.g. "0.5500"
   no_bid_dollars?: string
+  liquidity_dollars?: string
+  mve_collection_ticker?: string  // set on parlay/MVE markets — skip these
   last_price: number
   volume: number
+  volume_fp?: string
   open_interest: number
   close_time: string
   event_ticker: string
@@ -29,37 +32,44 @@ const SPORTS_KEYWORDS = ['nfl', 'nba', 'mlb', 'nhl', 'mls', 'ncaa', 'super bowl'
   'basketball', 'football', 'baseball', 'hockey', 'tennis', 'golf', 'ufc', 'mma']
 
 export function isSportsMarket(market: KalshiMarket): boolean {
+  // Skip MVE/parlay markets — they're cross-leg combos with no standalone price
+  if (market.mve_collection_ticker) return false
+  // Skip zero-liquidity markets
+  if (market.liquidity_dollars === '0.0000' && market.yes_bid_dollars === '0.0000') return false
   const cat = (market.category ?? '').toLowerCase()
   const title = (market.title ?? '').toLowerCase()
-  return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k))
+  const ticker = (market.ticker ?? '').toLowerCase()
+  return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k) || ticker.includes(k))
 }
 
 export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
-  const params = new URLSearchParams({ status: 'open', limit: '200' })
+  const allMarkets: KalshiMarket[] = []
+  let cursor: string | undefined
 
-  const res = await fetch(`${BASE_URL}/markets?${params}`, {
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    },
-    next: { revalidate: 0 },
-  })
+  // Paginate up to 5 pages (1000 markets) to find sports markets beyond MVE pages
+  for (let page = 0; page < 5; page++) {
+    const params = new URLSearchParams({ status: 'open', limit: '200' })
+    if (cursor) params.set('cursor', cursor)
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Kalshi API ${res.status}: ${body.slice(0, 200)}`)
+    const res = await fetch(`${BASE_URL}/markets?${params}`, {
+      headers: { Accept: 'application/json' },
+      next: { revalidate: 0 },
+    })
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '')
+      throw new Error(`Kalshi API ${res.status}: ${body.slice(0, 200)}`)
+    }
+
+    const data: KalshiResponse = await res.json()
+    const markets = data.markets ?? []
+    allMarkets.push(...markets)
+
+    if (!data.cursor || markets.length < 200) break
+    cursor = data.cursor
   }
 
-  const data: KalshiResponse = await res.json()
-  const all = data.markets ?? []
-  const sports = all.filter(isSportsMarket)
-  // If the sports filter drops everything, fall back to all open markets
-  // (Kalshi may use category="Sports" or titles that don't match our keyword list)
-  if (all.length > 0 && sports.length === 0) {
-    console.log(`[kalshi] sports filter dropped all ${all.length} markets — returning all. Sample category: ${all[0]?.category}, title: ${all[0]?.title}`)
-    return all
-  }
-  return sports
+  return allMarkets.filter(isSportsMarket)
 }
 
 // Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer
