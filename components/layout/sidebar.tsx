@@ -22,7 +22,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
   { label: 'Markets', href: '/markets', icon: BarChart3 },
-  { label: 'Top Lines', href: '/top-lines', icon: Star, isPro: true },
+  { label: 'Top EV Lines', href: '/top-lines', icon: Star, isPro: true },
   { label: 'Arbitrage', href: '/arbitrage', icon: Percent, isPro: true },
   { label: 'Line Movement', href: '/line-movement', icon: TrendingUp, isPro: true },
   { label: 'Pred. Markets', href: '/prediction-markets', icon: GitCompare, isPro: true },
