@@ -42,65 +42,62 @@ export function isSportsMarket(market: KalshiMarket): boolean {
   return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k) || ticker.includes(k))
 }
 
+// Sports series tickers on Kalshi — game winner, totals, and player prop series
+const SPORTS_SERIES = [
+  'KXNBAGAME',   // NBA game winner
+  'KXNBAPTS',    // NBA player points
+  'KXMLBGAME',   // MLB game winner
+  'KXMLBHIT',    // MLB player hits
+  'KXMLBTOTAL',  // MLB game totals
+  'KXNHLGAME',   // NHL game winner
+  'KXNFLGAME',   // NFL game winner (in season)
+  'KXNFLPTS',    // NFL player points
+]
+
 export interface KalshiFetchResult {
   markets: KalshiMarket[]
-  debug: {
-    totalFetched: number
-    afterMveFilter: number
-    afterLiquidityFilter: number
-    afterKeywordFilter: number
-    sampleRaw: KalshiMarket | null
-    sampleNonMve: KalshiMarket | null
-  }
+  debug: { seriesCounts: Record<string, number>; total: number }
+}
+
+async function fetchSeriesMarkets(seriesTicker: string): Promise<KalshiMarket[]> {
+  const params = new URLSearchParams({
+    status: 'open',
+    series_ticker: seriesTicker,
+    limit: '200',
+  })
+
+  const res = await fetch(`${BASE_URL}/markets?${params}`, {
+    headers: { Accept: 'application/json' },
+    next: { revalidate: 0 },
+  })
+
+  if (!res.ok) return []  // series may not exist right now — skip silently
+
+  const data: KalshiResponse = await res.json()
+  return (data.markets ?? []).filter(m => !m.mve_collection_ticker)
 }
 
 export async function fetchKalshiMarkets(): Promise<KalshiFetchResult> {
-  const allMarkets: KalshiMarket[] = []
-  let cursor: string | undefined
-
-  for (let page = 0; page < 5; page++) {
-    const params = new URLSearchParams({ status: 'open', limit: '200' })
-    if (cursor) params.set('cursor', cursor)
-
-    const res = await fetch(`${BASE_URL}/markets?${params}`, {
-      headers: { Accept: 'application/json' },
-      next: { revalidate: 0 },
-    })
-
-    if (!res.ok) {
-      const body = await res.text().catch(() => '')
-      throw new Error(`Kalshi API ${res.status}: ${body.slice(0, 200)}`)
-    }
-
-    const data: KalshiResponse = await res.json()
-    const markets = data.markets ?? []
-    allMarkets.push(...markets)
-
-    if (!data.cursor || markets.length < 200) break
-    cursor = data.cursor
-  }
-
-  const nonMve = allMarkets.filter(m => !m.mve_collection_ticker)
-  const withLiquidity = nonMve.filter(
-    m => !(m.liquidity_dollars === '0.0000' && m.yes_bid_dollars === '0.0000')
+  const results = await Promise.allSettled(
+    SPORTS_SERIES.map(s => fetchSeriesMarkets(s))
   )
-  const sports = withLiquidity.filter(m => {
-    const cat = (m.category ?? '').toLowerCase()
-    const title = (m.title ?? '').toLowerCase()
-    const ticker = (m.ticker ?? '').toLowerCase()
-    return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k) || ticker.includes(k))
+
+  const seriesCounts: Record<string, number> = {}
+  const allMarkets: KalshiMarket[] = []
+
+  results.forEach((result, i) => {
+    const series = SPORTS_SERIES[i]
+    if (result.status === 'fulfilled') {
+      seriesCounts[series] = result.value.length
+      allMarkets.push(...result.value)
+    } else {
+      seriesCounts[series] = -1  // error
+    }
   })
 
   return {
-    markets: sports,
-    debug: {
-      totalFetched: allMarkets.length,
-      afterMveFilter: nonMve.length,
-      afterLiquidityFilter: withLiquidity.length,
-      afterKeywordFilter: sports.length,
-      sampleRaw: allMarkets[0] ?? null,
-      sampleNonMve: nonMve[0] ?? null,
-    },
+    markets: allMarkets,
+    debug: { seriesCounts, total: allMarkets.length },
   }
 }
 
