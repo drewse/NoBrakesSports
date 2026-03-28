@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchKalshiMarkets, kalshiPriceToProb } from '@/lib/data-sync/kalshi'
 
 export const runtime = 'nodejs'
-export const maxDuration = 30
+export const maxDuration = 60
 
 function verifyCron(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
@@ -21,7 +21,6 @@ export async function GET(request: NextRequest) {
 
   const db = createAdminClient()
 
-  // Get Kalshi source ID
   const { data: source } = await db
     .from('market_sources')
     .select('id')
@@ -36,35 +35,31 @@ export async function GET(request: NextRequest) {
   try {
     markets = await fetchKalshiMarkets()
   } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 500 }
-    )
+    // Return the actual error so we can see it in Vercel logs
+    const message = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 
-  // Load all events for matching by title
   const { data: events } = await db
     .from('events')
     .select('id, title')
     .eq('status', 'scheduled')
 
   const now = new Date().toISOString()
-  let inserted = 0
-  const errors: string[] = []
+  const snapshots: object[] = []
 
   for (const market of markets) {
     const yesProb = kalshiPriceToProb(market.yes_bid)
     const noProb = kalshiPriceToProb(market.no_bid)
 
-    // Try to find a matching event by keyword overlap
     const titleWords = market.title.toLowerCase().split(/\s+/)
     const matchedEvent = events?.find(e => {
       const eventWords = e.title.toLowerCase().split(/\s+/)
-      const overlap = titleWords.filter(w => w.length > 3 && eventWords.includes(w))
+      const overlap = titleWords.filter((w: string) => w.length > 3 && eventWords.includes(w))
       return overlap.length >= 2
     })
 
-    const { error } = await db.from('prediction_market_snapshots').insert({
+    snapshots.push({
       event_id: matchedEvent?.id ?? null,
       source_id: source.id,
       contract_title: market.title,
@@ -75,11 +70,20 @@ export async function GET(request: NextRequest) {
       open_interest: market.open_interest,
       snapshot_time: now,
     })
+  }
 
+  // Bulk insert in chunks of 200
+  let inserted = 0
+  const errors: string[] = []
+  const chunkSize = 200
+  for (let i = 0; i < snapshots.length; i += chunkSize) {
+    const { error } = await db
+      .from('prediction_market_snapshots')
+      .insert(snapshots.slice(i, i + chunkSize))
     if (error) {
-      errors.push(`${market.ticker}: ${error.message}`)
+      errors.push(`Batch ${Math.floor(i / chunkSize)}: ${error.message}`)
     } else {
-      inserted++
+      inserted += Math.min(chunkSize, snapshots.length - i)
     }
   }
 
@@ -88,5 +92,10 @@ export async function GET(request: NextRequest) {
     .update({ health_status: 'healthy', last_health_check: now })
     .eq('slug', 'kalshi')
 
-  return NextResponse.json({ ok: true, marketsInserted: inserted, errors: errors.length ? errors : undefined })
+  return NextResponse.json({
+    ok: true,
+    marketsFound: snapshots.length,
+    marketsInserted: inserted,
+    errors: errors.length ? errors : undefined,
+  })
 }

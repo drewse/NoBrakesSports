@@ -1,4 +1,5 @@
-const BASE_URL = 'https://trading-api.kalshi.com/trade-api/v2'
+// Kalshi public REST API — no auth required for market data
+const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2'
 
 export interface KalshiMarket {
   ticker: string
@@ -21,25 +22,31 @@ export interface KalshiResponse {
   cursor?: string
 }
 
-const SPORTS_CATEGORIES = ['sports', 'basketball', 'football', 'baseball', 'hockey', 'soccer', 'mma']
-const SPORTS_KEYWORDS = ['nfl', 'nba', 'mlb', 'nhl', 'mls', 'ncaa', 'super bowl', 'championship', 'playoff']
+const SPORTS_KEYWORDS = ['nfl', 'nba', 'mlb', 'nhl', 'mls', 'ncaa', 'super bowl',
+  'championship', 'playoff', 'world series', 'stanley cup', 'finals', 'soccer',
+  'basketball', 'football', 'baseball', 'hockey', 'tennis', 'golf', 'ufc', 'mma']
 
 export function isSportsMarket(market: KalshiMarket): boolean {
   const cat = (market.category ?? '').toLowerCase()
   const title = (market.title ?? '').toLowerCase()
-  return SPORTS_CATEGORIES.some(c => cat.includes(c)) ||
-    SPORTS_KEYWORDS.some(k => title.includes(k))
+  return SPORTS_KEYWORDS.some(k => cat.includes(k) || title.includes(k))
 }
 
 export async function fetchKalshiMarkets(): Promise<KalshiMarket[]> {
   const params = new URLSearchParams({ status: 'open', limit: '200' })
 
   const res = await fetch(`${BASE_URL}/markets?${params}`, {
-    headers: { Accept: 'application/json' },
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
     next: { revalidate: 0 },
   })
 
-  if (!res.ok) throw new Error(`Kalshi API ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Kalshi API ${res.status}: ${body.slice(0, 200)}`)
+  }
 
   const data: KalshiResponse = await res.json()
   return (data.markets ?? []).filter(isSportsMarket)

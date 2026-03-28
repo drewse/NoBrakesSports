@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchPolymarketEvents, parsePolymarketPrices } from '@/lib/data-sync/polymarket'
 
 export const runtime = 'nodejs'
-export const maxDuration = 30
+export const maxDuration = 60
 
 function verifyCron(request: NextRequest) {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
@@ -47,17 +47,15 @@ export async function GET(request: NextRequest) {
     .eq('status', 'scheduled')
 
   const now = new Date().toISOString()
-  let inserted = 0
-  const errors: string[] = []
+  const snapshots: object[] = []
 
   for (const polyEvent of polyEvents) {
-    for (const market of polyEvent.markets) {
+    for (const market of polyEvent.markets ?? []) {
       if (!market.active || market.closed) continue
 
       const prices = parsePolymarketPrices(market)
       if (!prices) continue
 
-      // Match to internal event by keyword overlap
       const question = market.question.toLowerCase()
       const matchedEvent = dbEvents?.find(e => {
         const words = e.title.toLowerCase().split(/\s+/)
@@ -66,7 +64,7 @@ export async function GET(request: NextRequest) {
 
       const volume = parseFloat(market.volume ?? '0')
 
-      const { error } = await db.from('prediction_market_snapshots').insert({
+      snapshots.push({
         event_id: matchedEvent?.id ?? null,
         source_id: source.id,
         contract_title: market.question,
@@ -76,12 +74,21 @@ export async function GET(request: NextRequest) {
         total_volume: isNaN(volume) ? null : volume,
         snapshot_time: now,
       })
+    }
+  }
 
-      if (error) {
-        errors.push(`${market.conditionId}: ${error.message}`)
-      } else {
-        inserted++
-      }
+  // Bulk insert in chunks of 200
+  let inserted = 0
+  const errors: string[] = []
+  const chunkSize = 200
+  for (let i = 0; i < snapshots.length; i += chunkSize) {
+    const { error } = await db
+      .from('prediction_market_snapshots')
+      .insert(snapshots.slice(i, i + chunkSize))
+    if (error) {
+      errors.push(`Batch ${Math.floor(i / chunkSize)}: ${error.message}`)
+    } else {
+      inserted += Math.min(chunkSize, snapshots.length - i)
     }
   }
 
@@ -90,5 +97,10 @@ export async function GET(request: NextRequest) {
     .update({ health_status: 'healthy', last_health_check: now })
     .eq('slug', 'polymarket')
 
-  return NextResponse.json({ ok: true, marketsInserted: inserted, errors: errors.length ? errors : undefined })
+  return NextResponse.json({
+    ok: true,
+    marketsFound: snapshots.length,
+    marketsInserted: inserted,
+    errors: errors.length ? errors : undefined,
+  })
 }
