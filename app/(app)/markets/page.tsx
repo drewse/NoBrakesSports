@@ -1,7 +1,7 @@
 import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
-import { MarketsTable } from '@/components/markets/markets-table'
+import { MarketsEventTable } from '@/components/markets/markets-event-table'
 import { MarketsFilters } from '@/components/markets/markets-filters'
 import { TableSkeleton } from '@/components/shared/loading-skeleton'
 
@@ -10,7 +10,7 @@ export const metadata = { title: 'Markets' }
 export default async function MarketsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ league?: string; source?: string; type?: string; q?: string }>
+  searchParams: Promise<{ league?: string; q?: string }>
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -24,32 +24,83 @@ export default async function MarketsPage({
     .single()
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
-  const [{ data: leaguesRaw }, { data: sourcesRaw }] = await Promise.all([
-    supabase.from('leagues').select('id, name, abbreviation, sport_id').eq('is_active', true).order('display_order'),
-    supabase.from('market_sources').select('id, name, slug, source_type').eq('is_active', true).order('display_order'),
-  ])
+  const { data: leaguesRaw } = await supabase
+    .from('leagues')
+    .select('id, name, abbreviation, sport_id, slug')
+    .eq('is_active', true)
+    .order('display_order')
   const leagues = (leaguesRaw ?? []) as any[]
-  const sources = (sourcesRaw ?? []) as any[]
 
-  let query = supabase
-    .from('market_snapshots')
-    .select(`
-      *,
-      event:events(id, title, start_time, status, league_id, league:leagues(name, abbreviation)),
-      source:market_sources(id, name, slug, source_type)
-    `)
-    .order('snapshot_time', { ascending: false })
-    .limit(isPro ? 100 : 25)
+  // Fetch scheduled events, optionally filtered by league
+  let eventQuery = supabase
+    .from('events')
+    .select('id, title, start_time, status, league_id, league:leagues(id, name, abbreviation, slug)')
+    .eq('status', 'scheduled')
+    .order('start_time')
+    .limit(isPro ? 300 : 60)
 
-  if (params.source) query = query.eq('source_id', params.source)
-  if (params.type) query = query.eq('market_type', params.type)
+  if (params.league) {
+    eventQuery = eventQuery.eq('league_id', params.league)
+  }
 
-  const { data: snapshots } = await query
+  const { data: eventsRaw } = await eventQuery
+  const events = (eventsRaw ?? []) as any[]
 
-  // Filter by league client-side since it's nested
-  const filtered = params.league
-    ? snapshots?.filter((s) => (s as any).event?.league_id === params.league)
-    : snapshots
+  // Fetch snapshot metadata (source/market counts) for those events
+  const snapshotMeta: Array<{
+    event_id: string
+    source_id: string
+    market_type: string
+    snapshot_time: string
+  }> = []
+
+  if (events.length > 0) {
+    const eventIds = events.map((e: any) => e.id)
+    const { data } = await supabase
+      .from('market_snapshots')
+      .select('event_id, source_id, market_type, snapshot_time')
+      .in('event_id', eventIds)
+    if (data) snapshotMeta.push(...data)
+  }
+
+  // Aggregate per event: distinct sources, market types, latest snapshot
+  const metaByEvent: Record<string, {
+    sourceIds: Set<string>
+    marketTypes: Set<string>
+    lastUpdated: string
+  }> = {}
+
+  for (const snap of snapshotMeta) {
+    if (!metaByEvent[snap.event_id]) {
+      metaByEvent[snap.event_id] = {
+        sourceIds: new Set(),
+        marketTypes: new Set(),
+        lastUpdated: snap.snapshot_time,
+      }
+    }
+    const m = metaByEvent[snap.event_id]
+    m.sourceIds.add(snap.source_id)
+    m.marketTypes.add(snap.market_type)
+    if (snap.snapshot_time > m.lastUpdated) m.lastUpdated = snap.snapshot_time
+  }
+
+  // Build event summaries
+  let eventSummaries = events.map((event: any) => ({
+    id: event.id,
+    title: event.title,
+    start_time: event.start_time,
+    league: event.league as { name: string; abbreviation: string | null; slug: string } | null,
+    league_id: event.league_id as string,
+    sourceCount: metaByEvent[event.id]?.sourceIds.size ?? 0,
+    marketTypes: Array.from(metaByEvent[event.id]?.marketTypes ?? []) as string[],
+    lastUpdated: metaByEvent[event.id]?.lastUpdated ?? null,
+  }))
+
+  // Apply search filter server-side
+  if (params.q) {
+    const q = params.q.toLowerCase()
+    eventSummaries = eventSummaries.filter(e => e.title.toLowerCase().includes(q))
+  }
 
   return (
     <div className="p-6 space-y-5 max-w-[1400px]">
@@ -57,23 +108,21 @@ export default async function MarketsPage({
         <div>
           <h1 className="text-lg font-bold text-white">Markets</h1>
           <p className="text-xs text-nb-400 mt-0.5">
-            Real-time market data across {sources?.length ?? 0} sources
-            {!isPro && ' · 24h delayed for free accounts'}
+            {eventSummaries.length} upcoming events
+            {!isPro && ' · Upgrade Pro for full access'}
           </p>
         </div>
       </div>
 
       <MarketsFilters
-        leagues={leagues ?? []}
-        sources={sources ?? []}
+        leagues={leagues}
+        sources={[]}
         currentLeague={params.league}
-        currentSource={params.source}
-        currentType={params.type}
         currentSearch={params.q}
       />
 
-      <Suspense fallback={<TableSkeleton rows={8} cols={7} />}>
-        <MarketsTable snapshots={filtered ?? []} isPro={isPro} />
+      <Suspense fallback={<TableSkeleton rows={8} cols={6} />}>
+        <MarketsEventTable events={eventSummaries} isPro={isPro} />
       </Suspense>
     </div>
   )
