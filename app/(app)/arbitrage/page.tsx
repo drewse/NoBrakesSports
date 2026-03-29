@@ -53,9 +53,15 @@ export default async function ArbitragePage() {
     .order('snapshot_time', { ascending: false })
     .limit(2000)
 
+  // Filter out Polymarket — crowd prices are illiquid and unreliable for
+  // guaranteed arbitrage (can't reliably bet both sides at quoted prices)
+  const filteredSnapshots = (snapshots ?? []).filter(
+    s => (s as any).source?.slug !== 'polymarket'
+  )
+
   // Group snapshots by event_id — skip events without embedded event data
   const byEvent = new Map<string, (typeof snapshots extends (infer T)[] | null ? T : never)[]>()
-  for (const snap of snapshots ?? []) {
+  for (const snap of filteredSnapshots) {
     const ev = (snap as any).event
     if (!ev) continue
     if (!byEvent.has(snap.event_id)) byEvent.set(snap.event_id, [])
