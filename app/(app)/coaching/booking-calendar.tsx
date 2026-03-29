@@ -12,7 +12,8 @@ interface Booking {
 
 interface Props {
   userId: string
-  existingBookings: Booking[]
+  existingBookings: Booking[]   // all booked slots (any user) to grey out
+  userBookings: Booking[]       // current user's own bookings for weekly limit
 }
 
 const SLOT_HOURS = [9, 9.5, 10, 10.5, 11, 11.5, 13, 13.5, 14, 14.5, 15, 15.5, 16, 16.5, 17]
@@ -40,7 +41,18 @@ function addDays(date: Date, n: number): Date {
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
-export function BookingCalendar({ userId, existingBookings }: Props) {
+function getWeekBounds(date: Date): { start: Date; end: Date } {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  const dow = d.getDay()
+  const start = new Date(d)
+  start.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1)) // Monday
+  const end = new Date(start)
+  end.setDate(start.getDate() + 7) // next Monday (exclusive)
+  return { start, end }
+}
+
+export function BookingCalendar({ userId, existingBookings, userBookings }: Props) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -72,6 +84,14 @@ export function BookingCalendar({ userId, existingBookings }: Props) {
 
   const now = new Date()
 
+  // Check if user already has a non-cancelled booking in the current calendar week
+  const { start: thisWeekStart, end: thisWeekEnd } = getWeekBounds(now)
+  const hasBookingThisWeek = userBookings.some(b => {
+    if (b.status === 'cancelled') return false
+    const t = new Date(b.scheduled_at)
+    return t >= thisWeekStart && t < thisWeekEnd
+  })
+
   function isAvailable(date: Date, hour: number): boolean {
     const slot = new Date(date)
     slot.setHours(Math.floor(hour), hour % 1 === 0.5 ? 30 : 0, 0, 0)
@@ -102,7 +122,7 @@ export function BookingCalendar({ userId, existingBookings }: Props) {
         scheduled_at: selectedSlot,
         topic,
         user_notes: notes || null,
-        duration_minutes: 30,
+        duration_minutes: 20,
         status: 'pending',
       })
       if (err) {
@@ -140,6 +160,33 @@ export function BookingCalendar({ userId, existingBookings }: Props) {
 
   const weekEndDate = days[days.length - 1]
   const weekLabel = `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getDate()} – ${MONTH_NAMES[weekEndDate.getMonth()]} ${weekEndDate.getDate()}, ${weekEndDate.getFullYear()}`
+
+  if (hasBookingThisWeek) {
+    const nextBooking = userBookings
+      .filter(b => b.status !== 'cancelled')
+      .sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0]
+    return (
+      <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/15 border border-amber-500/30">
+          <Check className="h-5 w-5 text-amber-400" />
+        </div>
+        <div>
+          <p className="text-white font-semibold text-sm mb-1">Session Already Booked</p>
+          <p className="text-nb-400 text-xs max-w-xs leading-relaxed">
+            You have a session booked for this week. You can book your next session once your current week ends.
+          </p>
+          {nextBooking && (
+            <p className="text-nb-300 text-xs mt-2 font-mono">
+              {new Date(nextBooking.scheduled_at).toLocaleString('en-US', {
+                weekday: 'short', month: 'short', day: 'numeric',
+                hour: 'numeric', minute: '2-digit',
+              })}
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-5">

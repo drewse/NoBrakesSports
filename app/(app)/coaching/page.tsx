@@ -102,7 +102,7 @@ export default async function CoachingPage() {
               </p>
               <div className="grid grid-cols-3 gap-3 text-center">
                 <div className="rounded-lg bg-nb-800 p-3">
-                  <p className="text-lg font-bold text-white">30</p>
+                  <p className="text-lg font-bold text-white">20</p>
                   <p className="text-[10px] text-nb-500 uppercase tracking-wider">Minutes</p>
                 </div>
                 <div className="rounded-lg bg-nb-800 p-3">
@@ -163,6 +163,7 @@ export default async function CoachingPage() {
             <BookingCalendar
               userId={user.id}
               existingBookings={allBookings ?? []}
+              userBookings={bookings ?? []}
             />
           </CardContent>
         </Card>
