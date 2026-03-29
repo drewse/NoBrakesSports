@@ -43,15 +43,6 @@ export const SPORT_KEY_TO_LEAGUE: Record<string, string> = {
   tennis_wta_wimbledon:               'wimbledon',
   tennis_atp_us_open:                 'us_open_tennis',
   tennis_wta_us_open:                 'us_open_tennis',
-  tennis_wta_double:                  'wta',
-  tennis_atp:                         'atp',
-  tennis_wta:                         'wta',
-  tennis_davis_cup:                   'davis_cup',
-
-  // ── Golf ───────────────────────────────────────────────────────────────────
-  golf_dp_world_tour:                 'dp_world',
-  golf_us_open:                       'us_open_golf',
-
   // ── MMA ────────────────────────────────────────────────────────────────────
   mma_mixed_martial_arts:             'ufc',
 
