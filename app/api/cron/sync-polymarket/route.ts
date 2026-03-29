@@ -30,15 +30,22 @@ function normalizeTitle(title: string): string {
     .trim()
 }
 
-// Return true if Polymarket event title and DB event title refer to the same game
+// Return true if Polymarket event title and DB event title refer to the same game.
+// Requires significant words from BOTH teams to appear — prevents futures/season
+// markets from matching individual game events.
 function titlesMatch(dbTitle: string, polyTitle: string): boolean {
   const db = normalizeTitle(dbTitle)
   const poly = normalizeTitle(polyTitle)
   if (db === poly) return true
-  // Fall back: check that ≥2 significant words (>3 chars, not "vs") overlap
-  const dbWords = db.split(/\s+/).filter(w => w.length > 3 && w !== 'vs')
-  const polySet = new Set(poly.split(/\s+/).filter(w => w.length > 3 && w !== 'vs'))
-  return dbWords.filter(w => polySet.has(w)).length >= 2
+
+  const parts = db.split(' vs ')
+  if (parts.length !== 2) return false
+  const [home, away] = parts
+
+  const sigWords = (name: string) => name.split(/\s+/).filter(w => w.length > 3)
+  const homeMatch = sigWords(home).some(w => poly.includes(w))
+  const awayMatch = sigWords(away).some(w => poly.includes(w))
+  return homeMatch && awayMatch
 }
 
 // Only consider markets that are asking about a team winning — skip prop-style
