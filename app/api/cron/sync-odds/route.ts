@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   const [{ data: leagues }, { data: existingSources }] = await Promise.all([
     db.from('leagues').select('id, slug').eq('is_active', true),
-    db.from('market_sources').select('id, slug'),
+    db.from('market_sources').select('id, slug, name'),
   ])
 
   const leagueBySlug = Object.fromEntries((leagues ?? []).map(l => [l.slug, l.id]))
@@ -73,18 +73,25 @@ export async function GET(request: NextRequest) {
   }
 
   const newSources: Array<{ slug: string; name: string; source_type: string; is_active: boolean; health_status: string; display_order: number }> = []
+  const usedNames = new Set((existingSources ?? []).map(s => s.name ?? ''))
+
   for (const [key, title] of seenBookmakers) {
     const slug = bookmakerSlug(key)
-    if (!sourceBySlug[slug]) {
-      newSources.push({
-        slug,
-        name: bookmakerDisplayName(key, title),
-        source_type: 'sportsbook',
-        is_active: true,
-        health_status: 'healthy',
-        display_order: 99, // new sources go to the end
-      })
-    }
+    if (sourceBySlug[slug]) continue
+    // Use API title directly — guaranteed unique per key
+    // Only use our display name map when it won't collide
+    let name = bookmakerDisplayName(key, title)
+    if (usedNames.has(name)) name = title  // fall back to raw API title
+    if (usedNames.has(name)) name = `${title} (${slug})`  // last resort
+    usedNames.add(name)
+    newSources.push({
+      slug,
+      name,
+      source_type: 'sportsbook',
+      is_active: true,
+      health_status: 'healthy',
+      display_order: 99,
+    })
   }
 
   if (newSources.length > 0) {
