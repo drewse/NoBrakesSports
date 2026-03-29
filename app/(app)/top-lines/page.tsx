@@ -182,6 +182,9 @@ export default async function TopEvLinesPage({
   const groupMap = new Map<string, Snap[]>()
 
   for (const snap of snapshots ?? []) {
+    // Exclude Polymarket — binary market prices don't reliably map to moneyline
+    // equivalents, and title-matching errors corrupt the fair probability model.
+    if ((snap as any).source?.slug === 'polymarket') continue
     const ev = (snap as any).event
     if (!ev) continue
     if (!isUpcomingEvent(ev.start_time)) continue

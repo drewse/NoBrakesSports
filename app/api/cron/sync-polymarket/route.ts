@@ -31,20 +31,38 @@ function normalizeTitle(title: string): string {
 }
 
 // Return true if Polymarket event title and DB event title refer to the same game.
-// Requires significant words from BOTH teams to appear — prevents futures/season
-// markets from matching individual game events.
+// When both titles have "vs", we match each team against the CORRECT side of the
+// opponent's "vs" (allowing home/away swap). This prevents city-name collisions
+// like "Orlando Storm vs Columbus Aviators" matching "Columbus Crew vs Orlando City"
+// because "Orlando" and "Columbus" appear on different sides.
 function titlesMatch(dbTitle: string, polyTitle: string): boolean {
   const db = normalizeTitle(dbTitle)
   const poly = normalizeTitle(polyTitle)
   if (db === poly) return true
 
-  const parts = db.split(' vs ')
-  if (parts.length !== 2) return false
-  const [home, away] = parts
+  const dbParts = db.split(' vs ')
+  if (dbParts.length !== 2) return false
+  const [dbHome, dbAway] = dbParts
 
   const sigWords = (name: string) => name.split(/\s+/).filter(w => w.length > 3)
-  const homeMatch = sigWords(home).some(w => poly.includes(w))
-  const awayMatch = sigWords(away).some(w => poly.includes(w))
+
+  const polyParts = poly.split(' vs ')
+  if (polyParts.length === 2) {
+    // Both titles have "vs" — match sides directionally, allow home/away swap
+    const [polyHome, polyAway] = polyParts
+    const straightMatch =
+      sigWords(dbHome).some(w => polyHome.includes(w)) &&
+      sigWords(dbAway).some(w => polyAway.includes(w))
+    const swapMatch =
+      sigWords(dbHome).some(w => polyAway.includes(w)) &&
+      sigWords(dbAway).some(w => polyHome.includes(w))
+    return straightMatch || swapMatch
+  }
+
+  // Poly title has no "vs" (e.g. "Will the Lakers win?") — fall back to
+  // requiring both teams' words to appear somewhere in the title
+  const homeMatch = sigWords(dbHome).some(w => poly.includes(w))
+  const awayMatch = sigWords(dbAway).some(w => poly.includes(w))
   return homeMatch && awayMatch
 }
 
