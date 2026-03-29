@@ -27,12 +27,11 @@ export interface PolymarketEvent {
 }
 
 const PAGE_SIZE = 100
-const MAX_PAGES = 10 // cap at 1000 events total
 
 export async function fetchPolymarketEvents(): Promise<PolymarketEvent[]> {
   const all: PolymarketEvent[] = []
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; ; page++) {
     const params = new URLSearchParams({
       active: 'true',
       closed: 'false',
