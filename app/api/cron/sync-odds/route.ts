@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
       const sourceId = sourceBySlug[slug]
       if (!sourceId) continue
 
-      for (const market of bookmaker.markets) {
+      for (const market of bookmaker.markets.filter(m => ['h2h', 'spreads', 'totals'].includes(m.key))) {
         const home = market.outcomes.find(o => o.name === game.home_team)
         const away = market.outcomes.find(o => o.name === game.away_team)
         const draw = market.outcomes.find(o => o.name === 'Draw')
