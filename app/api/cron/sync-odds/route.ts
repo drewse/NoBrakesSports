@@ -41,27 +41,35 @@ export async function GET(request: NextRequest) {
     (existingSources ?? []).map(s => [s.slug, s.id])
   )
 
-  // Fetch all sports in parallel
   const sportEntries = Object.entries(SPORT_KEY_TO_LEAGUE).filter(
     ([, slug]) => leagueBySlug[slug]
   )
 
-  const results = await Promise.allSettled(
-    sportEntries.map(([sportKey]) => fetchOddsForSport(sportKey))
-  )
-
+  // Fetch sports in small parallel batches to avoid 429 rate limiting.
+  // The Odds API allows ~5-10 concurrent requests depending on plan.
+  const BATCH_SIZE = 5
   const allGames: Array<{ game: OddsGame; leagueId: string }> = []
   const errors: string[] = []
 
-  results.forEach((result, i) => {
-    const [sportKey, leagueSlug] = sportEntries[i]
-    if (result.status === 'rejected') {
-      errors.push(`${sportKey}: ${result.reason?.message ?? result.reason}`)
-      return
+  for (let i = 0; i < sportEntries.length; i += BATCH_SIZE) {
+    const batch = sportEntries.slice(i, i + BATCH_SIZE)
+    const results = await Promise.allSettled(
+      batch.map(([sportKey]) => fetchOddsForSport(sportKey))
+    )
+    results.forEach((result, j) => {
+      const [sportKey, leagueSlug] = batch[j]
+      if (result.status === 'rejected') {
+        errors.push(`${sportKey}: ${result.reason?.message ?? result.reason}`)
+        return
+      }
+      const leagueId = leagueBySlug[leagueSlug]
+      result.value.forEach(game => allGames.push({ game, leagueId }))
+    })
+    // Small pause between batches to stay under rate limit
+    if (i + BATCH_SIZE < sportEntries.length) {
+      await new Promise<void>(resolve => setTimeout(resolve, 500))
     }
-    const leagueId = leagueBySlug[leagueSlug]
-    result.value.forEach(game => allGames.push({ game, leagueId }))
-  })
+  }
 
   // ── Auto-create market_sources for any new bookmaker ──────────────────────
   // Collect every bookmaker key seen across all games
@@ -111,18 +119,6 @@ export async function GET(request: NextRequest) {
   if (allGames.length === 0) {
     return NextResponse.json({
       ok: true, eventsUpserted: 0, snapshotsInserted: 0, newSourcesCreated: 0,
-      debug: {
-        leagueCount: leagues?.length ?? 0,
-        sourceCount: existingSources?.length ?? 0,
-        sportEntriesCount: sportEntries.length,
-        sportEntries: sportEntries.map(([k, v]) => `${k}→${v}`),
-        resultsStatuses: results.map((r, i) => ({
-          sport: sportEntries[i]?.[0],
-          status: r.status,
-          gameCount: r.status === 'fulfilled' ? r.value.length : undefined,
-          reason: r.status === 'rejected' ? String(r.reason) : undefined,
-        })),
-      },
       errors: errors.length ? errors : undefined,
     })
   }
