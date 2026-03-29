@@ -21,7 +21,7 @@ export default async function PredictionMarketsPage() {
     .select(`
       *,
       event:events(id, title, start_time, league:leagues(name, abbreviation)),
-      source:market_sources(id, name, slug)
+      source:market_sources!source_id(id, name, slug)
     `)
     .order('snapshot_time', { ascending: false })
     .limit(isPro ? 300 : 60)
