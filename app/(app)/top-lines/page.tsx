@@ -417,15 +417,72 @@ export default async function TopEvLinesPage({
       </div>
 
       <ProGate isPro={isPro} featureName="Top EV Lines" blur={false}>
+
+        {/* ── Top 3 Podium ─────────────────────────────────────────────────── */}
+        {visibleLines.length >= 1 && (() => {
+          const top = visibleLines.slice(0, 3)
+          const gold   = top[0]
+          const silver = top[1] ?? null
+          const bronze = top[2] ?? null
+
+          const medals = [
+            { line: silver, rank: 2, label: '2nd', color: 'from-slate-500/20 to-slate-600/10', border: 'border-slate-500/40', badge: 'bg-slate-600/60 text-slate-200', podiumH: 'h-16', emoji: '🥈' },
+            { line: gold,   rank: 1, label: '1st', color: 'from-amber-500/20 to-amber-600/10', border: 'border-amber-400/50', badge: 'bg-amber-500/70 text-amber-100', podiumH: 'h-24', emoji: '🥇' },
+            { line: bronze, rank: 3, label: '3rd', color: 'from-orange-700/20 to-orange-800/10', border: 'border-orange-600/40', badge: 'bg-orange-700/60 text-orange-200', podiumH: 'h-10', emoji: '🥉' },
+          ]
+
+          return (
+            <div className="mb-5">
+              <div className="flex items-end gap-3">
+                {medals.map(({ line, rank, label, color, border, badge, podiumH, emoji }) => {
+                  if (!line) return <div key={rank} className="flex-1" />
+                  return (
+                    <div key={rank} className="flex-1 flex flex-col">
+                      {/* Card */}
+                      <div className={`rounded-xl border bg-gradient-to-b ${color} ${border} p-4 relative`}>
+                        {/* Medal badge */}
+                        <span className={`absolute top-3 right-3 text-[10px] font-bold px-1.5 py-0.5 rounded ${badge}`}>
+                          {emoji} {label}
+                        </span>
+
+                        <p className="text-[10px] text-nb-500 uppercase tracking-wider mb-1">
+                          {marketLabel(line.marketType)}
+                          {line.leagueAbbrev !== '—' && (
+                            <span className="ml-1.5 text-nb-600">· {line.leagueAbbrev}</span>
+                          )}
+                        </p>
+                        <p className="text-xs font-medium text-nb-300 leading-snug mb-2 pr-10" title={line.eventTitle}>
+                          {line.eventTitle.length > 40 ? line.eventTitle.slice(0, 38) + '…' : line.eventTitle}
+                        </p>
+                        <p className="text-sm font-semibold text-white mb-0.5">{line.outcomeLabel}</p>
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-mono text-xl font-bold text-white">{formatOdds(line.bestPrice)}</span>
+                          <span className="text-[10px] text-nb-400">{line.bestSource}</span>
+                        </div>
+                        <p className="text-[10px] text-nb-500 mt-1.5">
+                          Fair: <span className={`font-mono ${probColor(line.fairProb)}`}>{(line.fairProb * 100).toFixed(1)}%</span>
+                        </p>
+                      </div>
+                      {/* Podium step */}
+                      <div className={`${podiumH} rounded-b-lg mt-0 ${
+                        rank === 1 ? 'bg-amber-500/15 border-x border-b border-amber-400/30'
+                        : rank === 2 ? 'bg-slate-500/10 border-x border-b border-slate-500/25'
+                        : 'bg-orange-700/10 border-x border-b border-orange-600/25'
+                      }`} />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })()}
+
         <Card className="bg-nb-900 border-nb-800">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-nb-800">
-                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider w-20">
-                      +EV %
-                    </th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                       Event
                     </th>
@@ -449,7 +506,7 @@ export default async function TopEvLinesPage({
                 <tbody>
                   {visibleLines.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-nb-400 text-xs">
+                      <td colSpan={6} className="px-4 py-12 text-center text-nb-400 text-xs">
                         No lines found. Data syncs hourly — check back soon.
                       </td>
                     </tr>
@@ -459,16 +516,8 @@ export default async function TopEvLinesPage({
                         key={`${line.eventId}::${line.marketType}::${line.outcomeSide}::${line.lineValue}`}
                         className={[
                           'border-b border-border/40 hover:bg-nb-800/20 transition-colors',
-                          line.evPct >= 3 ? 'border-l-2 border-l-white' : '',
                         ].join(' ')}
                       >
-                        {/* +EV% */}
-                        <td className="px-4 py-3">
-                          <span className={`font-mono text-sm font-semibold tabular-nums ${evColor(line.evPct)}`}>
-                            {formatEv(line.evPct)}
-                          </span>
-                        </td>
-
                         {/* Event */}
                         <td className="px-4 py-3 min-w-[200px]">
                           <p className="text-xs font-medium text-white leading-snug">
