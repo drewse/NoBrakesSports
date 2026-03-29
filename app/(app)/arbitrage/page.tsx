@@ -96,9 +96,26 @@ export default async function ArbitragePage() {
 
     const shape = getMarketShape(leagueSlug || null, null, 'moneyline')
 
-    const withHome = snaps.filter((s: any) => s.home_price != null)
-    const withAway = snaps.filter((s: any) => s.away_price != null)
-    const withDraw = snaps.filter((s: any) => s.draw_price != null)
+    // Filter out snapshots that are likely 1X2 (regulation 3-way) odds
+    // masquerading as 2-way moneyline. In a real 2-way market, a single book's
+    // home + away implied probs sum to ~1.02–1.10. If the sum is below 0.85,
+    // the book is almost certainly sending 3-way odds without a draw column
+    // (e.g. 1xBet's 1X2 market), which creates phantom arbitrage.
+    const MIN_TWO_WAY_TOTAL = 0.85
+    const validSnaps =
+      shape === '2way'
+        ? snaps.filter((s: any) => {
+            if (s.home_price == null || s.away_price == null) return true
+            const total =
+              americanToImpliedProb(s.home_price) +
+              americanToImpliedProb(s.away_price)
+            return total >= MIN_TWO_WAY_TOTAL
+          })
+        : snaps
+
+    const withHome = validSnaps.filter((s: any) => s.home_price != null)
+    const withAway = validSnaps.filter((s: any) => s.away_price != null)
+    const withDraw = validSnaps.filter((s: any) => s.draw_price != null)
 
     // Need at least 2 books for home and away to have an arb
     if (withHome.length < 2 || withAway.length < 2) continue
