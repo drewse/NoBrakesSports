@@ -41,6 +41,12 @@ function titlesMatch(dbTitle: string, polyTitle: string): boolean {
   return dbWords.filter(w => polySet.has(w)).length >= 2
 }
 
+// Only consider markets that are asking about a team winning — skip prop-style
+// questions ("score first", "win by 2+", "advance", etc.) which create noise.
+function isWinMarket(question: string): boolean {
+  return /\b(win|wins|beat|beats|defeat|defeats)\b/i.test(question)
+}
+
 // Detect whether a market question refers to the home or away team.
 // Returns 'home' | 'away' | null if ambiguous.
 function detectSide(
@@ -98,6 +104,10 @@ export async function GET(request: NextRequest) {
   let skippedNoMarkets = 0
   let matchedToEvent = 0
 
+  // Track which events already have a market_snapshot from Polymarket this run.
+  // Polymarket has many binary markets per game — we only want ONE row per event.
+  const insertedEventIds = new Set<string>()
+
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
 
@@ -135,28 +145,31 @@ export async function GET(request: NextRequest) {
         snapshot_time: now,
       })
 
-      // If matched to an event, also insert into market_snapshots so it flows
-      // into Top EV Lines and Arbitrage alongside sportsbook data
-      if (dbEvent && homeTeam && awayTeam) {
+      // If matched to an event, insert ONE market_snapshot so it flows into
+      // Top EV Lines and Arbitrage. Skip if we already inserted for this event,
+      // or if the question isn't a straightforward win market.
+      if (
+        dbEvent &&
+        homeTeam &&
+        awayTeam &&
+        !insertedEventIds.has(dbEvent.id) &&
+        isWinMarket(market.question)
+      ) {
         const side = detectSide(market.question, homeTeam, awayTeam)
         if (side) {
           const subjectAmerican = probToAmerican(prices.yes)
           const otherAmerican = probToAmerican(prices.no)
-          const homeAmerican = side === 'home' ? subjectAmerican : otherAmerican
-          const awayAmerican = side === 'away' ? subjectAmerican : otherAmerican
-          const homeProb = side === 'home' ? prices.yes : prices.no
-          const awayProb = side === 'away' ? prices.yes : prices.no
-
           marketSnapshots.push({
             event_id: dbEvent.id,
             source_id: source.id,
             market_type: 'moneyline',
-            home_price: homeAmerican,
-            away_price: awayAmerican,
-            home_implied_prob: homeProb,
-            away_implied_prob: awayProb,
+            home_price: side === 'home' ? subjectAmerican : otherAmerican,
+            away_price: side === 'away' ? subjectAmerican : otherAmerican,
+            home_implied_prob: side === 'home' ? prices.yes : prices.no,
+            away_implied_prob: side === 'away' ? prices.yes : prices.no,
             snapshot_time: now,
           })
+          insertedEventIds.add(dbEvent.id)
           matchedToEvent++
         }
       }
