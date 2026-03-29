@@ -102,7 +102,22 @@ export async function GET(request: NextRequest) {
   }
 
   if (allGames.length === 0) {
-    return NextResponse.json({ ok: true, eventsUpserted: 0, snapshotsInserted: 0, newSourcesCreated: 0, errors: errors.length ? errors : undefined })
+    return NextResponse.json({
+      ok: true, eventsUpserted: 0, snapshotsInserted: 0, newSourcesCreated: 0,
+      debug: {
+        leagueCount: leagues?.length ?? 0,
+        sourceCount: existingSources?.length ?? 0,
+        sportEntriesCount: sportEntries.length,
+        sportEntries: sportEntries.map(([k, v]) => `${k}→${v}`),
+        resultsStatuses: results.map((r, i) => ({
+          sport: sportEntries[i]?.[0],
+          status: r.status,
+          gameCount: r.status === 'fulfilled' ? r.value.length : undefined,
+          reason: r.status === 'rejected' ? String(r.reason) : undefined,
+        })),
+      },
+      errors: errors.length ? errors : undefined,
+    })
   }
 
   // ── Bulk upsert events ───────────────────────────────────────────────────
