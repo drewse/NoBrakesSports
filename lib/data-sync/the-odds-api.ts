@@ -305,7 +305,7 @@ export async function fetchOddsForSport(sportKey: string): Promise<OddsGame[]> {
 
   const params = new URLSearchParams({
     apiKey,
-    regions: 'us,us2,uk,eu,au',
+    regions: 'us,us2',
     markets: 'h2h,spreads,totals',
     oddsFormat: 'american',
   })
