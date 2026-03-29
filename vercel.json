@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/sync-odds",
-      "schedule": "0 * * * *"
+      "schedule": "0 */2 * * *"
     },
     {
       "path": "/api/cron/sync-kalshi",

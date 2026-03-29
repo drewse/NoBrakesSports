@@ -276,11 +276,28 @@ export interface OddsOutcome {
 }
 
 /**
+ * Returns the set of sport keys that are currently active (have live events)
+ * according to The Odds API. Used to skip credits on off-season sports.
+ */
+export async function fetchActiveSportKeys(): Promise<Set<string>> {
+  const apiKey = process.env.ODDS_API_KEY
+  if (!apiKey) throw new Error('ODDS_API_KEY is not set')
+
+  const res = await fetch(`${BASE_URL}/sports?apiKey=${apiKey}`, {
+    next: { revalidate: 0 },
+  })
+  if (!res.ok) return new Set() // fall back to fetching all on error
+
+  const sports: Array<{ key: string; active: boolean }> = await res.json()
+  return new Set(sports.filter(s => s.active).map(s => s.key))
+}
+
+/**
  * Fetch all available bookmakers for a sport across all supported regions.
  * We do NOT pass a bookmakers filter — The Odds API returns every book it has
  * for the given regions. New books appear automatically.
  *
- * Regions: us (main US books), us2 (secondary US), uk, eu, au, ca-on (Ontario)
+ * Regions: us (main US books), us2 (secondary US), uk, eu, au
  */
 export async function fetchOddsForSport(sportKey: string): Promise<OddsGame[]> {
   const apiKey = process.env.ODDS_API_KEY

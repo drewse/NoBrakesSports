@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   fetchOddsForSport,
+  fetchActiveSportKeys,
   SPORT_KEY_TO_LEAGUE,
   americanToImpliedProb,
   marketKeyToType,
@@ -41,8 +42,11 @@ export async function GET(request: NextRequest) {
     (existingSources ?? []).map(s => [s.slug, s.id])
   )
 
+  // Only fetch sports that are currently active — skips off-season keys and saves credits
+  const activeSportKeys = await fetchActiveSportKeys()
+
   const sportEntries = Object.entries(SPORT_KEY_TO_LEAGUE).filter(
-    ([, slug]) => leagueBySlug[slug]
+    ([sportKey, slug]) => leagueBySlug[slug] && (activeSportKeys.size === 0 || activeSportKeys.has(sportKey))
   )
 
   // Fetch sports in small parallel batches to avoid 429 rate limiting.
