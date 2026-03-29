@@ -137,7 +137,7 @@ export async function fetchOddsForSport(sportKey: string): Promise<OddsGame[]> {
 
   const params = new URLSearchParams({
     apiKey,
-    regions: 'us,us2,uk,eu,au,ca-on',
+    regions: 'us,us2,uk,eu,au',
     markets: 'h2h,spreads,totals',
     oddsFormat: 'american',
   })
@@ -147,7 +147,7 @@ export async function fetchOddsForSport(sportKey: string): Promise<OddsGame[]> {
   })
 
   if (res.status === 422) return [] // sport off-season / unavailable
-  if (!res.ok) throw new Error(`Odds API ${res.status}: ${await res.text()}`)
+  if (!res.ok) throw new Error(`Odds API ${res.status} for ${sportKey}: ${await res.text()}`)
 
   return res.json()
 }
