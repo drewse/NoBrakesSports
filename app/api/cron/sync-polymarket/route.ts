@@ -97,6 +97,11 @@ export async function GET(request: NextRequest) {
     .select('id, title, start_time')
     .gt('start_time', now)
 
+  // Clear stale Polymarket data from both tables before inserting fresh rows.
+  // Polymarket prices change every sync — old rows cause duplicate chips and fake arb.
+  await db.from('market_snapshots').delete().eq('source_id', source.id)
+  await db.from('prediction_market_snapshots').delete().eq('source_id', source.id)
+
   const predSnapshots: object[] = []
   const marketSnapshots: object[] = []
   let skippedInactive = 0
