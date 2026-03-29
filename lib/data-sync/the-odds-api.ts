@@ -2,14 +2,86 @@ const BASE_URL = 'https://api.the-odds-api.com/v4'
 
 // Maps The Odds API sport keys to our league slugs
 export const SPORT_KEY_TO_LEAGUE: Record<string, string> = {
-  americanfootball_nfl: 'nfl',
-  basketball_nba: 'nba',
-  baseball_mlb: 'mlb',
-  icehockey_nhl: 'nhl',
-  soccer_usa_mls: 'mls',
-  americanfootball_ncaaf: 'ncaaf',
-  basketball_ncaab: 'ncaab',
-  soccer_epl: 'epl',
+  // ── American Football ──────────────────────────────────────────────────────
+  americanfootball_nfl:       'nfl',
+  americanfootball_ncaaf:     'ncaaf',
+  americanfootball_cfl:       'cfl',
+  americanfootball_xfl:       'xfl',
+  americanfootball_usfl:      'usfl',
+
+  // ── Basketball ─────────────────────────────────────────────────────────────
+  basketball_nba:             'nba',
+  basketball_ncaab:           'ncaab',
+  basketball_nba_summer_league:'nba_gleague',
+  basketball_euroleague:      'euroleague',
+
+  // ── Baseball ───────────────────────────────────────────────────────────────
+  baseball_mlb:               'mlb',
+
+  // ── Ice Hockey ─────────────────────────────────────────────────────────────
+  icehockey_nhl:              'nhl',
+  icehockey_ahl:              'ahl',
+  icehockey_sweden_hockey_league: 'shl',
+
+  // ── Soccer ─────────────────────────────────────────────────────────────────
+  soccer_usa_mls:             'mls',
+  soccer_epl:                 'epl',
+  soccer_spain_la_liga:       'laliga',
+  soccer_germany_bundesliga:  'bundesliga',
+  soccer_italy_serie_a:       'seria_a',
+  soccer_france_ligue_one:    'ligue_one',
+  soccer_uefa_champs_league:  'ucl',
+  soccer_uefa_europa_league:  'uel',
+  soccer_uefa_conference_league: 'uecl',
+  soccer_netherlands_eredivisie: 'eredivisie',
+  soccer_portugal_primeira_liga: 'liga_portugal',
+  soccer_scotland_premier_league: 'spl',
+  soccer_brazil_campeonato:   'brazil_serie_a',
+  soccer_argentina_primera_division: 'argentina_primera',
+  soccer_conmebol_copa_libertadores: 'copa_libertadores',
+  soccer_australia_aleague:   'australia_aleague',
+
+  // ── Tennis ─────────────────────────────────────────────────────────────────
+  tennis_atp_aus_open:        'aus_open',
+  tennis_wta_aus_open:        'aus_open',
+  tennis_atp_french_open:     'french_open',
+  tennis_wta_french_open:     'french_open',
+  tennis_atp_wimbledon:       'wimbledon',
+  tennis_wta_wimbledon:       'wimbledon',
+  tennis_atp_us_open:         'us_open_tennis',
+  tennis_wta_us_open:         'us_open_tennis',
+  tennis_atp_double:          'atp',
+  tennis_wta_double:          'wta',
+  tennis_atp:                 'atp',
+  tennis_wta:                 'wta',
+  tennis_davis_cup:           'davis_cup',
+
+  // ── Golf ───────────────────────────────────────────────────────────────────
+  golf_pga_tour:              'pga',
+  golf_dp_world_tour:         'dp_world',
+  golf_the_masters_tournament:'masters',
+  golf_us_open:               'us_open_golf',
+
+  // ── MMA ────────────────────────────────────────────────────────────────────
+  mma_mixed_martial_arts:     'ufc',
+
+  // ── Boxing ─────────────────────────────────────────────────────────────────
+  boxing_boxing:              'boxing_general',
+
+  // ── Rugby ──────────────────────────────────────────────────────────────────
+  rugbyleague_nrl:            'nrl',
+  rugbyunion_super_rugby:     'super_rugby',
+  rugbyunion_premiership:     'premiership_ru',
+  rugbyunion_six_nations:     'six_nations',
+
+  // ── Cricket ────────────────────────────────────────────────────────────────
+  cricket_ipl:                'ipl',
+  cricket_test_match:         'ashes',
+  cricket_t20_wc:             't20_wc',
+  cricket_big_bash:           'bbl',
+
+  // ── Aussie Rules ───────────────────────────────────────────────────────────
+  aussierules_afl:            'afl',
 }
 
 // Human-readable names for bookmaker keys returned by The Odds API.
