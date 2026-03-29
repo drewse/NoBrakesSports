@@ -14,14 +14,17 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { createClient } from '@/lib/supabase/client'
+import { BookSelector } from '@/components/layout/book-selector'
 import type { Profile } from '@/types'
 
 interface TopbarProps {
   profile: Profile | null
   title?: string
+  sources?: { name: string; slug: string }[]
+  initialEnabledBooks?: string[] | null
 }
 
-export function Topbar({ profile, title }: TopbarProps) {
+export function Topbar({ profile, title, sources = [], initialEnabledBooks = null }: TopbarProps) {
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
 
@@ -45,6 +48,10 @@ export function Topbar({ profile, title }: TopbarProps) {
         <Button variant="ghost" size="icon" className="text-nb-400 hover:text-white" aria-label="Search">
           <Search className="h-4 w-4" />
         </Button>
+
+        {sources.length > 0 && (
+          <BookSelector sources={sources} initialEnabled={initialEnabledBooks} />
+        )}
 
         <Button variant="ghost" size="icon" className="relative text-nb-400 hover:text-white" aria-label="Notifications">
           <Bell className="h-4 w-4" />

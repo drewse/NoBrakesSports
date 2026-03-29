@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -12,6 +13,7 @@ import {
   type MarketShape,
 } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
+import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 
 export const metadata = { title: 'Arbitrage' }
 
@@ -38,6 +40,10 @@ export default async function ArbitragePage() {
     profile?.subscription_tier === 'pro' &&
     profile?.subscription_status === 'active'
 
+  const cookieStore = await cookies()
+  const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
+  const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
+
   const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const { data: snapshots } = await supabase
     .from('market_snapshots')
@@ -53,11 +59,13 @@ export default async function ArbitragePage() {
     .order('snapshot_time', { ascending: false })
     .limit(2000)
 
-  // Filter out Polymarket — crowd prices are illiquid and unreliable for
-  // guaranteed arbitrage (can't reliably bet both sides at quoted prices)
-  const filteredSnapshots = (snapshots ?? []).filter(
-    s => (s as any).source?.slug !== 'polymarket'
-  )
+  // Filter out Polymarket and apply user's book selection
+  const filteredSnapshots = (snapshots ?? []).filter(s => {
+    const slug: string = (s as any).source?.slug ?? ''
+    if (slug === 'polymarket') return false
+    if (enabledBooks && !enabledBooks.has(slug)) return false
+    return true
+  })
 
   // Group snapshots by event_id — skip events without embedded event data
   const byEvent = new Map<string, (typeof snapshots extends (infer T)[] | null ? T : never)[]>()

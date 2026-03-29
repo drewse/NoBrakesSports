@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -13,6 +14,7 @@ import {
   type MarketShape,
 } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
+import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 
 export const metadata = { title: 'Top EV Lines' }
 
@@ -161,6 +163,10 @@ export default async function TopEvLinesPage({
     .single()
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
+  const cookieStore = await cookies()
+  const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
+  const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
+
   const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
   const { data: snapshots } = await supabase
     .from('market_snapshots')
@@ -182,9 +188,12 @@ export default async function TopEvLinesPage({
   const groupMap = new Map<string, Snap[]>()
 
   for (const snap of snapshots ?? []) {
+    const sourceSlug: string = (snap as any).source?.slug ?? ''
     // Exclude Polymarket — binary market prices don't reliably map to moneyline
     // equivalents, and title-matching errors corrupt the fair probability model.
-    if ((snap as any).source?.slug === 'polymarket') continue
+    if (sourceSlug === 'polymarket') continue
+    // Apply user's book filter
+    if (enabledBooks && !enabledBooks.has(sourceSlug)) continue
     const ev = (snap as any).event
     if (!ev) continue
     if (!isUpcomingEvent(ev.start_time)) continue
