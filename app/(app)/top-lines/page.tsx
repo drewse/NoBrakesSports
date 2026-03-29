@@ -28,36 +28,92 @@ function americanToDecimal(american: number): number {
   return american > 0 ? american / 100 + 1 : 100 / Math.abs(american) + 1
 }
 
-function noVigProbs(
-  homePrice: number,
-  awayPrice: number,
-  drawPrice: number | null
-): { home: number; away: number; draw: number | null } {
-  const h = americanToImpliedProb(homePrice)
-  const a = americanToImpliedProb(awayPrice)
-  const d = drawPrice != null ? americanToImpliedProb(drawPrice) : null
-  const total = h + a + (d ?? 0)
-  return { home: h / total, away: a / total, draw: d != null ? d / total : null }
+/**
+ * Power devig: raises each implied probability to 1/k where k is solved so
+ * the resulting probabilities sum to exactly 1. Handles lopsided moneylines
+ * better than simple multiplicative normalization.
+ */
+function powerDevig(impliedProbs: number[]): number[] {
+  let lo = 0.01, hi = 10.0
+  for (let i = 0; i < 100; i++) {
+    const mid = (lo + hi) / 2
+    const sum = impliedProbs.reduce((acc, p) => acc + Math.pow(p, 1 / mid), 0)
+    if (sum > 1.0) hi = mid; else lo = mid
+  }
+  const k = (lo + hi) / 2
+  const fair = impliedProbs.map(p => Math.pow(p, 1 / k))
+  const total = fair.reduce((a, b) => a + b, 0)
+  return fair.map(p => p / total)
 }
 
+// Books that set their own lines — get a 2× weight bonus in consensus.
+// Betfair Exchange and Pinnacle are the sharpest references globally.
+const SHARP_BOOK_SLUGS = new Set([
+  'pinnacle', 'betfair_ex_eu', 'betfair_ex_au', 'matchbook', 'circa',
+])
+// When Pinnacle is in the pool, use only Pinnacle — it's the industry reference.
+const PINNACLE_SLUG = 'pinnacle'
+
+type SnapForFair = {
+  home_price: number | null
+  away_price: number | null
+  draw_price?: number | null
+  source?: { slug?: string | null } | null
+}
+
+/**
+ * Compute fair (no-vig) probabilities from a pool of book snapshots.
+ *
+ * Strategy:
+ *   1. Pinnacle-first: if Pinnacle is present, power-devig Pinnacle alone.
+ *   2. Otherwise: inverse-vig weighted consensus of all books with <10% overround,
+ *      with a 2× bonus weight for known sharp books (Betfair, Circa, etc.).
+ */
 function computeFairProbs(
-  snaps: Array<{ home_price: number | null; away_price: number | null; draw_price?: number | null }>
+  snaps: SnapForFair[]
 ): { home: number; away: number; draw: number | null } | null {
   const valid = snaps.filter(s => s.home_price != null && s.away_price != null)
   if (valid.length < 2) return null
 
-  let sumH = 0, sumA = 0, sumD = 0, dCount = 0
-  for (const s of valid) {
-    const nvp = noVigProbs(s.home_price!, s.away_price!, s.draw_price ?? null)
-    sumH += nvp.home
-    sumA += nvp.away
-    if (nvp.draw != null) { sumD += nvp.draw; dCount++ }
+  // ── Pinnacle-first ────────────────────────────────────────────────────────
+  const pin = valid.find(s => s.source?.slug === PINNACLE_SLUG)
+  if (pin) {
+    const h = americanToImpliedProb(pin.home_price!)
+    const a = americanToImpliedProb(pin.away_price!)
+    const d = pin.draw_price != null ? americanToImpliedProb(pin.draw_price) : null
+    const fair = powerDevig(d != null ? [h, a, d] : [h, a])
+    return { home: fair[0], away: fair[1], draw: d != null ? (fair[2] ?? null) : null }
   }
 
+  // ── Weighted consensus ────────────────────────────────────────────────────
+  let wH = 0, wA = 0, wD = 0, wTotal = 0, wDTotal = 0
+
+  for (const s of valid) {
+    const h = americanToImpliedProb(s.home_price!)
+    const a = americanToImpliedProb(s.away_price!)
+    const d = s.draw_price != null ? americanToImpliedProb(s.draw_price) : null
+    const overround = h + a + (d ?? 0)
+
+    // Skip price-follower books (high vig = copying others)
+    if (overround > 1.10) continue
+
+    const fair = powerDevig(d != null ? [h, a, d] : [h, a])
+    const slug = s.source?.slug ?? ''
+    const sharpBonus = SHARP_BOOK_SLUGS.has(slug) ? 2.0 : 1.0
+    const w = (1 / overround) * sharpBonus
+
+    wH += w * fair[0]
+    wA += w * fair[1]
+    wTotal += w
+    if (d != null) { wD += w * (fair[2] ?? 0); wDTotal += w }
+  }
+
+  if (wTotal === 0) return null
+
   return {
-    home: sumH / valid.length,
-    away: sumA / valid.length,
-    draw: dCount >= 2 ? sumD / dCount : null,
+    home: wH / wTotal,
+    away: wA / wTotal,
+    draw: wDTotal >= 2 ? wD / wDTotal : null,
   }
 }
 
@@ -152,7 +208,14 @@ export default async function TopEvLinesPage({
     const marketType = snaps[0].market_type as string
     const shape = getMarketShape(leagueSlug || null, null, marketType)
 
-    const fair = computeFairProbs(snaps as any)
+    const fair = computeFairProbs(
+      snaps.map(s => ({
+        home_price: s.home_price,
+        away_price: s.away_price,
+        draw_price: s.draw_price,
+        source: (s as any).source,
+      }))
+    )
     if (!fair) continue  // need ≥ 2 sources with paired prices
 
     // Parse team names from "Home vs Away" title
@@ -489,8 +552,9 @@ export default async function TopEvLinesPage({
 
         {/* Informational note */}
         <p className="text-[10px] text-nb-600 leading-relaxed">
-          EV % reflects how each source&apos;s price compares to the consensus no-vig market line
-          computed from {'>'}2 sources. Informational only. Not financial or betting advice.
+          EV % reflects how each source&apos;s price compares to the fair probability derived via
+          power devig — Pinnacle when available, otherwise inverse-vig weighted consensus.
+          Informational only. Not financial or betting advice.
         </p>
       </ProGate>
     </div>
