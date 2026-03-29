@@ -200,9 +200,5 @@ export async function GET(request: NextRequest) {
     skippedInactive,
     skippedNoPrices,
     errors: errors.length ? errors : undefined,
-    debug: {
-      samplePolyTitles: polyEvents.slice(0, 10).map(e => e.title),
-      sampleDbTitles: (dbEvents ?? []).slice(0, 10).map(e => e.title),
-    },
   })
 }
