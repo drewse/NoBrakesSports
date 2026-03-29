@@ -38,6 +38,14 @@ function addDays(date: Date, n: number): Date {
   return d
 }
 
+function getMondayOfWeek(date: Date): Date {
+  const d = new Date(date)
+  d.setHours(0, 0, 0, 0)
+  const dow = d.getDay()
+  d.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1))
+  return d
+}
+
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -56,14 +64,8 @@ export function BookingCalendar({ userId, existingBookings, userBookings }: Prop
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
-  const [weekStart, setWeekStart] = useState<Date>(() => {
-    // Start from today (or next Monday if weekend)
-    const d = new Date(today)
-    const dow = d.getDay()
-    if (dow === 0) d.setDate(d.getDate() + 1)
-    if (dow === 6) d.setDate(d.getDate() + 2)
-    return d
-  })
+  // Always anchor to Monday so we always show exactly Mon–Fri
+  const [weekStart, setWeekStart] = useState<Date>(() => getMondayOfWeek(today))
 
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [topic, setTopic] = useState('')
@@ -72,9 +74,8 @@ export function BookingCalendar({ userId, existingBookings, userBookings }: Prop
   const [success, setSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 5 weekdays from weekStart
+  // weekStart is always Monday → i=0..4 gives Mon, Tue, Wed, Thu, Fri
   const days = Array.from({ length: 5 }, (_, i) => addDays(weekStart, i))
-    .filter(d => d.getDay() !== 0 && d.getDay() !== 6)
 
   const bookedSlots = new Set(
     existingBookings
@@ -99,15 +100,17 @@ export function BookingCalendar({ userId, existingBookings, userBookings }: Prop
     return !bookedSlots.has(slot.toISOString())
   }
 
+  const thisMonday = getMondayOfWeek(today)
+
   function prevWeek() {
-    const prev = addDays(weekStart, -5)
-    if (prev < today) return
+    const prev = addDays(weekStart, -7)
+    if (prev < thisMonday) return
     setWeekStart(prev)
     setSelectedSlot(null)
   }
 
   function nextWeek() {
-    setWeekStart(addDays(weekStart, 5))
+    setWeekStart(addDays(weekStart, 7))
     setSelectedSlot(null)
   }
 
@@ -194,7 +197,7 @@ export function BookingCalendar({ userId, existingBookings, userBookings }: Prop
       <div className="flex items-center justify-between">
         <button
           onClick={prevWeek}
-          disabled={addDays(weekStart, -5) < today}
+          disabled={weekStart <= thisMonday}
           className="p-1.5 rounded hover:bg-nb-800 text-nb-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
         >
           <ChevronLeft className="h-4 w-4" />
