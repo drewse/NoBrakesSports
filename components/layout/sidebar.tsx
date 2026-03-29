@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, TrendingUp, BarChart3, Activity, Bell,
+  LayoutDashboard, BarChart3, Bell,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
-  LineChart, GitCompare, Star, Percent
+  Star, Percent, Users, MessageSquare
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -24,11 +24,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Markets', href: '/markets', icon: BarChart3 },
   { label: 'Top EV Lines', href: '/top-lines', icon: Star, isPro: true },
   { label: 'Arbitrage', href: '/arbitrage', icon: Percent, isPro: true },
-  { label: 'Line Movement', href: '/line-movement', icon: TrendingUp, isPro: true },
-  { label: 'Pred. Markets', href: '/prediction-markets', icon: GitCompare, isPro: true },
   { label: 'Alerts', href: '/alerts', icon: Bell, isPro: true },
   { label: 'Watchlist', href: '/watchlist', icon: Bookmark },
   { label: 'History', href: '/history', icon: History, isPro: true },
+  { label: '1on1 Coaching', href: '/coaching', icon: Users },
+  { label: 'Chat', href: '/chat', icon: MessageSquare },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
