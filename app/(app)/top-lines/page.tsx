@@ -504,14 +504,14 @@ export default async function TopEvLinesPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleLines.length === 0 ? (
+                  {visibleLines.length <= 3 ? (
                     <tr>
                       <td colSpan={6} className="px-4 py-12 text-center text-nb-400 text-xs">
-                        No lines found. Data syncs hourly — check back soon.
+                        No additional lines found. Data syncs hourly — check back soon.
                       </td>
                     </tr>
                   ) : (
-                    visibleLines.map((line, i) => (
+                    visibleLines.slice(3).map((line, i) => (
                       <tr
                         key={`${line.eventId}::${line.marketType}::${line.outcomeSide}::${line.lineValue}`}
                         className={[
