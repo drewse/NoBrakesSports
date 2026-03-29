@@ -26,25 +26,38 @@ export interface PolymarketEvent {
   markets: PolymarketMarket[]
 }
 
+const PAGE_SIZE = 100
+const MAX_PAGES = 10 // cap at 1000 events total
+
 export async function fetchPolymarketEvents(): Promise<PolymarketEvent[]> {
-  const params = new URLSearchParams({
-    active: 'true',
-    closed: 'false',
-    limit: '100',
-    tag_slug: 'sports',
-  })
+  const all: PolymarketEvent[] = []
 
-  const res = await fetch(`${BASE_URL}/events?${params}`, {
-    next: { revalidate: 0 },
-  })
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const params = new URLSearchParams({
+      active: 'true',
+      closed: 'false',
+      limit: String(PAGE_SIZE),
+      offset: String(page * PAGE_SIZE),
+      tag_slug: 'sports',
+    })
 
-  if (!res.ok) throw new Error(`Polymarket API ${res.status}: ${await res.text()}`)
+    const res = await fetch(`${BASE_URL}/events?${params}`, {
+      next: { revalidate: 0 },
+    })
 
-  const data = await res.json()
-  const events: PolymarketEvent[] = Array.isArray(data) ? data : (data.events ?? [])
+    if (!res.ok) throw new Error(`Polymarket API ${res.status}: ${await res.text()}`)
 
-  // Normalize: some API responses omit the markets array — treat as empty
-  return events.map(e => ({ ...e, markets: e.markets ?? [] }))
+    const data = await res.json()
+    const events: PolymarketEvent[] = Array.isArray(data) ? data : (data.events ?? [])
+    if (!events.length) break
+
+    all.push(...events.map(e => ({ ...e, markets: e.markets ?? [] })))
+
+    // If we got fewer than a full page, we've reached the end
+    if (events.length < PAGE_SIZE) break
+  }
+
+  return all
 }
 
 function parseJsonField<T>(field: unknown): T | null {
