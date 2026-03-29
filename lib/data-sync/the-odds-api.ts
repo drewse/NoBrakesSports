@@ -1,66 +1,166 @@
 const BASE_URL = 'https://api.the-odds-api.com/v4'
 
-// Maps The Odds API sport keys to our league slugs
+// Maps The Odds API sport keys to our league slugs.
+// Source of truth for valid keys: GET /v4/sports?apiKey=KEY&all=true
 export const SPORT_KEY_TO_LEAGUE: Record<string, string> = {
   // ── American Football ──────────────────────────────────────────────────────
-  americanfootball_nfl:               'nfl',
-  americanfootball_ncaaf:             'ncaaf',
-  americanfootball_cfl:               'cfl',
+  americanfootball_nfl:                        'nfl',
+  americanfootball_ncaaf:                      'ncaaf',
+  americanfootball_cfl:                        'cfl',
+  americanfootball_ufl:                        'ufl',
 
   // ── Basketball ─────────────────────────────────────────────────────────────
-  basketball_nba:                     'nba',
-  basketball_ncaab:                   'ncaab',
-  basketball_euroleague:              'euroleague',
+  basketball_nba:                              'nba',
+  basketball_ncaab:                            'ncaab',
+  basketball_wncaab:                           'wncaab',
+  basketball_euroleague:                       'euroleague',
+  basketball_nbl:                              'nbl',
 
   // ── Baseball ───────────────────────────────────────────────────────────────
-  baseball_mlb:                       'mlb',
+  baseball_mlb:                                'mlb',
+  baseball_kbo:                                'kbo',
+  baseball_npb:                                'npb',
+  baseball_ncaa:                               'ncaa_baseball',
 
   // ── Ice Hockey ─────────────────────────────────────────────────────────────
-  icehockey_nhl:                      'nhl',
-  icehockey_ahl:                      'ahl',
-  icehockey_sweden_hockey_league:     'shl',
+  icehockey_nhl:                               'nhl',
+  icehockey_ahl:                               'ahl',
+  icehockey_sweden_hockey_league:              'shl',
+  icehockey_sweden_allsvenskan:                'sweden_allsvenskan_hockey',
+  icehockey_liiga:                             'liiga',
+  icehockey_mestis:                            'mestis',
 
-  // ── Soccer ─────────────────────────────────────────────────────────────────
-  soccer_usa_mls:                     'mls',
-  soccer_epl:                         'epl',
-  soccer_spain_la_liga:               'laliga',
-  soccer_germany_bundesliga:          'bundesliga',
-  soccer_italy_serie_a:               'seria_a',
-  soccer_france_ligue_one:            'ligue_one',
-  soccer_uefa_champs_league:          'ucl',
-  soccer_uefa_europa_league:          'uel',
-  soccer_netherlands_eredivisie:      'eredivisie',
-  soccer_portugal_primeira_liga:      'liga_portugal',
-  soccer_brazil_campeonato:           'brazil_serie_a',
-  soccer_argentina_primera_division:  'argentina_primera',
-  soccer_conmebol_copa_libertadores:  'copa_libertadores',
-  soccer_australia_aleague:           'australia_aleague',
+  // ── Soccer – Top Leagues ───────────────────────────────────────────────────
+  soccer_epl:                                  'epl',
+  soccer_usa_mls:                              'mls',
+  soccer_spain_la_liga:                        'laliga',
+  soccer_germany_bundesliga:                   'bundesliga',
+  soccer_italy_serie_a:                        'seria_a',
+  soccer_france_ligue_one:                     'ligue_one',
+  soccer_netherlands_eredivisie:               'eredivisie',
+  soccer_portugal_primeira_liga:               'liga_portugal',
+  soccer_spl:                                  'spl',
 
-  // ── Tennis ─────────────────────────────────────────────────────────────────
-  tennis_atp_french_open:             'french_open',
-  tennis_wta_french_open:             'french_open',
-  tennis_atp_wimbledon:               'wimbledon',
-  tennis_wta_wimbledon:               'wimbledon',
-  tennis_atp_us_open:                 'us_open_tennis',
-  tennis_wta_us_open:                 'us_open_tennis',
+  // ── Soccer – UEFA Competitions ────────────────────────────────────────────
+  soccer_uefa_champs_league:                   'ucl',
+  soccer_uefa_europa_league:                   'uel',
+  soccer_uefa_europa_conference_league:        'uecl',
+  soccer_uefa_champs_league_women:             'ucl_women',
+
+  // ── Soccer – Cups ─────────────────────────────────────────────────────────
+  soccer_fa_cup:                               'fa_cup',
+  soccer_germany_dfb_pokal:                    'dfb_pokal',
+  soccer_spain_copa_del_rey:                   'copa_del_rey',
+  soccer_france_coupe_de_france:               'coupe_de_france',
+
+  // ── Soccer – Second Tiers ─────────────────────────────────────────────────
+  soccer_efl_champ:                            'efl_champ',
+  soccer_england_league1:                      'efl_league1',
+  soccer_england_league2:                      'efl_league2',
+  soccer_germany_bundesliga2:                  'bundesliga2',
+  soccer_germany_liga3:                        'bundesliga3',
+  soccer_spain_segunda_division:               'la_liga2',
+  soccer_france_ligue_two:                     'ligue_two',
+  soccer_italy_serie_b:                        'serie_b',
+
+  // ── Soccer – Rest of Europe ───────────────────────────────────────────────
+  soccer_austria_bundesliga:                   'austria_bundesliga',
+  soccer_belgium_first_div:                    'belgium_pro_a',
+  soccer_denmark_superliga:                    'denmark_superliga',
+  soccer_finland_veikkausliiga:                'finland_veikkaus',
+  soccer_germany_bundesliga_women:             'frauen_bundesliga',
+  soccer_greece_super_league:                  'greece_super',
+  soccer_norway_eliteserien:                   'norway_eliteserien',
+  soccer_poland_ekstraklasa:                   'ekstraklasa',
+  soccer_russia_premier_league:                'russia_premier',
+  soccer_sweden_allsvenskan:                   'sweden_allsvenskan',
+  soccer_switzerland_superleague:              'swiss_super',
+  soccer_turkey_super_league:                  'super_lig',
+
+  // ── Soccer – Americas ─────────────────────────────────────────────────────
+  soccer_brazil_campeonato:                    'brazil_serie_a',
+  soccer_brazil_serie_b:                       'brazil_serie_b',
+  soccer_argentina_primera_division:           'argentina_primera',
+  soccer_conmebol_copa_libertadores:           'copa_libertadores',
+  soccer_conmebol_copa_sudamericana:           'copa_sudamericana',
+  soccer_chile_campeonato:                     'chile_primera',
+  soccer_mexico_ligamx:                        'liga_mx',
+  soccer_league_of_ireland:                    'league_of_ireland',
+
+  // ── Soccer – Asia / Middle East / Other ──────────────────────────────────
+  soccer_australia_aleague:                    'australia_aleague',
+  soccer_japan_j_league:                       'j_league',
+  soccer_korea_kleague1:                       'k_league1',
+  soccer_china_superleague:                    'china_super',
+  soccer_saudi_arabia_pro_league:              'saudi_pro',
+
+  // ── Soccer – International ────────────────────────────────────────────────
+  soccer_fifa_world_cup:                       'fifa_wc',
+  soccer_fifa_world_cup_qualifiers_europe:     'wcq_europe',
+
+  // ── Tennis – Grand Slams ──────────────────────────────────────────────────
+  tennis_atp_aus_open_singles:                 'aus_open',
+  tennis_wta_aus_open_singles:                 'aus_open',
+  tennis_atp_french_open:                      'french_open',
+  tennis_wta_french_open:                      'french_open',
+  tennis_atp_wimbledon:                        'wimbledon',
+  tennis_wta_wimbledon:                        'wimbledon',
+  tennis_atp_us_open:                          'us_open_tennis',
+  tennis_wta_us_open:                          'us_open_tennis',
+
+  // ── Tennis – ATP Tournaments ──────────────────────────────────────────────
+  tennis_atp_miami_open:                       'atp',
+  tennis_atp_indian_wells:                     'atp',
+  tennis_atp_canadian_open:                    'atp',
+  tennis_atp_cincinnati_open:                  'atp',
+  tennis_atp_madrid_open:                      'atp',
+  tennis_atp_italian_open:                     'atp',
+  tennis_atp_monte_carlo_masters:              'atp',
+  tennis_atp_china_open:                       'atp',
+  tennis_atp_qatar_open:                       'atp',
+  tennis_atp_dubai:                            'atp',
+  tennis_atp_shanghai_masters:                 'atp',
+  tennis_atp_paris_masters:                    'atp',
+
+  // ── Tennis – WTA Tournaments ──────────────────────────────────────────────
+  tennis_wta_miami_open:                       'wta',
+  tennis_wta_indian_wells:                     'wta',
+  tennis_wta_canadian_open:                    'wta',
+  tennis_wta_cincinnati_open:                  'wta',
+  tennis_wta_madrid_open:                      'wta',
+  tennis_wta_italian_open:                     'wta',
+  tennis_wta_china_open:                       'wta',
+  tennis_wta_qatar_open:                       'wta',
+  tennis_wta_dubai:                            'wta',
+  tennis_wta_wuhan_open:                       'wta',
+
   // ── MMA ────────────────────────────────────────────────────────────────────
-  mma_mixed_martial_arts:             'ufc',
+  mma_mixed_martial_arts:                      'ufc',
 
   // ── Boxing ─────────────────────────────────────────────────────────────────
-  boxing_boxing:                      'boxing_general',
+  boxing_boxing:                               'boxing_general',
 
-  // ── Rugby ──────────────────────────────────────────────────────────────────
-  rugbyleague_nrl:                    'nrl',
-  rugbyunion_super_rugby:             'super_rugby',
-  rugbyunion_six_nations:             'six_nations',
+  // ── Rugby League ──────────────────────────────────────────────────────────
+  rugbyleague_nrl:                             'nrl',
+  rugbyleague_nrl_state_of_origin:             'nrl_state_of_origin',
+
+  // ── Rugby Union ───────────────────────────────────────────────────────────
+  rugbyunion_six_nations:                      'six_nations',
 
   // ── Cricket ────────────────────────────────────────────────────────────────
-  cricket_ipl:                        'ipl',
-  cricket_test_match:                 'ashes',
-  cricket_big_bash:                   'bbl',
+  cricket_ipl:                                 'ipl',
+  cricket_test_match:                          'ashes',
+  cricket_big_bash:                            'bbl',
+  cricket_psl:                                 'psl',
 
   // ── Aussie Rules ───────────────────────────────────────────────────────────
-  aussierules_afl:                    'afl',
+  aussierules_afl:                             'afl',
+
+  // ── Handball ───────────────────────────────────────────────────────────────
+  handball_germany_bundesliga:                 'handball_bundesliga',
+
+  // ── Lacrosse ───────────────────────────────────────────────────────────────
+  lacrosse_ncaa:                               'ncaa_lacrosse',
 }
 
 // Human-readable names for bookmaker keys returned by The Odds API.
