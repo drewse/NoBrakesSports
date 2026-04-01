@@ -35,7 +35,10 @@ async function isAdmin(): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
+  // Accept either a logged-in admin session OR the CRON_SECRET bearer token
+  const bearer = request.headers.get('authorization')?.replace('Bearer ', '')
+  const hasValidToken = bearer && bearer === process.env.CRON_SECRET
+  if (!hasValidToken && !(await isAdmin())) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
