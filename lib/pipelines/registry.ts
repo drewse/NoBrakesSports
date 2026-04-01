@@ -1,5 +1,6 @@
 import type { SourceAdapter } from './types'
 import { createStubAdapter } from './stub-adapter'
+import { pointsbetOnAdapter } from './adapters/pointsbet-on'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Central Adapter Registry
@@ -47,13 +48,13 @@ export type PipelineSlug = typeof ALL_PIPELINE_SLUGS[number]
 
 const ADAPTERS = new Map<string, SourceAdapter>()
 
-// Register all books as stubs.
-// Replace createStubAdapter('slug') with a real adapter import when ready:
-//   import { FanDuelAdapter } from './adapters/fanduel'
-//   ADAPTERS.set('fanduel', new FanDuelAdapter())
+// Register all books as stubs first, then override with real adapters below.
 for (const slug of ALL_PIPELINE_SLUGS) {
   ADAPTERS.set(slug, createStubAdapter(slug))
 }
+
+// ── Real adapters (replace stubs as each is built) ───────────────────────────
+ADAPTERS.set('pointsbet_on', pointsbetOnAdapter)
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
