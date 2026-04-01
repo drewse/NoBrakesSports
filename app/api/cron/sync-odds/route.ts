@@ -29,6 +29,18 @@ export async function GET(request: NextRequest) {
   }
 
   const db = createAdminClient()
+
+  // Check feature flag — allows admins to disable The Odds API sync from the UI
+  const { data: flag } = await db
+    .from('feature_flags')
+    .select('is_enabled')
+    .eq('key', 'odds_api_sync')
+    .single()
+
+  if (flag && !flag.is_enabled) {
+    return NextResponse.json({ skipped: true, reason: 'odds_api_sync feature flag is disabled' })
+  }
+
   const now = new Date().toISOString()
 
   const [{ data: leagues }, { data: existingSources }] = await Promise.all([

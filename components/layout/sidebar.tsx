@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, BarChart3,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
-  Star, Percent, Users, MessageSquare, Tag
+  Star, Percent, Users, MessageSquare, Tag, GitBranch
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -67,9 +67,24 @@ export function Sidebar({ profile }: SidebarProps) {
         <div className="my-3 border-t border-border" />
 
         {BOTTOM_ITEMS.map((item) => {
-          if (item.href === '/admin' && !isAdmin) return null
+          if (item.href === '/account') return <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
+          if (!isAdmin) return null
           return <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
         })}
+
+        {/* Admin-only section */}
+        {isAdmin && (
+          <>
+            <div className="mt-3 mb-1.5 px-2">
+              <p className="text-[9px] font-semibold text-nb-700 uppercase tracking-widest">Internal</p>
+            </div>
+            <NavLink
+              item={{ label: 'Data Pipelines', href: '/admin/data-pipelines', icon: GitBranch }}
+              pathname={pathname}
+              isPro={false}
+            />
+          </>
+        )}
       </nav>
 
       {/* Upgrade CTA (free users) */}
