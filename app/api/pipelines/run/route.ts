@@ -35,19 +35,12 @@ async function isAdmin(): Promise<boolean> {
 }
 
 export async function POST(request: NextRequest) {
-  // Accept either a logged-in admin session OR the CRON_SECRET bearer token
-  const bearer = request.headers.get('authorization')?.replace('Bearer ', '')
-  const hasValidToken = bearer && bearer === process.env.CRON_SECRET
+  // Accept either a logged-in admin session OR the CRON_SECRET token.
+  // Use x-cron-secret header — Authorization is stripped by Cloudflare proxy.
+  const token = request.headers.get('x-cron-secret')
+  const hasValidToken = token && token === process.env.CRON_SECRET
   if (!hasValidToken && !(await isAdmin())) {
-    return NextResponse.json({
-      error: 'Forbidden',
-      _debug: {
-        bearerPresent: !!bearer,
-        bearerLen: bearer?.length ?? 0,
-        secretLen: process.env.CRON_SECRET?.length ?? 0,
-        match: bearer === process.env.CRON_SECRET,
-      },
-    }, { status: 403 })
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   let slug: string
