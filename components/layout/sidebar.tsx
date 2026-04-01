@@ -3,9 +3,9 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard, BarChart3, Bell,
+  LayoutDashboard, BarChart3,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
-  Star, Percent, Users, MessageSquare
+  Star, Percent, Users, MessageSquare, Tag
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -20,15 +20,15 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview', href: '/dashboard', icon: LayoutDashboard },
-  { label: 'Markets', href: '/markets', icon: BarChart3 },
-  { label: 'Top EV Lines', href: '/top-lines', icon: Star, isPro: true },
-  { label: 'Arbitrage', href: '/arbitrage', icon: Percent, isPro: true },
-  { label: 'Alerts', href: '/alerts', icon: Bell, isPro: true },
-  { label: 'Watchlist', href: '/watchlist', icon: Bookmark },
-  { label: 'History', href: '/history', icon: History, isPro: true },
-  { label: '1on1 Coaching', href: '/coaching', icon: Users },
-  { label: 'Chat', href: '/chat', icon: MessageSquare },
+  { label: 'Overview',      href: '/dashboard',   icon: LayoutDashboard },
+  { label: 'Markets',       href: '/markets',      icon: BarChart3 },
+  { label: 'Top EV Lines',  href: '/top-lines',    icon: Star,           isPro: true },
+  { label: 'Arbitrage',     href: '/arbitrage',    icon: Percent,        isPro: true },
+  { label: 'Promotions',    href: '/promotions',   icon: Tag },
+  { label: '1on1 Coaching', href: '/coaching',     icon: Users },
+  { label: 'Chat',          href: '/chat',         icon: MessageSquare },
+  { label: 'Watchlist',     href: '/watchlist',    icon: Bookmark },
+  { label: 'History',       href: '/history',      icon: History,        isPro: true },
 ]
 
 const BOTTOM_ITEMS: NavItem[] = [
