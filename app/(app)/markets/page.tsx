@@ -58,10 +58,13 @@ export default async function MarketsPage({
 
   if (events.length > 0) {
     const eventIds = events.map((e: any) => e.id)
+    // Only show snapshots from the last 6 hours to exclude stale Odds API data
+    const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
       .from('market_snapshots')
       .select('event_id, source_id, market_type, snapshot_time')
       .in('event_id', eventIds)
+      .gt('snapshot_time', snapshotCutoff)
     if (data) snapshotMeta.push(...data)
   }
 

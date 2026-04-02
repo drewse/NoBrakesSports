@@ -70,11 +70,13 @@ export default async function EventDetailPage({
     )
   }
 
-  // Fetch all snapshots for this event, newest first
+  // Fetch snapshots for this event from the last 6 hours, newest first
+  const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const { data: snapshotsRaw } = await supabase
     .from('market_snapshots')
     .select('*, source:market_sources(id, name, slug, source_type)')
     .eq('event_id', eventId)
+    .gt('snapshot_time', snapshotCutoff)
     .order('snapshot_time', { ascending: false })
 
   const allSnapshots = (snapshotsRaw ?? []) as MarketSnapshot[]

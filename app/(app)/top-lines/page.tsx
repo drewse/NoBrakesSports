@@ -183,16 +183,16 @@ export default async function TopEvLinesPage({
     .limit(isPro ? 5000 : 800)
 
   // ── Group by (event_id, market_type, lineValue) ──────────────────────────
+  // Deduplicate per source within each group — keep only the latest snapshot
+  // per source_id so multiple pipeline runs don't produce duplicate book entries.
 
   type Snap = NonNullable<typeof snapshots>[number]
-  const groupMap = new Map<string, Snap[]>()
+  // Intermediate: track latest snapshot per (group key, source_id)
+  const groupSourceLatest = new Map<string, Map<string, Snap>>()
 
   for (const snap of snapshots ?? []) {
     const sourceSlug: string = (snap as any).source?.slug ?? ''
-    // Exclude Polymarket — binary market prices don't reliably map to moneyline
-    // equivalents, and title-matching errors corrupt the fair probability model.
     if (sourceSlug === 'polymarket') continue
-    // Apply user's book filter
     if (enabledBooks && !enabledBooks.has(sourceSlug)) continue
     const ev = (snap as any).event
     if (!ev) continue
@@ -205,8 +205,18 @@ export default async function TopEvLinesPage({
       : ''
 
     const key = `${snap.event_id}::${snap.market_type}::${lineKey}`
-    if (!groupMap.has(key)) groupMap.set(key, [])
-    groupMap.get(key)!.push(snap)
+    if (!groupSourceLatest.has(key)) groupSourceLatest.set(key, new Map())
+    const bySource = groupSourceLatest.get(key)!
+    const existing = bySource.get(snap.source_id)
+    if (!existing || snap.snapshot_time > existing.snapshot_time) {
+      bySource.set(snap.source_id, snap)
+    }
+  }
+
+  // Flatten to groupMap with deduplicated snaps
+  const groupMap = new Map<string, Snap[]>()
+  for (const [key, bySource] of groupSourceLatest) {
+    groupMap.set(key, Array.from(bySource.values()))
   }
 
   // ── Compute EV lines from each group ─────────────────────────────────────
@@ -459,9 +469,14 @@ export default async function TopEvLinesPage({
                           <span className="font-mono text-xl font-bold text-white">{formatOdds(line.bestPrice)}</span>
                           <span className="text-[10px] text-nb-400">{line.bestSource}</span>
                         </div>
-                        <p className="text-[10px] text-nb-500 mt-1.5">
-                          Fair: <span className={`font-mono ${probColor(line.fairProb)}`}>{(line.fairProb * 100).toFixed(1)}%</span>
-                        </p>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <span className={`font-mono text-xs font-bold ${evColor(line.evPct)}`}>
+                            {formatEv(line.evPct)}
+                          </span>
+                          <span className="text-[10px] text-nb-500">
+                            Fair: <span className={`font-mono ${probColor(line.fairProb)}`}>{(line.fairProb * 100).toFixed(1)}%</span>
+                          </span>
+                        </div>
                       </div>
                       {/* Podium step */}
                       <div className={`${podiumH} rounded-b-lg mt-0 ${
@@ -494,6 +509,9 @@ export default async function TopEvLinesPage({
                     </th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
                       Books
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider w-20">
+                      EV %
                     </th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider w-24">
                       Probability
@@ -571,6 +589,13 @@ export default async function TopEvLinesPage({
                               </div>
                             ))}
                           </div>
+                        </td>
+
+                        {/* EV % */}
+                        <td className="px-4 py-3">
+                          <span className={`font-mono text-xs tabular-nums font-semibold ${evColor(line.evPct)}`}>
+                            {formatEv(line.evPct)}
+                          </span>
                         </td>
 
                         {/* Fair probability */}
