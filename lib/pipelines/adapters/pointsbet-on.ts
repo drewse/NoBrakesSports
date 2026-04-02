@@ -2,7 +2,8 @@
 // PointsBet Ontario adapter
 //
 // Endpoint discovery: 2026-04-01
-//   Base:    https://api.on.pointsbet.com/api/v2
+//   Base:    https://api.on.pointsbet.com/api/v2  (competitions list)
+//            https://api.on.pointsbet.com/api/mes/v3/events/featured/competition/{key}  (events)
 //   Auth:    None (public API) — but protected by Cloudflare Bot Management
 //   Origin:  https://on.pointsbet.ca
 //
@@ -34,6 +35,7 @@ import { withBrowser } from '../browser-fetch'
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BASE = 'https://api.on.pointsbet.com/api/v2'
+const BASE_V3 = 'https://api.on.pointsbet.com/api/mes/v3'
 const SEED_URL = 'https://on.pointsbet.ca/sports/basketball'
 
 const SPORTS = ['basketball', 'americanfootball', 'icehockey', 'baseball', 'soccer', 'tennis']
@@ -198,7 +200,7 @@ export const pointsbetOnAdapter: SourceAdapter = {
       await Promise.allSettled(
         allComps.map(async (comp) => {
           try {
-            const data = await fetchJson(`${BASE}/competitions/${comp.key}?page=1`, API_HEADERS)
+            const data = await fetchJson(`${BASE_V3}/events/featured/competition/${comp.key}?page=1`, API_HEADERS)
             rawPayloads.push(data)
             const leagueSlug = toLeagueSlug(comp.name)
             const { events, markets } = parseEvents(data, leagueSlug)
@@ -233,7 +235,7 @@ export const pointsbetOnAdapter: SourceAdapter = {
 
       for (const comp of allComps) {
         try {
-          const data = await fetchJson(`${BASE}/competitions/${comp.key}?page=1`, API_HEADERS)
+          const data = await fetchJson(`${BASE_V3}/events/featured/competition/${comp.key}?page=1`, API_HEADERS)
           const event = (data.events ?? []).find((e: any) => String(e.key) === eventId)
           if (!event) continue
           const leagueSlug = toLeagueSlug(comp.name)
