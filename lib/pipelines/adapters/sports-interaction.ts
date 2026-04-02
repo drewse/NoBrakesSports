@@ -388,22 +388,20 @@ export const sportsInteractionAdapter: SourceAdapter = {
       const errors: string[] = []
       const fixtureMap = new Map<number, SiFixture>()
 
-      // Intercept every fixture-view response the browser makes naturally.
-      // This is the only reliable way to discover fixture IDs — the fixture-view
-      // endpoint does not support tag-based filtering (tagIds is treated as fixtureIds).
+      // Passively capture fixture-view responses without intercepting —
+      // page.on('response') gives us body access after the response is complete
+      // without making a second request (which route.fetch() does and may get blocked).
       const capturedResponses: any[] = []
-      await page.route('**/fixture-view**', async (route) => {
-        try {
-          const response = await route.fetch()
-          const data = await response.json().catch(() => null)
-          if (data) capturedResponses.push(data)
-          await route.fulfill({ response })
-        } catch {
-          await route.continue()
-        }
+      const pendingCaptures: Promise<void>[] = []
+      page.on('response', (response) => {
+        if (!response.url().includes('/fixture-view')) return
+        const p = response.json()
+          .then((data) => { capturedResponses.push(data) })
+          .catch(() => {})
+        pendingCaptures.push(p)
       })
 
-      // Navigate each sport page — the browser fires the correct fixture-view requests
+      // Navigate each sport page — the SPA fires the correct fixture-view requests
       const SPORT_PAGES = [
         `${BASE}/sports/basketball/nba`,
         `${BASE}/sports/hockey/nhl`,
@@ -414,16 +412,21 @@ export const sportsInteractionAdapter: SourceAdapter = {
 
       for (const pageUrl of SPORT_PAGES) {
         try {
-          await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30_000 })
+          await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 25_000 })
         } catch (e: any) {
-          // networkidle timeout is common on SPAs — data is usually already captured
-          if (!e.message.includes('Timeout')) {
+          // networkidle timeout is common on SPAs — data is captured before the timeout fires
+          if (!e.message?.includes('Timeout') && !e.message?.includes('timeout')) {
             errors.push(`Navigate ${pageUrl}: ${e.message}`)
           }
         }
       }
 
-      // Parse all intercepted responses
+      // Flush pending JSON parses
+      await Promise.allSettled(pendingCaptures)
+
+      console.log(`[sports_interaction] captured ${capturedResponses.length} fixture-view responses`)
+
+      // Parse all captured responses
       for (const data of capturedResponses) {
         rawPayloads.push(data)
         const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
@@ -447,7 +450,7 @@ export const sportsInteractionAdapter: SourceAdapter = {
       })
 
       console.log(
-        `[sports_interaction] fetchEvents: ${dedupedEvents.length} events, ${dedupedMarkets.length} markets, ${capturedResponses.length} responses captured, ${errors.length} errors in ${Date.now() - start}ms`
+        `[sports_interaction] fetchEvents: ${dedupedEvents.length} events, ${dedupedMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
       )
       if (errors.length) console.error('[sports_interaction] errors:', errors)
 
