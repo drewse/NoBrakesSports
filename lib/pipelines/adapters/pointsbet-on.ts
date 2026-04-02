@@ -232,21 +232,24 @@ export const pointsbetOnAdapter: SourceAdapter = {
         })
       )
 
-      // Fetch events for each competition
-      await Promise.allSettled(
-        allComps.map(async (comp) => {
-          try {
-            const data = await fetchJson(`${BASE_V3}/events/featured/competition/${comp.key}?page=1`, API_HEADERS)
-            rawPayloads.push(data)
-            const leagueSlug = toLeagueSlug(comp.name)
-            const { events, markets } = parseEvents(data, leagueSlug)
-            allEvents.push(...events)
-            allMarkets.push(...markets)
-          } catch (e: any) {
-            errors.push(`comp ${comp.key} (${comp.name}): ${e.message}`)
-          }
-        })
-      )
+      // Fetch events for each competition — batched to avoid overwhelming the browser
+      const BATCH = 10
+      for (let i = 0; i < allComps.length; i += BATCH) {
+        await Promise.allSettled(
+          allComps.slice(i, i + BATCH).map(async (comp) => {
+            try {
+              const data = await fetchJson(`${BASE_V3}/events/featured/competition/${comp.key}?page=1`, API_HEADERS)
+              rawPayloads.push(data)
+              const leagueSlug = toLeagueSlug(comp.name)
+              const { events, markets } = parseEvents(data, leagueSlug)
+              allEvents.push(...events)
+              allMarkets.push(...markets)
+            } catch (e: any) {
+              errors.push(`comp ${comp.key} (${comp.name}): ${e.message}`)
+            }
+          })
+        )
+      }
 
       console.log(
         `[pointsbet_on] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
