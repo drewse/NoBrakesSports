@@ -127,14 +127,50 @@ function buildMarket(eventId: string, leagueSlug: string, raw: any): CanonicalMa
 }
 
 function toLeagueSlug(competitionName: string): string {
-  const known: Record<string, string> = {
+  // Short first-word shortcuts (e.g. "NBA" → first word "nba")
+  const byFirstWord: Record<string, string> = {
     nba: 'nba', nhl: 'nhl', nfl: 'nfl', mlb: 'mlb', mls: 'mls',
-    ncaa: 'ncaa', ncaaw: 'ncaaw', nit: 'nit', epl: 'epl',
-    euroleague: 'euroleague',
+    ncaa: 'ncaa', ncaaw: 'ncaaw', nit: 'nit', euroleague: 'euroleague',
+    nbl: 'nbl',
   }
+  // Full name → DB slug (keyed on lowercase+underscores of competition name)
+  const byFullName: Record<string, string> = {
+    // Soccer — top European
+    english_premier_league:           'epl',
+    german_bundesliga:                'bundesliga',
+    '2.bundesliga':                   'bundesliga2',
+    spanish_la_liga:                  'laliga',
+    spanish_la_liga_2:                'la_liga2',
+    italian_serie_a:                  'seria_a',
+    french_ligue_1:                   'ligue_one',
+    french_ligue_2:                   'ligue_two',
+    english_championship:             'efl_champ',
+    english_league_1:                 'efl_league1',
+    english_league_2:                 'efl_league2',
+    dutch_eredivisie:                 'eredivisie',
+    portuguese_primeira_liga:         'liga_portugal',
+    scotland_premiership:             'spl',
+    // Soccer — European cups
+    uefa_champions_league:            'ucl',
+    uefa_europa_league:               'uel',
+    uefa_europa_conference_league:    'uecl',
+    english_fa_cup:                   'fa_cup',
+    // Soccer — Americas
+    australian_a_league_men:          'australia_aleague',
+    'australian_a-league_men':        'australia_aleague',
+    // Soccer — Asia / rest
+    korea_republic_k_league_1:        'k_league1',
+    'korea_republic_k-league_1':      'k_league1',
+    korea_republic_k_league_2:        'k_league2',
+    'korea_republic_k-league_2':      'k_league2',
+    j_league:                         'j_league',
+    // Hockey
+    nhl:                              'nhl',
+  }
+
   const short = competitionName.split(' ')[0].toLowerCase()
   const full = competitionName.toLowerCase().replace(/\s+/g, '_')
-  return known[short] ?? known[full] ?? full
+  return byFirstWord[short] ?? byFullName[full] ?? full
 }
 
 function parseEvents(
