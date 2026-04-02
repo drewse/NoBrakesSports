@@ -20,8 +20,11 @@ import { storeEventsPayload } from './raw-payloads'
 
 export interface IngestResult {
   slug: string
+  eventsFound: number       // total from adapter, before league filtering
   eventsUpserted: number
   snapshotsInserted: number
+  leagueSlugsFound: string[]   // slugs the adapter returned
+  leagueSlugsMatched: string[] // slugs that matched the DB
   errors: string[]
 }
 
@@ -78,8 +81,12 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
   // Store raw payload for debugging/replay
   await storeEventsPayload(db, slug, null, result.raw ?? result)
 
+  const leagueSlugsFound = [...new Set(events.map(e => e.leagueSlug))].sort()
+  const leagueSlugsMatched = leagueSlugsFound.filter(s => leagueBySlug[s])
+  const leagueSlugsUnmatched = leagueSlugsFound.filter(s => !leagueBySlug[s])
+
   if (events.length === 0) {
-    return { slug, eventsUpserted: 0, snapshotsInserted: 0, errors }
+    return { slug, eventsFound: 0, eventsUpserted: 0, snapshotsInserted: 0, leagueSlugsFound: [], leagueSlugsMatched: [], errors }
   }
 
   // ── 5. Upsert events ──────────────────────────────────────────────────────────
@@ -95,10 +102,10 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
     }))
 
   if (eventsToUpsert.length === 0) {
-    // All events had unknown league slugs — log which ones
-    const unknown = [...new Set(events.map(e => e.leagueSlug))].filter(s => !leagueBySlug[s])
-    errors.push(`No matching leagues for slugs: ${unknown.join(', ')}`)
-    return { slug, eventsUpserted: 0, snapshotsInserted: 0, errors }
+    if (leagueSlugsUnmatched.length > 0) {
+      errors.push(`No matching leagues for slugs: ${leagueSlugsUnmatched.join(', ')}`)
+    }
+    return { slug, eventsFound: events.length, eventsUpserted: 0, snapshotsInserted: 0, leagueSlugsFound, leagueSlugsMatched, errors }
   }
 
   const { data: upsertedEvents, error: eventsError } = await db
@@ -165,8 +172,11 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
 
   return {
     slug,
+    eventsFound: events.length,
     eventsUpserted: upsertedEvents?.length ?? 0,
     snapshotsInserted,
+    leagueSlugsFound,
+    leagueSlugsMatched,
     errors,
   }
 }
