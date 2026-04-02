@@ -183,19 +183,23 @@ function toLeagueSlug(competitionName: string, sportKey: string): string {
 /**
  * Fetches all competitions across all configured sports.
  */
-async function fetchAllCompetitions(): Promise<Array<{ key: string; name: string; sportKey: string }>> {
-  const results: Array<{ key: string; name: string; sportKey: string }> = []
-  await Promise.allSettled(
+async function fetchAllCompetitions(): Promise<{ comps: Array<{ key: string; name: string; sportKey: string }>; errors: string[] }> {
+  const comps: Array<{ key: string; name: string; sportKey: string }> = []
+  const errors: string[] = []
+  const settled = await Promise.allSettled(
     SPORTS.map(async (sport) => {
-      try {
-        const data = await apiFetch(`/sports/${sport}/competitions`)
-        results.push(...extractCompetitions(data))
-      } catch {
-        // sport may not be available — skip silently
-      }
+      const data = await apiFetch(`/sports/${sport}/competitions`)
+      return { sport, data }
     })
   )
-  return results
+  for (const result of settled) {
+    if (result.status === 'fulfilled') {
+      comps.push(...extractCompetitions(result.value.data))
+    } else {
+      errors.push(`sport fetch failed: ${result.reason?.message ?? result.reason}`)
+    }
+  }
+  return { comps, errors }
 }
 
 /**
@@ -240,38 +244,36 @@ export const pointsbetOnAdapter: SourceAdapter = {
 
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
-    const competitions = await fetchAllCompetitions()
+    const { comps, errors: compErrors } = await fetchAllCompetitions()
 
     const allEvents: CanonicalEvent[] = []
     const allMarkets: CanonicalMarket[] = []
     const rawPayloads: unknown[] = []
+    const errors: string[] = [...compErrors]
 
-    await Promise.allSettled(
-      competitions.map(async (comp) => {
-        try {
-          const { events, markets, raw } = await fetchCompetitionEvents(comp.key, comp.name, comp.sportKey)
-          allEvents.push(...events)
-          allMarkets.push(...markets)
-          rawPayloads.push(raw)
-        } catch {
-          // individual competition failure shouldn't abort the whole fetch
-        }
+    const settled = await Promise.allSettled(
+      comps.map(async (comp) => {
+        const result = await fetchCompetitionEvents(comp.key, comp.name, comp.sportKey)
+        return { comp, result }
       })
     )
 
-    console.log(
-      `[pointsbet_on] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets in ${Date.now() - start}ms`
-    )
+    for (const s of settled) {
+      if (s.status === 'fulfilled') {
+        allEvents.push(...s.value.result.events)
+        allMarkets.push(...s.value.result.markets)
+        rawPayloads.push(s.value.result.raw)
+      } else {
+        errors.push(`comp fetch failed: ${s.reason?.message ?? s.reason}`)
+      }
+    }
 
-    return {
-      raw: rawPayloads,
-      // Canonical events in `events` field; markets are available in `raw` payloads
-      // and also attached for convenience under an extended field
-      events: allEvents,
-      // NOTE: markets are embedded and available here — runner can extract from raw
-      // or we surface them via the non-standard extra field below:
-      markets: allMarkets,
-    } as any
+    console.log(
+      `[pointsbet_on] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
+    )
+    if (errors.length) console.error('[pointsbet_on] errors:', errors)
+
+    return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
   },
 
   async fetchMarkets(eventId: string): Promise<FetchMarketsResult> {

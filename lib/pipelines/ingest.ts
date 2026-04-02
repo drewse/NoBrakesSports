@@ -73,6 +73,7 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
   const result = await adapter.fetchEvents() as any
   const events: CanonicalEvent[] = result.events ?? []
   const markets: CanonicalMarket[] = result.markets ?? []
+  if (result.errors?.length) errors.push(...result.errors)
 
   // Store raw payload for debugging/replay
   await storeEventsPayload(db, slug, null, result.raw ?? result)
