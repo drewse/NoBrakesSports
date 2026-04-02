@@ -419,9 +419,18 @@ export const sportsInteractionAdapter: SourceAdapter = {
               `&tagIds=${sport.id}&tagTypes=Sport&state=Latest&skip=0&take=200`
             const data = await fetchJson(url, API_HEADERS)
             const fixtures: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
+            // Log raw competition names from first few fixtures to debug slug mapping
+            const sampleComps = fixtures.slice(0, 5).map((f: any) =>
+              f.competition?.name?.value ?? f.league?.name?.value ??
+              (f.tags ?? []).find((t: any) => t.type === 'Competition')?.name?.value ??
+              (f.tags ?? []).find((t: any) => t.type === 'Sport')?.name?.value ??
+              `[keys:${Object.keys(f).join(',')}]`
+            )
+            console.log(`[sports_interaction] ${sport.name} sample comps:`, JSON.stringify(sampleComps))
             const parsed = parseFixtureList({ fixtures })
             const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
-            console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} raw → ${filtered.length} target-league fixtures`)
+            const allSlugs = [...new Set(parsed.map(f => f.leagueSlug))].slice(0, 20)
+            console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} raw → ${parsed.length} parsed → ${filtered.length} target-league. slugs: ${allSlugs.join(',')}`)
             for (const f of filtered) {
               fixtureMap.set(f.id, f)
               allFixtureIds.push(f.id)
