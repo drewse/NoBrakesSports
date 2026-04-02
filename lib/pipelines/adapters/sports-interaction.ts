@@ -381,16 +381,20 @@ export const sportsInteractionAdapter: SourceAdapter = {
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
 
-    return withBrowser(async ({ page }) => {
+    return withBrowser(async ({ page, fetchJson }) => {
       const allEvents: CanonicalEvent[] = []
       const allMarkets: CanonicalMarket[] = []
       const rawPayloads: unknown[] = []
       const errors: string[] = []
       const fixtureMap = new Map<number, SiFixture>()
 
-      // Passively capture fixture-view responses without intercepting —
-      // page.on('response') gives us body access after the response is complete
-      // without making a second request (which route.fetch() does and may get blocked).
+      // Block images, fonts, CSS, analytics — Vercel hits ERR_INSUFFICIENT_RESOURCES
+      // if a full SPA page loads all its assets inside a serverless function.
+      await page.route(/\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|css)(\?|$)/, (r) => r.abort())
+      await page.route(/\/(gtm|analytics|segment|sentry|hotjar|clarity)/, (r) => r.abort())
+
+      // Passively capture fixture-view responses — no route interception,
+      // just read what the browser naturally receives.
       const capturedResponses: any[] = []
       const pendingCaptures: Promise<void>[] = []
       page.on('response', (response) => {
@@ -401,7 +405,8 @@ export const sportsInteractionAdapter: SourceAdapter = {
         pendingCaptures.push(p)
       })
 
-      // Navigate each sport page — the SPA fires the correct fixture-view requests
+      // Load each sport page. domcontentloaded is enough — the SPA fires its
+      // data API calls immediately on mount, before all lazy assets finish.
       const SPORT_PAGES = [
         `${BASE}/sports/basketball/nba`,
         `${BASE}/sports/hockey/nhl`,
@@ -412,12 +417,11 @@ export const sportsInteractionAdapter: SourceAdapter = {
 
       for (const pageUrl of SPORT_PAGES) {
         try {
-          await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 25_000 })
+          await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
+          // Brief pause for the SPA's data fetches to complete after DOM is ready
+          await page.waitForTimeout(3_000)
         } catch (e: any) {
-          // networkidle timeout is common on SPAs — data is captured before the timeout fires
-          if (!e.message?.includes('Timeout') && !e.message?.includes('timeout')) {
-            errors.push(`Navigate ${pageUrl}: ${e.message}`)
-          }
+          errors.push(`Navigate ${pageUrl}: ${e.message}`)
         }
       }
 
@@ -426,7 +430,6 @@ export const sportsInteractionAdapter: SourceAdapter = {
 
       console.log(`[sports_interaction] captured ${capturedResponses.length} fixture-view responses`)
 
-      // Parse all captured responses
       for (const data of capturedResponses) {
         rawPayloads.push(data)
         const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
