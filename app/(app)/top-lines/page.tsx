@@ -167,7 +167,7 @@ export default async function TopEvLinesPage({
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
-  const cutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
   const { data: snapshots } = await supabase
     .from('market_snapshots')
     .select(`
