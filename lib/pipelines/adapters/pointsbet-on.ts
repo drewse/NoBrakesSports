@@ -282,7 +282,7 @@ export const pointsbetOnAdapter: SourceAdapter = {
     // we scan all competitions to find the event.
     //
     // @todo: If a direct /events/{eventId} endpoint exists, use that instead.
-    const competitions = await fetchAllCompetitions()
+    const { comps: competitions } = await fetchAllCompetitions()
 
     for (const comp of competitions) {
       try {
