@@ -374,6 +374,9 @@ export const sportsInteractionAdapter: SourceAdapter = {
               `&tagIds=${sport.id}&tagTypes=Sport&state=Latest` +
               `&skip=0&take=200&sortBy=StartDate`
             const data = await fetchJson(url, API_HEADERS)
+            // Log raw shape so we can see what the endpoint actually returns
+            console.log(`[sports_interaction] ${sport.name} raw keys:`, Object.keys(data ?? {}))
+            console.log(`[sports_interaction] ${sport.name} raw sample:`, JSON.stringify(data).slice(0, 300))
             const fixtures = parseFixtureList(data)
             allFixtures.push(...fixtures)
             console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} fixtures`)
