@@ -211,15 +211,52 @@ function extractMarketsFromFixtureView(
 
   for (const fixture of raws) {
     const fixtureId: number = fixture.id
+    if (!fixtureId) continue
+
+    // Prefer fixtureMap (populated during two-step flow); fall back to fixture object fields
     const meta = fixtureMap.get(fixtureId)
-    if (!meta) continue
+
+    // Extract start time
+    const startDate: string = meta?.startDate ?? fixture.startDate ?? fixture.startTime ?? ''
+    if (!startDate) continue
+
+    // Extract team names — try participants array, then fixture name, then spread market
+    let homeTeam = meta?.homeTeam ?? ''
+    let awayTeam = meta?.awayTeam ?? ''
+    if (!homeTeam || !awayTeam) {
+      for (const p of fixture.participants ?? []) {
+        const pName: string = p.name?.value ?? p.name ?? ''
+        const pos: string = (p.homeAway ?? p.position ?? '').toLowerCase()
+        if (pos === 'home' || pos === '1') homeTeam = pName
+        else if (pos === 'away' || pos === '2') awayTeam = pName
+      }
+    }
+    if (!homeTeam || !awayTeam) {
+      const title: string = fixture.name?.value ?? fixture.name ?? ''
+      const parts = title.split(' vs ')
+      if (parts.length === 2) { homeTeam = homeTeam || parts[0].trim(); awayTeam = awayTeam || parts[1].trim() }
+    }
+    // Last resort: grab from spread market's player1/player2
+    if (!homeTeam || !awayTeam) {
+      const spreadMarket = (fixture.optionMarkets ?? []).find((om: any) => om.templateCategory?.id === 44)
+      if (spreadMarket) { homeTeam = homeTeam || spreadMarket.player1?.value || ''; awayTeam = awayTeam || spreadMarket.player2?.value || '' }
+    }
+    if (!homeTeam || !awayTeam) continue
+
+    // Extract league slug
+    const competitionName: string =
+      meta?.leagueSlug ? '' :  // skip lookup if already resolved
+      fixture.competition?.name?.value ??
+      fixture.league?.name?.value ??
+      (fixture.tags ?? []).find((t: any) => t.type === 'Competition')?.name?.value ?? ''
+    const leagueSlug = meta?.leagueSlug || toLeagueSlug(competitionName)
 
     events.push(normalizeEvent({
       externalId: String(fixtureId),
-      homeTeam:   meta.homeTeam,
-      awayTeam:   meta.awayTeam,
-      startTime:  meta.startDate,
-      leagueSlug: meta.leagueSlug,
+      homeTeam,
+      awayTeam,
+      startTime:  startDate,
+      leagueSlug,
       sourceSlug: 'sports_interaction',
     }))
 
@@ -242,7 +279,7 @@ function extractMarketsFromFixtureView(
           // Fallback: compare full name to home/away team
           const optName: string = opt.name?.value ?? ''
           const resolvedSide: CanonicalOutcome['side'] =
-            meta.homeTeam.includes(optName) || optName.includes(meta.homeTeam.split(' ').pop()!)
+            homeTeam.includes(optName) || optName.includes(homeTeam.split(' ').pop()!)
               ? 'home' : 'away'
           outcomes.push(buildOutcome(optName, price, resolvedSide))
         }
@@ -250,7 +287,7 @@ function extractMarketsFromFixtureView(
           markets.push({
             eventId: String(fixtureId),
             marketType: 'moneyline',
-            shape: detectMarketShape(meta.leagueSlug, 'moneyline'),
+            shape: detectMarketShape(leagueSlug, 'moneyline'),
             outcomes,
             lineValue: null,
             sourceSlug: 'sports_interaction',
@@ -358,62 +395,36 @@ export const sportsInteractionAdapter: SourceAdapter = {
     return withBrowser(async ({ visit, fetchJson }) => {
       await visit(SEED_URL)
 
-      const allFixtures: SiFixture[] = []
-      const fixtureMap = new Map<number, SiFixture>()
       const allEvents: CanonicalEvent[] = []
       const allMarkets: CanonicalMarket[] = []
       const rawPayloads: unknown[] = []
       const errors: string[] = []
 
-      // ── Step 1: Fetch fixture IDs per sport ────────────────────────────────
+      // Single-step: fixture-view with sport tag filter returns fixtures + markets together.
+      // The /bettingoffer/fixtures endpoint does not exist on this platform.
       await Promise.allSettled(
         SPORTS.map(async (sport) => {
           try {
             const url =
-              `${API}/bettingoffer/fixtures?${COMMON_PARAMS}` +
+              `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
               `&tagIds=${sport.id}&tagTypes=Sport&state=Latest` +
-              `&skip=0&take=200&sortBy=StartDate`
+              `&offerMapping=Filtered&scoreboardMode=None` +
+              `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
+              `&statisticsModes=None&firstMarketGroupOnly=true` +
+              `&skip=0&take=200`
             const data = await fetchJson(url, API_HEADERS)
-            // Log raw shape so we can see what the endpoint actually returns
+            rawPayloads.push(data)
             console.log(`[sports_interaction] ${sport.name} raw keys:`, Object.keys(data ?? {}))
-            console.log(`[sports_interaction] ${sport.name} raw sample:`, JSON.stringify(data).slice(0, 300))
-            const fixtures = parseFixtureList(data)
-            allFixtures.push(...fixtures)
-            console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} fixtures`)
+            console.log(`[sports_interaction] ${sport.name} sample:`, JSON.stringify(data).slice(0, 400))
+            const { events, markets } = extractMarketsFromFixtureView(data, new Map())
+            allEvents.push(...events)
+            allMarkets.push(...markets)
+            console.log(`[sports_interaction] ${sport.name}: ${events.length} events, ${markets.length} markets`)
           } catch (e: any) {
-            errors.push(`fixtures ${sport.name}: ${e.message}`)
+            errors.push(`${sport.name}: ${e.message}`)
           }
         })
       )
-
-      if (allFixtures.length === 0) {
-        return { raw: [], events: [], markets: [], errors } as any
-      }
-
-      for (const f of allFixtures) fixtureMap.set(f.id, f)
-
-      // ── Step 2: Batch fetch fixture-view for market odds ───────────────────
-      const ids = allFixtures.map(f => f.id)
-
-      for (let i = 0; i < ids.length; i += FIXTURE_BATCH) {
-        const batch = ids.slice(i, i + FIXTURE_BATCH)
-        try {
-          const fixtureIds = batch.join(',')
-          const url =
-            `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
-            `&offerMapping=Filtered&scoreboardMode=None` +
-            `&fixtureIds=${fixtureIds}&state=Latest` +
-            `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-            `&statisticsModes=None&firstMarketGroupOnly=true`
-          const data = await fetchJson(url, API_HEADERS)
-          rawPayloads.push(data)
-          const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
-          allEvents.push(...events)
-          allMarkets.push(...markets)
-        } catch (e: any) {
-          errors.push(`fixture-view batch ${i}–${i + FIXTURE_BATCH}: ${e.message}`)
-        }
-      }
 
       console.log(
         `[sports_interaction] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
