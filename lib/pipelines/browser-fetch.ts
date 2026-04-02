@@ -18,11 +18,14 @@ async function launchBrowser() {
   const isVercel = !!process.env.VERCEL || !!process.env.AWS_LAMBDA_FUNCTION_VERSION
 
   if (isVercel) {
-    // Serverless: use @sparticuz/chromium binary
-    const chromium = (await import('@sparticuz/chromium')).default
+    // Serverless: use @sparticuz/chromium-min — downloads binary at runtime from GitHub
+    const chromium = (await import('@sparticuz/chromium-min')).default
+    const executablePath = await chromium.executablePath(
+      'https://github.com/Sparticuz/chromium/releases/download/v131.0.1/chromium-v131.0.1-pack.tar'
+    )
     return playwright.launch({
       args: chromium.args,
-      executablePath: await chromium.executablePath(),
+      executablePath,
       headless: true,
     })
   }
