@@ -390,8 +390,17 @@ export const sportsInteractionAdapter: SourceAdapter = {
       { id: 4,  name: 'Soccer' },
     ]
 
+    // Only pull fixtures for leagues we explicitly support — avoids fetching
+    // hundreds of obscure competitions and keeps batch count manageable.
+    const TARGET_LEAGUES = new Set([
+      'nba', 'nba_gleague', 'ncaab', 'nhl', 'ahl', 'nfl', 'ncaaf', 'mlb',
+      'epl', 'mls', 'laliga', 'bundesliga', 'seria_a', 'ligue_one', 'ucl',
+      'uel', 'uecl', 'eredivisie', 'liga_portugal', 'spl', 'efl_champ',
+      'fa_cup', 'liga_mx', 'j_league', 'k_league1', 'k_league2',
+      'australia_aleague', 'euroleague', 'nbl',
+    ])
+
     return withBrowser(async ({ visit, fetchJson }) => {
-      // Visit seed URL once to get Cloudflare cookies — no sport pages needed.
       await visit(SEED_URL)
 
       const allEvents: CanonicalEvent[] = []
@@ -400,8 +409,7 @@ export const sportsInteractionAdapter: SourceAdapter = {
       const errors: string[] = []
       const fixtureMap = new Map<number, SiFixture>()
 
-      // Step 1: get fixture IDs per sport from the fixtures listing endpoint.
-      // This runs in the browser context (real TLS + CF cookies) so it won't be blocked.
+      // Step 1: get fixture list per sport, filter to target leagues
       const allFixtureIds: number[] = []
       await Promise.allSettled(
         SPORTS.map(async (sport) => {
@@ -411,9 +419,12 @@ export const sportsInteractionAdapter: SourceAdapter = {
               `&tagIds=${sport.id}&tagTypes=Sport&state=Latest&skip=0&take=200`
             const data = await fetchJson(url, API_HEADERS)
             const fixtures: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
-            console.log(`[sports_interaction] ${sport.name} fixtures listing: ${fixtures.length} fixtures, keys: ${Object.keys(data ?? {}).join(',')}`)
-            for (const f of fixtures) {
-              if (f?.id) { fixtureMap.set(f.id, parseFixtureList({ fixtures: [f] })[0] ?? {} as SiFixture); allFixtureIds.push(f.id) }
+            const parsed = parseFixtureList({ fixtures })
+            const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
+            console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} raw → ${filtered.length} target-league fixtures`)
+            for (const f of filtered) {
+              fixtureMap.set(f.id, f)
+              allFixtureIds.push(f.id)
             }
           } catch (e: any) {
             errors.push(`${sport.name} fixtures: ${e.message}`)
@@ -421,32 +432,45 @@ export const sportsInteractionAdapter: SourceAdapter = {
         })
       )
 
-      console.log(`[sports_interaction] total fixture IDs found: ${allFixtureIds.length}`)
-
+      console.log(`[sports_interaction] filtered fixture IDs: ${allFixtureIds.length}`)
       if (allFixtureIds.length === 0) {
-        console.log('[sports_interaction] no fixtures found, returning empty')
         return { raw: rawPayloads, events: [], markets: [], errors } as any
       }
 
-      // Step 2: batch-fetch full market data via fixture-view
+      // Step 2: batch-fetch market data — run 5 batches concurrently
       const BATCH = 25
+      const CONCURRENCY = 5
+      const batches: number[][] = []
       for (let i = 0; i < allFixtureIds.length; i += BATCH) {
-        const ids = allFixtureIds.slice(i, i + BATCH)
-        try {
-          const url =
-            `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
-            `&fixtureIds=${ids.join(',')}&state=Latest` +
-            `&offerMapping=Filtered&scoreboardMode=None` +
-            `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-            `&statisticsModes=None&firstMarketGroupOnly=true`
-          const data = await fetchJson(url, API_HEADERS)
-          rawPayloads.push(data)
-          const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
-          allEvents.push(...events)
-          allMarkets.push(...markets)
-        } catch (e: any) {
-          errors.push(`fixture-view batch ${i / BATCH}: ${e.message}`)
-        }
+        batches.push(allFixtureIds.slice(i, i + BATCH))
+      }
+
+      for (let i = 0; i < batches.length; i += CONCURRENCY) {
+        const chunk = batches.slice(i, i + CONCURRENCY)
+        await Promise.allSettled(
+          chunk.map(async (ids, j) => {
+            try {
+              const url =
+                `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
+                `&fixtureIds=${ids.join(',')}&state=Latest` +
+                `&offerMapping=Filtered&scoreboardMode=None` +
+                `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
+                `&statisticsModes=None&firstMarketGroupOnly=true`
+              const data = await fetchJson(url, API_HEADERS)
+              if (i === 0 && j === 0) {
+                // Log first batch response shape to diagnose parsing issues
+                const raws = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
+                console.log(`[sports_interaction] fixture-view sample: keys=${Object.keys(data ?? {}).join(',')}, fixtures=${raws.length}, first fixture keys=${Object.keys(raws[0] ?? {}).join(',')}`)
+              }
+              rawPayloads.push(data)
+              const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
+              allEvents.push(...events)
+              allMarkets.push(...markets)
+            } catch (e: any) {
+              errors.push(`fixture-view batch ${i + j}: ${e.message}`)
+            }
+          })
+        )
       }
 
       console.log(
