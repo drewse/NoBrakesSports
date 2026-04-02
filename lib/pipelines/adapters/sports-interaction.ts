@@ -55,17 +55,6 @@ const COMMON_PARAMS = new URLSearchParams({
   'supportVirtual':  'true',
 }).toString()
 
-// Sport IDs confirmed from /bettingoffer/counts?tagTypes=Sport
-const SPORTS: Array<{ id: number; name: string }> = [
-  { id: 7,  name: 'Basketball' },
-  { id: 12, name: 'Hockey' },
-  { id: 11, name: 'Football' },
-  { id: 23, name: 'Baseball' },
-  { id: 4,  name: 'Soccer' },
-]
-
-const FIXTURE_BATCH = 25  // IDs per fixture-view request
-
 const API_HEADERS = {
   Origin:  BASE,
   Referer: `${BASE}/`,
@@ -392,46 +381,77 @@ export const sportsInteractionAdapter: SourceAdapter = {
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
 
-    return withBrowser(async ({ visit, fetchJson }) => {
-      await visit(SEED_URL)
-
+    return withBrowser(async ({ page }) => {
       const allEvents: CanonicalEvent[] = []
       const allMarkets: CanonicalMarket[] = []
       const rawPayloads: unknown[] = []
       const errors: string[] = []
+      const fixtureMap = new Map<number, SiFixture>()
 
-      // Single-step: fixture-view with sport tag filter returns fixtures + markets together.
-      // The /bettingoffer/fixtures endpoint does not exist on this platform.
-      await Promise.allSettled(
-        SPORTS.map(async (sport) => {
-          try {
-            const url =
-              `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
-              `&tagIds=${sport.id}&tagTypes=Sport&state=Latest` +
-              `&offerMapping=Filtered&scoreboardMode=None` +
-              `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-              `&statisticsModes=None&firstMarketGroupOnly=true` +
-              `&skip=0&take=200`
-            const data = await fetchJson(url, API_HEADERS)
-            rawPayloads.push(data)
-            console.log(`[sports_interaction] ${sport.name} raw keys:`, Object.keys(data ?? {}))
-            console.log(`[sports_interaction] ${sport.name} sample:`, JSON.stringify(data).slice(0, 400))
-            const { events, markets } = extractMarketsFromFixtureView(data, new Map())
-            allEvents.push(...events)
-            allMarkets.push(...markets)
-            console.log(`[sports_interaction] ${sport.name}: ${events.length} events, ${markets.length} markets`)
-          } catch (e: any) {
-            errors.push(`${sport.name}: ${e.message}`)
+      // Intercept every fixture-view response the browser makes naturally.
+      // This is the only reliable way to discover fixture IDs — the fixture-view
+      // endpoint does not support tag-based filtering (tagIds is treated as fixtureIds).
+      const capturedResponses: any[] = []
+      await page.route('**/fixture-view**', async (route) => {
+        try {
+          const response = await route.fetch()
+          const data = await response.json().catch(() => null)
+          if (data) capturedResponses.push(data)
+          await route.fulfill({ response })
+        } catch {
+          await route.continue()
+        }
+      })
+
+      // Navigate each sport page — the browser fires the correct fixture-view requests
+      const SPORT_PAGES = [
+        `${BASE}/sports/basketball/nba`,
+        `${BASE}/sports/hockey/nhl`,
+        `${BASE}/sports/football/nfl`,
+        `${BASE}/sports/baseball/mlb`,
+        `${BASE}/sports/soccer`,
+      ]
+
+      for (const pageUrl of SPORT_PAGES) {
+        try {
+          await page.goto(pageUrl, { waitUntil: 'networkidle', timeout: 30_000 })
+        } catch (e: any) {
+          // networkidle timeout is common on SPAs — data is usually already captured
+          if (!e.message.includes('Timeout')) {
+            errors.push(`Navigate ${pageUrl}: ${e.message}`)
           }
-        })
-      )
+        }
+      }
+
+      // Parse all intercepted responses
+      for (const data of capturedResponses) {
+        rawPayloads.push(data)
+        const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
+        allEvents.push(...events)
+        allMarkets.push(...markets)
+      }
+
+      // Deduplicate by externalId / eventId+marketType
+      const seenEventIds = new Set<string>()
+      const dedupedEvents = allEvents.filter(e => {
+        if (seenEventIds.has(e.externalId)) return false
+        seenEventIds.add(e.externalId)
+        return true
+      })
+      const seenMarkets = new Set<string>()
+      const dedupedMarkets = allMarkets.filter(m => {
+        const key = `${m.eventId}:${m.marketType}`
+        if (seenMarkets.has(key)) return false
+        seenMarkets.add(key)
+        return true
+      })
 
       console.log(
-        `[sports_interaction] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
+        `[sports_interaction] fetchEvents: ${dedupedEvents.length} events, ${dedupedMarkets.length} markets, ${capturedResponses.length} responses captured, ${errors.length} errors in ${Date.now() - start}ms`
       )
       if (errors.length) console.error('[sports_interaction] errors:', errors)
 
-      return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
+      return { raw: rawPayloads, events: dedupedEvents, markets: dedupedMarkets, errors } as any
     })
   },
 
@@ -475,14 +495,11 @@ export const sportsInteractionAdapter: SourceAdapter = {
   async healthCheck(): Promise<HealthCheckResult> {
     const start = Date.now()
     try {
-      await withBrowser(async ({ visit, fetchJson }) => {
-        await visit(SEED_URL)
-        const url =
-          `${API}/bettingoffer/fixtures?${COMMON_PARAMS}` +
-          `&tagIds=7&tagTypes=Sport&state=Latest&skip=0&take=1`
+      await withBrowser(async ({ fetchJson }) => {
+        // counts endpoint is lightweight and reliably returns sport fixture counts
+        const url = `${API}/bettingoffer/counts?${COMMON_PARAMS}&tagTypes=Sport&state=Latest`
         const data = await fetchJson(url, API_HEADERS)
-        const fixtures = data.fixtures ?? []
-        if (!Array.isArray(fixtures)) throw new Error('Unexpected fixtures response shape')
+        if (!data || typeof data !== 'object') throw new Error('Unexpected response shape')
       })
       const latencyMs = Date.now() - start
       return { healthy: true, latencyMs, message: `ok (${latencyMs}ms)` }
