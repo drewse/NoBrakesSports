@@ -130,6 +130,7 @@ export default async function DataPipelinesPage() {
                     'Last Success',
                     'Last Error',
                     'Notes',
+                    'Run',
                   ].map(col => (
                     <th
                       key={col}
@@ -143,7 +144,7 @@ export default async function DataPipelinesPage() {
               <tbody>
                 {all.length === 0 ? (
                   <tr>
-                    <td colSpan={11} className="px-4 py-12 text-center text-nb-500 text-xs">
+                    <td colSpan={12} className="px-4 py-12 text-center text-nb-500 text-xs">
                       No pipeline records found. Run migration 007 in Supabase SQL editor.
                     </td>
                   </tr>

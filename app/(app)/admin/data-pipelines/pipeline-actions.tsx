@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, MoreHorizontal, Pencil, Check, X } from 'lucide-react'
+import { Loader2, Pencil, Check, X, Play, CheckCircle2, AlertCircle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 export type Pipeline = {
@@ -215,6 +215,85 @@ export function PriorityCell({ pipeline, onUpdate }: { pipeline: Pipeline; onUpd
   )
 }
 
+// ── Run pipeline button ───────────────────────────────────────────────────────
+
+type RunState = 'idle' | 'running' | 'success' | 'error'
+
+export function RunPipelineButton({ slug }: { slug: string }) {
+  const [state, setState] = useState<RunState>('idle')
+  const [result, setResult] = useState<{ eventsUpserted?: number; snapshotsInserted?: number; errors?: string[] } | null>(null)
+
+  async function run() {
+    if (state === 'running') return
+    setState('running')
+    setResult(null)
+    try {
+      const res = await fetch('/api/pipelines/run', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setState('error')
+        setResult({ errors: [data.error ?? `HTTP ${res.status}`] })
+      } else {
+        setState('success')
+        setResult(data)
+        // Reset to idle after 8s
+        setTimeout(() => { setState('idle'); setResult(null) }, 8000)
+      }
+    } catch (e: any) {
+      setState('error')
+      setResult({ errors: [e.message] })
+    }
+  }
+
+  if (state === 'running') {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-nb-400">
+        <Loader2 className="h-3 w-3 animate-spin" />
+        <span>Running…</span>
+      </div>
+    )
+  }
+
+  if (state === 'success' && result) {
+    return (
+      <div className="flex items-center gap-1.5 text-[10px] text-green-400">
+        <CheckCircle2 className="h-3 w-3 shrink-0" />
+        <span className="whitespace-nowrap">
+          {result.eventsUpserted ?? 0}e / {result.snapshotsInserted ?? 0}s
+          {result.errors && result.errors.length > 0 && (
+            <span className="text-amber-400 ml-1">({result.errors.length} err)</span>
+          )}
+        </span>
+      </div>
+    )
+  }
+
+  if (state === 'error' && result) {
+    return (
+      <div className="flex items-center gap-1 text-[10px] text-red-400" title={result.errors?.[0]}>
+        <AlertCircle className="h-3 w-3 shrink-0" />
+        <span className="max-w-[120px] truncate">{result.errors?.[0] ?? 'Error'}</span>
+      </div>
+    )
+  }
+
+  return (
+    <button
+      onClick={run}
+      title={`Run ${slug} pipeline now`}
+      className="flex items-center gap-1 text-[10px] font-medium text-nb-400 hover:text-white border border-nb-700 hover:border-nb-500 rounded px-2 py-0.5 transition-colors"
+    >
+      <Play className="h-2.5 w-2.5" />
+      Run
+    </button>
+  )
+}
+
 // ── Full pipeline row (manages its own local state) ───────────────────────────
 
 export function PipelineRow({ initial }: { initial: Pipeline }) {
@@ -300,6 +379,11 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
       {/* Notes */}
       <td className="px-4 py-3 max-w-[220px]">
         <NotesCell pipeline={pipeline} onUpdate={setPipeline} />
+      </td>
+
+      {/* Run */}
+      <td className="px-4 py-3">
+        <RunPipelineButton slug={pipeline.slug} />
       </td>
     </tr>
   )
