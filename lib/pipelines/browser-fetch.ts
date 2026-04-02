@@ -50,6 +50,11 @@ export interface BrowserSession {
    */
   fetchJson(url: string, headers?: Record<string, string>): Promise<any>
   /**
+   * Fetch a text API endpoint from within the browser context.
+   * Use this for APIs that return plain text or custom protocols (e.g., pipe-delimited).
+   */
+  fetchText(url: string, headers?: Record<string, string>): Promise<string>
+  /**
    * Access the raw Playwright page if needed.
    */
   page: Page
@@ -113,6 +118,20 @@ export async function withBrowser<T>(fn: (session: BrowserSession) => Promise<T>
             })
             if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
             return res.json()
+          },
+          { url, headers: headers ?? {} }
+        )
+      },
+
+      async fetchText(url: string, headers?: Record<string, string>) {
+        return page.evaluate(
+          async ({ url, headers }) => {
+            const res = await fetch(url, {
+              headers: { Accept: '*/*', ...headers },
+              credentials: 'include',
+            })
+            if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
+            return res.text()
           },
           { url, headers: headers ?? {} }
         )
