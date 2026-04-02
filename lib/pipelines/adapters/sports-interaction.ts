@@ -381,83 +381,80 @@ export const sportsInteractionAdapter: SourceAdapter = {
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
 
-    return withBrowser(async ({ page, fetchJson }) => {
+    // Sport IDs confirmed from /bettingoffer/counts?tagTypes=Sport
+    const SPORTS = [
+      { id: 7,  name: 'Basketball' },
+      { id: 12, name: 'Hockey' },
+      { id: 11, name: 'Football' },
+      { id: 23, name: 'Baseball' },
+      { id: 4,  name: 'Soccer' },
+    ]
+
+    return withBrowser(async ({ visit, fetchJson }) => {
+      // Visit seed URL once to get Cloudflare cookies — no sport pages needed.
+      await visit(SEED_URL)
+
       const allEvents: CanonicalEvent[] = []
       const allMarkets: CanonicalMarket[] = []
       const rawPayloads: unknown[] = []
       const errors: string[] = []
       const fixtureMap = new Map<number, SiFixture>()
 
-      // Block images, fonts, CSS, analytics — Vercel hits ERR_INSUFFICIENT_RESOURCES
-      // if a full SPA page loads all its assets inside a serverless function.
-      await page.route(/\.(png|jpe?g|gif|webp|svg|ico|woff2?|ttf|eot|css)(\?|$)/, (r) => r.abort())
-      await page.route(/\/(gtm|analytics|segment|sentry|hotjar|clarity)/, (r) => r.abort())
+      // Step 1: get fixture IDs per sport from the fixtures listing endpoint.
+      // This runs in the browser context (real TLS + CF cookies) so it won't be blocked.
+      const allFixtureIds: number[] = []
+      await Promise.allSettled(
+        SPORTS.map(async (sport) => {
+          try {
+            const url =
+              `${API}/bettingoffer/fixtures?${COMMON_PARAMS}` +
+              `&tagIds=${sport.id}&tagTypes=Sport&state=Latest&skip=0&take=200`
+            const data = await fetchJson(url, API_HEADERS)
+            const fixtures: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
+            console.log(`[sports_interaction] ${sport.name} fixtures listing: ${fixtures.length} fixtures, keys: ${Object.keys(data ?? {}).join(',')}`)
+            for (const f of fixtures) {
+              if (f?.id) { fixtureMap.set(f.id, parseFixtureList({ fixtures: [f] })[0] ?? {} as SiFixture); allFixtureIds.push(f.id) }
+            }
+          } catch (e: any) {
+            errors.push(`${sport.name} fixtures: ${e.message}`)
+          }
+        })
+      )
 
-      // Passively capture fixture-view responses — no route interception,
-      // just read what the browser naturally receives.
-      const capturedResponses: any[] = []
-      const pendingCaptures: Promise<void>[] = []
-      page.on('response', (response) => {
-        if (!response.url().includes('/fixture-view')) return
-        const p = response.json()
-          .then((data) => { capturedResponses.push(data) })
-          .catch(() => {})
-        pendingCaptures.push(p)
-      })
+      console.log(`[sports_interaction] total fixture IDs found: ${allFixtureIds.length}`)
 
-      // Load each sport page. domcontentloaded is enough — the SPA fires its
-      // data API calls immediately on mount, before all lazy assets finish.
-      const SPORT_PAGES = [
-        `${BASE}/sports/basketball/nba`,
-        `${BASE}/sports/hockey/nhl`,
-        `${BASE}/sports/football/nfl`,
-        `${BASE}/sports/baseball/mlb`,
-        `${BASE}/sports/soccer`,
-      ]
+      if (allFixtureIds.length === 0) {
+        console.log('[sports_interaction] no fixtures found, returning empty')
+        return { raw: rawPayloads, events: [], markets: [], errors } as any
+      }
 
-      for (const pageUrl of SPORT_PAGES) {
+      // Step 2: batch-fetch full market data via fixture-view
+      const BATCH = 25
+      for (let i = 0; i < allFixtureIds.length; i += BATCH) {
+        const ids = allFixtureIds.slice(i, i + BATCH)
         try {
-          await page.goto(pageUrl, { waitUntil: 'domcontentloaded', timeout: 20_000 })
-          // Brief pause for the SPA's data fetches to complete after DOM is ready
-          await page.waitForTimeout(3_000)
+          const url =
+            `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
+            `&fixtureIds=${ids.join(',')}&state=Latest` +
+            `&offerMapping=Filtered&scoreboardMode=None` +
+            `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
+            `&statisticsModes=None&firstMarketGroupOnly=true`
+          const data = await fetchJson(url, API_HEADERS)
+          rawPayloads.push(data)
+          const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
+          allEvents.push(...events)
+          allMarkets.push(...markets)
         } catch (e: any) {
-          errors.push(`Navigate ${pageUrl}: ${e.message}`)
+          errors.push(`fixture-view batch ${i / BATCH}: ${e.message}`)
         }
       }
 
-      // Flush pending JSON parses
-      await Promise.allSettled(pendingCaptures)
-
-      console.log(`[sports_interaction] captured ${capturedResponses.length} fixture-view responses`)
-
-      for (const data of capturedResponses) {
-        rawPayloads.push(data)
-        const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
-        allEvents.push(...events)
-        allMarkets.push(...markets)
-      }
-
-      // Deduplicate by externalId / eventId+marketType
-      const seenEventIds = new Set<string>()
-      const dedupedEvents = allEvents.filter(e => {
-        if (seenEventIds.has(e.externalId)) return false
-        seenEventIds.add(e.externalId)
-        return true
-      })
-      const seenMarkets = new Set<string>()
-      const dedupedMarkets = allMarkets.filter(m => {
-        const key = `${m.eventId}:${m.marketType}`
-        if (seenMarkets.has(key)) return false
-        seenMarkets.add(key)
-        return true
-      })
-
       console.log(
-        `[sports_interaction] fetchEvents: ${dedupedEvents.length} events, ${dedupedMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
+        `[sports_interaction] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`
       )
       if (errors.length) console.error('[sports_interaction] errors:', errors)
 
-      return { raw: rawPayloads, events: dedupedEvents, markets: dedupedMarkets, errors } as any
+      return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
     })
   },
 
