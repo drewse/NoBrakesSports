@@ -29,6 +29,7 @@ import type {
   CanonicalOutcome,
 } from '../types'
 import { normalizeEvent, decimalToAmerican, americanToImplied, detectMarketShape } from '../normalize'
+import { pipeFetch } from '../proxy-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -49,7 +50,7 @@ const HEADERS: Record<string, string> = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function apiFetch(path: string): Promise<any> {
-  const res = await fetch(`${BASE}${path}`, { headers: HEADERS })
+  const res = await pipeFetch(`${BASE}${path}`, { headers: HEADERS })
   if (!res.ok) throw Object.assign(new Error(`PointsBet ON: HTTP ${res.status} for ${path}`), { type: 'network' })
   return res.json()
 }
@@ -307,7 +308,7 @@ export const pointsbetOnAdapter: SourceAdapter = {
   async healthCheck(): Promise<HealthCheckResult> {
     const start = Date.now()
     try {
-      const res = await fetch(`${BASE}/sports/basketball/competitions`, { headers: HEADERS })
+      const res = await pipeFetch(`${BASE}/sports/basketball/competitions`, { headers: HEADERS })
       const latencyMs = Date.now() - start
       return { healthy: res.ok, latencyMs, message: res.ok ? `ok (${latencyMs}ms)` : `HTTP ${res.status}` }
     } catch (e: any) {
