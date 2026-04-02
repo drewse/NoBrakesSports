@@ -66,12 +66,25 @@ export async function withBrowser<T>(fn: (session: BrowserSession) => Promise<T>
   const browser = await launchBrowser()
 
   try {
+    // Use residential proxy if configured — gives real Chrome TLS + residential IP
+    const proxyUrl = process.env.PROXY_URL
+    let proxy: { server: string; username?: string; password?: string } | undefined
+    if (proxyUrl) {
+      const u = new URL(proxyUrl)
+      proxy = {
+        server: `${u.protocol}//${u.host}`,
+        username: u.username || undefined,
+        password: u.password || undefined,
+      }
+    }
+
     const context = await browser.newContext({
       userAgent:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       locale: 'en-CA',
       timezoneId: 'America/Toronto',
       viewport: { width: 1280, height: 800 },
+      ...(proxy ? { proxy } : {}),
     })
 
     const page = await context.newPage()
