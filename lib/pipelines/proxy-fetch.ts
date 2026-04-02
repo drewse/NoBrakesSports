@@ -42,5 +42,6 @@ export async function pipeFetch(
   return undiciFetch(url, {
     ...(init as any),
     dispatcher: agent,
+    signal: AbortSignal.timeout(15000), // 15s timeout per request
   }) as unknown as Response
 }
