@@ -14,7 +14,7 @@ import { ingestPipeline } from '@/lib/pipelines/ingest'
 import { ALL_PIPELINE_SLUGS } from '@/lib/pipelines/registry'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 300
 
 async function isAdmin(): Promise<boolean> {
   try {
