@@ -31,22 +31,20 @@ import type {
   CanonicalOutcome,
 } from '../types'
 import { normalizeEvent, americanToImplied, detectMarketShape } from '../normalize'
-import { pipeFetch } from '../proxy-fetch'
+import { withBrowser } from '../browser-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const BASE = 'https://guest.api.arcadia.pinnacle.com/0.1'
+const SITE    = 'https://www.pinnacle.com'
+const BASE    = 'https://guest.api.arcadia.pinnacle.com/0.1'
+const SEED_URL = `${SITE}/en/sports/basketball`
 
-// X-Api-Key: static public key embedded in Pinnacle's web app JS bundle
-// X-Device-Uuid: any valid UUID works — Pinnacle uses it for session tracking
-function makeHeaders(): Record<string, string> {
-  return {
-    'Accept':         'application/json',
-    'Content-Type':   'application/json',
-    'Referer':        'https://www.pinnacle.com/',
-    'X-Api-Key':      'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R',
-    'X-Device-Uuid':  crypto.randomUUID(),
-  }
+// Headers sent with every API call — run inside Chromium so CF sees a real browser
+const API_HEADERS = {
+  'Accept':        'application/json',
+  'Content-Type':  'application/json',
+  'Referer':       `${SITE}/`,
+  'X-Api-Key':     'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R',
 }
 
 const SPORTS = [
@@ -113,10 +111,12 @@ function toLeagueSlug(leagueName: string): string | null {
 
 // ── API helpers ───────────────────────────────────────────────────────────────
 
-async function getJson(path: string): Promise<any> {
-  const res = await pipeFetch(`${BASE}${path}`, { headers: makeHeaders() })
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${path}`)
-  return res.json()
+// fetchJson is provided by the BrowserSession — runs fetch inside Chromium
+// so Cloudflare sees a real browser TLS fingerprint.
+type FetchJsonFn = (url: string, headers?: Record<string, string>) => Promise<any>
+
+async function apiGet(fetchJson: FetchJsonFn, path: string): Promise<any> {
+  return fetchJson(`${BASE}${path}`, API_HEADERS)
 }
 
 // ── Types mirroring Pinnacle guest API response shapes ────────────────────────
@@ -211,105 +211,111 @@ export const pinnacleAdapter: SourceAdapter = {
 
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
-    const allEvents: CanonicalEvent[] = []
-    const allMarkets: CanonicalMarket[] = []
-    const rawPayloads: unknown[] = []
-    const errors: string[] = []
 
-    // Step 1: fetch matchups for each sport in parallel
-    const sportMatchups = await Promise.allSettled(
-      SPORTS.map(async (sport) => {
-        const data: PinnMatchup[] = await getJson(`/sports/${sport.id}/matchups?withSpecials=false&handicapStyle=american`)
-        return { sport, matchups: data }
-      })
-    )
+    return withBrowser(async ({ visit, fetchJson }) => {
+      // Visit seed URL so Chromium gets CF cookies for pinnacle.com and its API subdomain
+      await visit(SEED_URL)
 
-    // Step 2: filter to pregame matchups in target leagues
-    interface KeptMatchup { matchup: PinnMatchup; leagueSlug: string }
-    const kept: KeptMatchup[] = []
+      const allEvents: CanonicalEvent[] = []
+      const allMarkets: CanonicalMarket[] = []
+      const rawPayloads: unknown[] = []
+      const errors: string[] = []
 
-    for (const res of sportMatchups) {
-      if (res.status === 'rejected') {
-        errors.push(`matchups fetch: ${res.reason?.message ?? res.reason}`)
-        continue
-      }
-      const { sport, matchups } = res.value
-      const pregame = matchups.filter(m => m.type === 'pregame' && !m.parent)
-      const slugCounts: Record<string, number> = {}
-      for (const m of pregame) {
-        const slug = toLeagueSlug(m.league?.name ?? '')
-        if (!slug) continue
-        kept.push({ matchup: m, leagueSlug: slug })
-        slugCounts[slug] = (slugCounts[slug] ?? 0) + 1
-      }
-      console.log(`[pinnacle] ${sport.name}: ${pregame.length} pregame → ${kept.filter(k => pregame.some(m => m.id === k.matchup.id)).length} target-league. leagues: ${JSON.stringify(slugCounts)}`)
-    }
-
-    rawPayloads.push({ matchupCount: kept.length, sports: SPORTS.map(s => s.name) })
-
-    if (kept.length === 0) {
-      console.log('[pinnacle] no target-league matchups found')
-      return { raw: rawPayloads, events: [], markets: [], errors } as any
-    }
-
-    // Step 3: build events
-    for (const { matchup, leagueSlug } of kept) {
-      const home = matchup.participants.find(p => p.alignment === 'home')?.name ?? ''
-      const away = matchup.participants.find(p => p.alignment === 'away')?.name ?? ''
-      if (!home || !away) continue
-
-      allEvents.push(normalizeEvent({
-        externalId: String(matchup.id),
-        homeTeam:   home,
-        awayTeam:   away,
-        startTime:  matchup.startTime,
-        leagueSlug,
-        sourceSlug: 'pinnacle',
-      }))
-    }
-
-    // Step 4: fetch markets — batch 10 concurrent to avoid rate limiting
-    const CONCURRENCY = 10
-    for (let i = 0; i < kept.length; i += CONCURRENCY) {
-      const chunk = kept.slice(i, i + CONCURRENCY)
-      await Promise.allSettled(
-        chunk.map(async ({ matchup, leagueSlug }) => {
-          try {
-            const raw: PinnMarket[] = await getJson(`/matchups/${matchup.id}/markets/straight?primaryOnly=true`)
-            rawPayloads.push(raw)
-            const markets = extractMarkets(raw, matchup.id, leagueSlug)
-            allMarkets.push(...markets)
-          } catch (e: any) {
-            errors.push(`markets ${matchup.id}: ${e.message}`)
-          }
+      // Step 1: fetch matchups for each sport in parallel
+      const sportMatchups = await Promise.allSettled(
+        SPORTS.map(async (sport) => {
+          const data: PinnMatchup[] = await apiGet(fetchJson, `/sports/${sport.id}/matchups?withSpecials=false&handicapStyle=american`)
+          return { sport, matchups: data }
         })
       )
-    }
 
-    console.log(`[pinnacle] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`)
-    if (errors.length) console.error('[pinnacle] errors:', errors)
+      // Step 2: filter to pregame matchups in target leagues
+      interface KeptMatchup { matchup: PinnMatchup; leagueSlug: string }
+      const kept: KeptMatchup[] = []
 
-    return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
+      for (const res of sportMatchups) {
+        if (res.status === 'rejected') {
+          errors.push(`matchups fetch: ${res.reason?.message ?? res.reason}`)
+          continue
+        }
+        const { sport, matchups } = res.value
+        const pregame = matchups.filter((m: PinnMatchup) => m.type === 'pregame' && !m.parent)
+        const slugCounts: Record<string, number> = {}
+        for (const m of pregame) {
+          const slug = toLeagueSlug(m.league?.name ?? '')
+          if (!slug) continue
+          kept.push({ matchup: m, leagueSlug: slug })
+          slugCounts[slug] = (slugCounts[slug] ?? 0) + 1
+        }
+        console.log(`[pinnacle] ${sport.name}: ${pregame.length} pregame → ${Object.values(slugCounts).reduce((a, b) => a + b, 0)} target-league. leagues: ${JSON.stringify(slugCounts)}`)
+      }
+
+      rawPayloads.push({ matchupCount: kept.length })
+
+      if (kept.length === 0) {
+        console.log('[pinnacle] no target-league matchups found')
+        return { raw: rawPayloads, events: [], markets: [], errors } as any
+      }
+
+      // Step 3: build events
+      for (const { matchup, leagueSlug } of kept) {
+        const home = matchup.participants.find(p => p.alignment === 'home')?.name ?? ''
+        const away = matchup.participants.find(p => p.alignment === 'away')?.name ?? ''
+        if (!home || !away) continue
+        allEvents.push(normalizeEvent({
+          externalId: String(matchup.id),
+          homeTeam:   home,
+          awayTeam:   away,
+          startTime:  matchup.startTime,
+          leagueSlug,
+          sourceSlug: 'pinnacle',
+        }))
+      }
+
+      // Step 4: fetch markets — 10 concurrent
+      const CONCURRENCY = 10
+      for (let i = 0; i < kept.length; i += CONCURRENCY) {
+        const chunk = kept.slice(i, i + CONCURRENCY)
+        await Promise.allSettled(
+          chunk.map(async ({ matchup, leagueSlug }) => {
+            try {
+              const raw: PinnMarket[] = await apiGet(fetchJson, `/matchups/${matchup.id}/markets/straight?primaryOnly=true`)
+              rawPayloads.push(raw)
+              allMarkets.push(...extractMarkets(raw, matchup.id, leagueSlug))
+            } catch (e: any) {
+              errors.push(`markets ${matchup.id}: ${e.message}`)
+            }
+          })
+        )
+      }
+
+      console.log(`[pinnacle] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`)
+      if (errors.length) console.error('[pinnacle] errors:', errors)
+
+      return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
+    })
   },
 
   async fetchMarkets(eventId: string): Promise<FetchMarketsResult> {
-    try {
-      const raw: PinnMarket[] = await getJson(`/matchups/${eventId}/markets/straight?primaryOnly=false`)
-      // Determine league slug from event if possible — use empty string fallback
+    return withBrowser(async ({ visit, fetchJson }) => {
+      await visit(SEED_URL)
+      const raw: PinnMarket[] = await apiGet(fetchJson, `/matchups/${eventId}/markets/straight?primaryOnly=false`)
       const markets = extractMarkets(raw, Number(eventId), '')
       return { raw, markets }
-    } catch (e: any) {
-      throw new Error(`pinnacle fetchMarkets(${eventId}): ${e.message}`)
-    }
+    })
   },
 
   async healthCheck(): Promise<HealthCheckResult> {
     const start = Date.now()
     try {
-      const data = await getJson('/sports/4/matchups?withSpecials=false&handicapStyle=american')
-      if (!Array.isArray(data)) throw new Error('Unexpected response shape')
+      await withBrowser(async ({ visit, fetchJson }) => {
+        await visit(SEED_URL)
+        const data = await apiGet(fetchJson, '/sports/4/matchups?withSpecials=false&handicapStyle=american')
+        if (!Array.isArray(data)) throw new Error('Unexpected response shape')
+        console.log(`[pinnacle] health: ${data.length} basketball matchups`)
+      })
       const latencyMs = Date.now() - start
-      return { healthy: true, latencyMs, message: `ok — ${data.length} basketball matchups (${latencyMs}ms)` }
+      return { healthy: true, latencyMs, message: `ok (${latencyMs}ms)` }
     } catch (e: any) {
       return { healthy: false, latencyMs: Date.now() - start, message: e.message }
     }
