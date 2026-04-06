@@ -37,10 +37,16 @@ import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://guest.api.arcadia.pinnacle.com/0.1'
 
-const HEADERS = {
-  'Accept':          'application/json',
-  'Content-Type':    'application/json',
-  'X-Device-UUID':   '00000000-0000-0000-0000-000000000000',
+// X-Api-Key: static public key embedded in Pinnacle's web app JS bundle
+// X-Device-Uuid: any valid UUID works — Pinnacle uses it for session tracking
+function makeHeaders(): Record<string, string> {
+  return {
+    'Accept':         'application/json',
+    'Content-Type':   'application/json',
+    'Referer':        'https://www.pinnacle.com/',
+    'X-Api-Key':      'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R',
+    'X-Device-Uuid':  crypto.randomUUID(),
+  }
 }
 
 const SPORTS = [
@@ -108,7 +114,7 @@ function toLeagueSlug(leagueName: string): string | null {
 // ── API helpers ───────────────────────────────────────────────────────────────
 
 async function getJson(path: string): Promise<any> {
-  const res = await pipeFetch(`${BASE}${path}`, { headers: HEADERS })
+  const res = await pipeFetch(`${BASE}${path}`, { headers: makeHeaders() })
   if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} for ${path}`)
   return res.json()
 }
