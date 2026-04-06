@@ -3,6 +3,7 @@ import { createStubAdapter } from './stub-adapter'
 import { pointsbetOnAdapter } from './adapters/pointsbet-on'
 import { bet365OnAdapter } from './adapters/bet365-on'
 import { sportsInteractionAdapter } from './adapters/sports-interaction'
+import { pinnacleAdapter } from './adapters/pinnacle'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Central Adapter Registry
@@ -59,6 +60,7 @@ for (const slug of ALL_PIPELINE_SLUGS) {
 ADAPTERS.set('pointsbet_on', pointsbetOnAdapter)
 ADAPTERS.set('bet365', bet365OnAdapter)
 ADAPTERS.set('sports_interaction', sportsInteractionAdapter)
+ADAPTERS.set('pinnacle', pinnacleAdapter)
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
