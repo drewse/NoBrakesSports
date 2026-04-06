@@ -123,11 +123,12 @@ async function apiGet(fetchJson: FetchJsonFn, path: string): Promise<any> {
 
 interface PinnMatchup {
   id: number
-  type: string       // 'pregame' | 'live' | 'special'
-  league: { id: number; name: string }
+  isLive: boolean    // true = in-play; false = upcoming (no 'type' field in this API)
+  hasMarkets: boolean
+  league: { id: number; name: string; group: string }
   startTime: string  // ISO 8601
   participants: Array<{ alignment: 'home' | 'away'; name: string }>
-  parent?: { id: number } | null
+  parentId?: number | null
 }
 
 interface PinnPrice {
@@ -240,8 +241,9 @@ export const pinnacleAdapter: SourceAdapter = {
         }
         const { sport, matchups } = res.value
         // Debug: dump raw response shape and first item
-        console.log(`[pinnacle] ${sport.name} raw: isArray=${Array.isArray(matchups)}, length=${Array.isArray(matchups) ? matchups.length : 'n/a'}, sample=${JSON.stringify(matchups).slice(0, 400)}`)
-        const pregame = matchups.filter((m: PinnMatchup) => m.type === 'pregame' && !m.parent)
+        if (matchups.length > 0) console.log(`[pinnacle] ${sport.name} first matchup:`, JSON.stringify(matchups[0]).slice(0, 800))
+        // Upcoming = not live + has markets + no parentId (parent = alt-line child)
+        const pregame = matchups.filter((m: PinnMatchup) => !m.isLive && m.hasMarkets && !m.parentId)
         const slugCounts: Record<string, number> = {}
         for (const m of pregame) {
           const slug = toLeagueSlug(m.league?.name ?? '')
