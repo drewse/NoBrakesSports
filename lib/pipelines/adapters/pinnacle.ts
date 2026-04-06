@@ -35,15 +35,16 @@ import { withBrowser } from '../browser-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
-const SITE    = 'https://www.pinnacle.com'
-const BASE    = 'https://guest.api.arcadia.pinnacle.com/0.1'
-const SEED_URL = `${SITE}/en/sports/basketball`
+const BASE     = 'https://guest.api.arcadia.pinnacle.com/0.1'
+// Navigate to the API subdomain itself (lightweight JSON page) so the browser
+// origin is set correctly for same-origin requests — avoids loading the heavy SPA.
+const SEED_URL = `${BASE}/status`
 
-// Headers sent with every API call — run inside Chromium so CF sees a real browser
+// Headers sent with every API call
 const API_HEADERS = {
   'Accept':        'application/json',
   'Content-Type':  'application/json',
-  'Referer':       `${SITE}/`,
+  'Referer':       'https://www.pinnacle.com/',
   'X-Api-Key':     'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R',
 }
 
