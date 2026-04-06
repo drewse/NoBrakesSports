@@ -239,6 +239,8 @@ export const pinnacleAdapter: SourceAdapter = {
           continue
         }
         const { sport, matchups } = res.value
+        // Debug: dump raw response shape and first item
+        console.log(`[pinnacle] ${sport.name} raw: isArray=${Array.isArray(matchups)}, length=${Array.isArray(matchups) ? matchups.length : 'n/a'}, sample=${JSON.stringify(matchups).slice(0, 400)}`)
         const pregame = matchups.filter((m: PinnMatchup) => m.type === 'pregame' && !m.parent)
         const slugCounts: Record<string, number> = {}
         for (const m of pregame) {

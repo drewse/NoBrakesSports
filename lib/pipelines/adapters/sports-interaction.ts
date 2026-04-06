@@ -428,6 +428,8 @@ export const sportsInteractionAdapter: SourceAdapter = {
               `[keys:${Object.keys(f).join(',')}]`
             )
             console.log(`[sports_interaction] ${sport.name} sample comps:`, JSON.stringify(sampleComps))
+            // Dump first fixture raw to diagnose why parseFixtureList returns 0
+            if (fixtures.length > 0) console.log(`[sports_interaction] ${sport.name} first fixture raw:`, JSON.stringify(fixtures[0]).slice(0, 600))
             const parsed = parseFixtureList({ fixtures })
             const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
             const allSlugs = [...new Set(parsed.map(f => f.leagueSlug))].slice(0, 20)
