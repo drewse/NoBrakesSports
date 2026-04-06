@@ -263,6 +263,7 @@ function buildMarketsFromRecords(
 
 export const bet365OnAdapter: SourceAdapter = {
   slug: 'bet365',
+  ingestionMethod: 'playwright + pipe-protocol',
 
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()

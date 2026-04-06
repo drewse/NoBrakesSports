@@ -29,6 +29,8 @@ export interface HealthCheckResult {
 export interface SourceAdapter {
   /** Unique identifier matching data_pipelines.slug */
   slug: string
+  /** Human-readable ingestion method stored in data_pipelines.ingestion_method */
+  ingestionMethod?: string
   /** Fetch the list of upcoming events for this source. */
   fetchEvents(options?: Record<string, unknown>): Promise<FetchEventsResult>
   /** Fetch markets for a specific event by its source-side ID. */

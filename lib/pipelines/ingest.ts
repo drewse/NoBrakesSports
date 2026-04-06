@@ -73,6 +73,14 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
   )
 
   // ── 4. Fetch events from adapter ─────────────────────────────────────────────
+  // Mark the pipeline as checked right before we start the fetch
+  const checkedAt = new Date().toISOString()
+  await db.from('data_pipelines').update({
+    last_checked_at: checkedAt,
+    ...(adapter.ingestionMethod ? { ingestion_method: adapter.ingestionMethod } : {}),
+    updated_at: checkedAt,
+  }).eq('slug', slug)
+
   const result = await adapter.fetchEvents() as any
   const events: CanonicalEvent[] = result.events ?? []
   const markets: CanonicalMarket[] = result.markets ?? []
@@ -170,10 +178,32 @@ export async function ingestPipeline(db: SupabaseClient, slug: string): Promise<
     }
   }
 
+  const finalEventsUpserted = upsertedEvents?.length ?? 0
+  const finishedAt = new Date().toISOString()
+  const hasErrors = errors.length > 0
+  const derivedStatus =
+    finalEventsUpserted > 0 && !hasErrors ? 'healthy' :
+    finalEventsUpserted > 0 && hasErrors  ? 'warning' :
+    hasErrors                             ? 'error'   : 'warning'
+
+  const patch: Record<string, unknown> = {
+    status: derivedStatus,
+    last_success_at: finalEventsUpserted > 0 ? finishedAt : undefined,
+    updated_at: finishedAt,
+  }
+  if (hasErrors) {
+    patch.last_error_at = finishedAt
+    patch.last_error_message = errors[0]
+  }
+  // Remove undefined keys — Supabase rejects them
+  for (const k of Object.keys(patch)) { if (patch[k] === undefined) delete patch[k] }
+
+  await db.from('data_pipelines').update(patch).eq('slug', slug)
+
   return {
     slug,
     eventsFound: events.length,
-    eventsUpserted: upsertedEvents?.length ?? 0,
+    eventsUpserted: finalEventsUpserted,
     snapshotsInserted,
     leagueSlugsFound,
     leagueSlugsMatched,

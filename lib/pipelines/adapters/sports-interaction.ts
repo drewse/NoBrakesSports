@@ -377,6 +377,7 @@ function extractMarketsFromFixtureView(
 
 export const sportsInteractionAdapter: SourceAdapter = {
   slug: 'sports_interaction',
+  ingestionMethod: 'playwright + cds-api',
 
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
