@@ -139,31 +139,48 @@ function parseFixtureList(data: any): SiFixture[] {
   const out: SiFixture[] = []
 
   for (const f of raw) {
-    const id: number = f.id
+    // id is a string in the SI API ("19210778") — convert to number
+    const id: number = Number(f.id ?? f.sourceId)
     if (!id) continue
 
+    // Skip live/resulted fixtures — only PreMatch
+    if (f.stage && f.stage !== 'PreMatch') continue
+
     // Start date
-    const startDate: string = f.startDate ?? f.startTime ?? ''
+    const startDate: string = f.startDate ?? f.startTime ?? f.cutOffDate ?? ''
     if (!startDate) continue
 
-    // Team names — from participants array or name field
+    // Team names — SI participants have no homeAway/position field.
+    // Use fixture name format to determine sides:
+    //   "Away at Home"  → participants[0]=away, participants[1]=home
+    //   "Home vs Away"  → participants[0]=home, participants[1]=away
     let homeTeam = ''
     let awayTeam = ''
+    const participants: any[] = f.participants ?? []
+    const title: string = f.name?.value ?? f.name ?? ''
 
-    for (const p of f.participants ?? []) {
+    // Try explicit homeAway field first (may exist on some fixture types)
+    for (const p of participants) {
       const pName: string = p.name?.value ?? p.name ?? ''
       const pos: string = (p.homeAway ?? p.position ?? '').toLowerCase()
       if (pos === 'home' || pos === '1') homeTeam = pName
       else if (pos === 'away' || pos === '2') awayTeam = pName
     }
 
-    // Fallback: parse "Home vs Away" from fixture name
     if (!homeTeam || !awayTeam) {
-      const title: string = f.name?.value ?? f.name ?? ''
-      const vsParts = title.split(' vs ')
-      if (vsParts.length === 2) {
-        homeTeam = homeTeam || vsParts[0].trim()
-        awayTeam = awayTeam || vsParts[1].trim()
+      if (title.includes(' at ')) {
+        // "Away at Home" convention
+        const parts = title.split(' at ')
+        awayTeam = awayTeam || parts[0].trim()
+        homeTeam = homeTeam || parts[1].trim()
+      } else if (title.includes(' vs ')) {
+        const parts = title.split(' vs ')
+        homeTeam = homeTeam || parts[0].trim()
+        awayTeam = awayTeam || parts[1].trim()
+      } else if (participants.length === 2) {
+        // Array order fallback: index 0 = away, index 1 = home (Entain convention)
+        awayTeam = participants[0].name?.value ?? participants[0].name ?? ''
+        homeTeam = participants[1].name?.value ?? participants[1].name ?? ''
       }
     }
 
@@ -202,7 +219,7 @@ function extractMarketsFromFixtureView(
   const markets: CanonicalMarket[] = []
 
   for (const fixture of raws) {
-    const fixtureId: number = fixture.id
+    const fixtureId: number = Number(fixture.id ?? fixture.sourceId)
     if (!fixtureId) continue
 
     // Prefer fixtureMap (populated during two-step flow); fall back to fixture object fields
