@@ -76,7 +76,7 @@ const LEAGUE_SLUG_MAP: Record<string, string> = {
   'ncaa football':                'ncaaf',
   // Baseball
   'mlb':                          'mlb',
-  // Soccer
+  // Soccer — dot format (legacy / other sources)
   'england. premier league':      'epl',
   'english premier league':       'epl',
   'usa. mls':                     'mls',
@@ -97,6 +97,25 @@ const LEAGUE_SLUG_MAP: Record<string, string> = {
   'australia. a-league':          'australia_aleague',
   'south korea. k league 1':      'k_league1',
   'japan. j1 league':             'j_league',
+  // Soccer — dash format (Pinnacle uses "Country - League Name")
+  'england - premier league':     'epl',
+  'usa - mls':                    'mls',
+  'spain - la liga':              'laliga',
+  'germany - bundesliga':         'bundesliga',
+  'italy - serie a':              'seria_a',
+  'france - ligue 1':             'ligue_one',
+  'netherlands - eredivisie':     'eredivisie',
+  'portugal - primeira liga':     'liga_portugal',
+  'scotland - premiership':       'spl',
+  'europe - champions league':    'ucl',
+  'europe - europa league':       'uel',
+  'europe - conference league':   'uecl',
+  'england - fa cup':             'fa_cup',
+  'england - championship':       'efl_champ',
+  'mexico - liga mx':             'liga_mx',
+  'australia - a-league':         'australia_aleague',
+  'south korea - k league 1':     'k_league1',
+  'japan - j1 league':            'j_league',
 }
 
 function toLeagueSlug(leagueName: string): string | null {
