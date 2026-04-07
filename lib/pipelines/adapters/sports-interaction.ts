@@ -280,9 +280,11 @@ function extractMarketsFromFixtureView(
       sourceSlug: 'sports_interaction',
     }))
 
-    // Markets are in marketGroups[].optionMarkets when offerMapping=All is used.
-    // Flatten all groups + top-level optionMarkets to get everything.
-    const groupMarkets: any[] = (fixture.marketGroups ?? []).flatMap((g: any) => g.optionMarkets ?? [])
+    // Markets are in marketGroups when offerMapping=All is used.
+    // marketGroups may be an array or a keyed object — normalize to array of groups.
+    const mg = fixture.marketGroups
+    const mgArray: any[] = Array.isArray(mg) ? mg : (mg && typeof mg === 'object' ? Object.values(mg) : [])
+    const groupMarkets: any[] = mgArray.flatMap((g: any) => g.optionMarkets ?? [])
     const optionMarkets: any[] = [...(fixture.optionMarkets ?? []), ...groupMarkets]
 
     for (const om of optionMarkets) {
