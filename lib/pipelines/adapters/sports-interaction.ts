@@ -44,9 +44,6 @@ import { withBrowser } from '../browser-fetch'
 const BASE    = 'https://www.on.sportsinteraction.com'
 const API     = `${BASE}/cds-api`
 const ACCESS  = 'NDg1MTQwNTMtMWJjNC00NTgxLWE0MzktY2JjYTMzZjdkZTVm'
-// Navigate to a lightweight API endpoint to establish origin + cookies
-// without loading the heavy SPA (which hits ERR_INSUFFICIENT_RESOURCES on Vercel)
-const SEED_URL = `${API}/bettingoffer/counts?${COMMON_PARAMS}&tagTypes=Sport&state=Latest`
 
 const COMMON_PARAMS = new URLSearchParams({
   'x-bwin-accessid': ACCESS,
@@ -56,6 +53,10 @@ const COMMON_PARAMS = new URLSearchParams({
   'subdivision':     'CA-Ontario',
   'supportVirtual':  'true',
 }).toString()
+
+// Navigate to a lightweight API endpoint to establish origin + cookies
+// without loading the heavy SPA (which hits ERR_INSUFFICIENT_RESOURCES on Vercel)
+const SEED_URL = `${API}/bettingoffer/counts?${COMMON_PARAMS}&tagTypes=Sport&state=Latest`
 
 const API_HEADERS = {
   Origin:  BASE,
