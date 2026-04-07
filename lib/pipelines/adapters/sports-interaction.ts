@@ -487,29 +487,40 @@ export const sportsInteractionAdapter: SourceAdapter = {
         return { raw: rawPayloads, events: [], markets: [], errors } as any
       }
 
-      // Step 2: fetch market data per fixture individually (10 concurrent).
-      // Comma-separated fixtureIds only returns 1 result — endpoint takes one ID at a time.
+      // Step 2: discover the market group UUID from the first fixture, then fetch
+      // all fixtures with that group ID (availableMarketGroupIds are UUIDs, not integers).
+      let marketGroupId: string | null = null
+      if (allFixtureIds.length > 0) {
+        try {
+          const probeUrl =
+            `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
+            `&fixtureIds=${allFixtureIds[0]}&state=Latest` +
+            `&offerMapping=Filtered&scoreboardMode=None` +
+            `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
+            `&statisticsModes=None&firstMarketGroupOnly=true`
+          const probe = await fetchJson(probeUrl, API_HEADERS)
+          const groupIds: string[] = probe.availableMarketGroupIds ?? []
+          marketGroupId = groupIds[0] ?? null
+          console.log(`[sports_interaction] market group IDs:`, groupIds.slice(0, 3))
+        } catch (e: any) {
+          errors.push(`probe fixture-view: ${e.message}`)
+        }
+      }
+
       const CONCURRENCY = 10
-      let firstView = true
       for (let i = 0; i < allFixtureIds.length; i += CONCURRENCY) {
         const chunk = allFixtureIds.slice(i, i + CONCURRENCY)
         await Promise.allSettled(
           chunk.map(async (id) => {
             try {
+              const mgParam = marketGroupId ? `&marketGroupId=${marketGroupId}` : ''
               const url =
                 `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
                 `&fixtureIds=${id}&state=Latest` +
                 `&offerMapping=Filtered&scoreboardMode=None` +
                 `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-                `&statisticsModes=None&firstMarketGroupOnly=true&marketGroupId=1`
+                `&statisticsModes=None&firstMarketGroupOnly=false${mgParam}`
               const data = await fetchJson(url, API_HEADERS)
-              if (firstView) {
-                firstView = false
-                const raws = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
-                const sample = raws[0] ?? {}
-                const mg = sample.marketGroups ?? []
-                console.log(`[sports_interaction] fixture-view[${id}]: totalMarketsCount=${sample.totalMarketsCount}, availableMarketGroupIds=${JSON.stringify(data.availableMarketGroupIds ?? []).slice(0, 200)}, optionMarkets.length=${(sample.optionMarkets ?? []).length}`)
-              }
               rawPayloads.push(data)
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
               allEvents.push(...events)
@@ -545,7 +556,6 @@ export const sportsInteractionAdapter: SourceAdapter = {
 
         // Lightweight dummy fixtureMap — team names come from market data
         const fixtureMap = new Map<number, SiFixture>()
-        const id = Number(eventId)
         const fixtures: any[] = data.fixtures ?? (data.fixture ? [data.fixture] : [])
         for (const f of fixtures) {
           const parts = (f.name?.value ?? '').split(' vs ')
