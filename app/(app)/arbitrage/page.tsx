@@ -94,7 +94,19 @@ export default async function ArbitragePage() {
     lastUpdated: string
   }[] = []
 
-  for (const snaps of byEvent.values()) {
+  for (const snapsRaw of byEvent.values()) {
+    // Deduplicate to latest snapshot per source — multiple runs in the window
+    // would otherwise create phantom arbs comparing a book against itself.
+    const latestBySource = new Map<string, typeof snapsRaw[0]>()
+    for (const s of snapsRaw) {
+      const sourceId = (s as any).source_id
+      const existing = latestBySource.get(sourceId)
+      if (!existing || s.snapshot_time > existing.snapshot_time) {
+        latestBySource.set(sourceId, s)
+      }
+    }
+    const snaps = Array.from(latestBySource.values())
+
     const event = (snaps[0] as any).event
     // Pre-game only: skip events that have already started
     if (!isUpcomingEvent(event?.start_time)) continue
@@ -146,6 +158,9 @@ export default async function ArbitragePage() {
 
     // For 3-way, we need a draw price to compute a valid arb
     if (shape === '3way' && bestDrawSnap == null) continue
+
+    // Final guard: home and away must come from different books
+    if ((bestHome as any).source_id === (bestAway as any).source_id) continue
 
     const homeProb = americanToImpliedProb(bestHome.home_price!)
     const awayProb = americanToImpliedProb(bestAway.away_price!)

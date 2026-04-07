@@ -101,6 +101,9 @@ export default async function MarketsPage({
     lastUpdated: metaByEvent[event.id]?.lastUpdated ?? null,
   }))
 
+  // Hide events with no recent market data — avoids showing stale/empty records
+  eventSummaries = eventSummaries.filter(e => e.sourceCount > 0)
+
   // Apply search filter server-side
   if (params.q) {
     const q = params.q.toLowerCase()
