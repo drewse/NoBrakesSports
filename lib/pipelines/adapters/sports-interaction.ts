@@ -280,33 +280,37 @@ function extractMarketsFromFixtureView(
       sourceSlug: 'sports_interaction',
     }))
 
-    // Markets are in marketGroups when offerMapping=All is used.
-    // marketGroups may be an array or a keyed object — normalize to array of groups.
-    const mg = fixture.marketGroups
-    const mgArray: any[] = Array.isArray(mg) ? mg : (mg && typeof mg === 'object' ? Object.values(mg) : [])
-    const groupMarkets: any[] = mgArray.flatMap((g: any) => g.optionMarkets ?? [])
-    const optionMarkets: any[] = [...(fixture.optionMarkets ?? []), ...groupMarkets]
+    // Markets are in fixture.games[] (not optionMarkets).
+    // results[].sourceName.value: "1"=home, "2"=away, "3"=draw
+    const games: any[] = fixture.games ?? []
+    const now = new Date().toISOString()
 
-    for (const om of optionMarkets) {
-      if (om.status !== 'Visible') continue
+    for (const game of games) {
+      if (game.visibility !== 'Visible') continue
 
-      const marketName: string = om.name?.value ?? ''
-      const catId: number = om.templateCategory?.id ?? 0
-      const options: any[] = (om.options ?? []).filter((o: any) => o.status === 'Visible')
-      if (options.length < 2) continue
+      const catId: number = game.categoryId ?? game.templateCategory?.id ?? 0
+      const marketName: string = (game.name?.value ?? '').toLowerCase()
+      const results: any[] = (game.results ?? []).filter((r: any) => r.visibility === 'Visible')
+      if (results.length < 2) continue
+
+      const getSide = (r: any): CanonicalOutcome['side'] => {
+        const src = r.sourceName?.value ?? ''
+        if (src === '1') return 'home'
+        if (src === '2') return 'away'
+        if (src === '3') return 'draw'
+        const name = (r.name?.value ?? '').toLowerCase()
+        if (name === 'over') return 'over'
+        if (name === 'under') return 'under'
+        return 'home'
+      }
 
       // ── Moneyline ──────────────────────────────────────────────────────────
-      if (catId === 43 || (om.isMain && marketName.toLowerCase() === 'moneyline')) {
+      if (catId === 43 || (game.isMain && marketName === 'moneyline')) {
         const outcomes: CanonicalOutcome[] = []
-        for (const opt of options) {
-          const price: number = opt.price?.americanOdds
+        for (const r of results) {
+          const price: number = r.americanOdds
           if (price == null) continue
-          // Fallback: compare full name to home/away team
-          const optName: string = opt.name?.value ?? ''
-          const resolvedSide: CanonicalOutcome['side'] =
-            homeTeam.includes(optName) || optName.includes(homeTeam.split(' ').pop()!)
-              ? 'home' : 'away'
-          outcomes.push(buildOutcome(optName, price, resolvedSide))
+          outcomes.push(buildOutcome(r.name?.value ?? '', price, getSide(r)))
         }
         if (outcomes.length >= 2) {
           markets.push({
@@ -316,39 +320,23 @@ function extractMarketsFromFixtureView(
             outcomes,
             lineValue: null,
             sourceSlug: 'sports_interaction',
-            capturedAt: new Date().toISOString(),
+            capturedAt: now,
           })
         }
 
       // ── Spread ────────────────────────────────────────────────────────────
-      } else if (catId === 44 || marketName.toLowerCase() === 'spread') {
+      } else if (catId === 44 || marketName === 'spread') {
         const outcomes: CanonicalOutcome[] = []
         let lineValue: number | null = null
-
-        // player1 = home, player2 = away (Entain convention)
-        const homePlayerName: string = om.player1?.value ?? ''
-        const awayPlayerName: string = om.player2?.value ?? ''
-
-        for (const opt of options) {
-          const price: number = opt.price?.americanOdds
+        for (const r of results) {
+          const price: number = r.americanOdds
           if (price == null) continue
-          const attr: string = opt.attr ?? ''
-          const hcap = parseFloat(attr)
+          const hcap = parseFloat(r.attr ?? '')
           if (isNaN(hcap)) continue
           if (lineValue === null) lineValue = Math.abs(hcap)
-
-          const optName: string = opt.name?.value ?? ''
-          // Determine side: compare participantId or name to player1/player2
-          const pid: number = opt.participantId
-          let side: CanonicalOutcome['side'] = 'home'
-          if (homePlayerName && awayPlayerName) {
-            side = optName.includes(homePlayerName) || pid === om.player1Id ? 'home' : 'away'
-          } else {
-            side = hcap > 0 ? 'away' : 'home'  // positive handicap = underdog = away
-          }
-          outcomes.push(buildOutcome(optName, price, side))
+          const label = `${r.name?.value ?? ''} ${hcap >= 0 ? '+' : ''}${hcap}`
+          outcomes.push(buildOutcome(label, price, getSide(r)))
         }
-
         if (outcomes.length >= 2 && lineValue !== null) {
           markets.push({
             eventId: String(fixtureId),
@@ -357,51 +345,32 @@ function extractMarketsFromFixtureView(
             outcomes,
             lineValue,
             sourceSlug: 'sports_interaction',
-            capturedAt: new Date().toISOString(),
+            capturedAt: now,
           })
         }
 
-      // ── Game Total (Over/Under) ────────────────────────────────────────────
-      // Identify by: options have totalsPrefix AND market name has no ":" (≠ team total)
-      } else if (
-        options.some((o: any) => o.totalsPrefix) &&
-        !marketName.includes(':')
-      ) {
-        const outcomes: CanonicalOutcome[] = []
-        let lineValue: number | null = null
-
-        // Try attr on the market itself first, then parse from option names
-        const attrLine = parseFloat(om.attr ?? '')
-        if (!isNaN(attrLine)) lineValue = attrLine
-
-        for (const opt of options) {
-          const price: number = opt.price?.americanOdds
-          if (price == null) continue
-          const prefix: string = (opt.totalsPrefix ?? '').toLowerCase()
-          if (prefix !== 'over' && prefix !== 'under') continue
-
-          const optName: string = opt.name?.value ?? ''
-          // Parse line from option name if not yet known (e.g., "Over 231.5")
-          if (lineValue === null) {
-            const match = optName.match(/[\d.]+/)
-            if (match) lineValue = parseFloat(match[0])
-          }
-
-          const side: CanonicalOutcome['side'] = prefix === 'over' ? 'over' : 'under'
-          outcomes.push(buildOutcome(optName, price, side))
-        }
-
-        if (outcomes.length >= 2 && lineValue !== null) {
-          markets.push({
-            eventId: String(fixtureId),
-            marketType: 'total',
-            shape: '2way',
-            outcomes,
-            lineValue,
-            sourceSlug: 'sports_interaction',
-            capturedAt: new Date().toISOString(),
-          })
-        }
+      // ── Total (Over/Under) ────────────────────────────────────────────────
+      } else if (catId === 45 || marketName.startsWith('total') || marketName.startsWith('over/under')) {
+        const over  = results.find((r: any) => (r.name?.value ?? '').toLowerCase().startsWith('over'))
+        const under = results.find((r: any) => (r.name?.value ?? '').toLowerCase().startsWith('under'))
+        if (!over || !under) continue
+        // Line value: parse from result name ("Over 231.5") or result attr
+        const lineFromName = parseFloat((over.name?.value ?? '').replace(/[^0-9.]/g, ''))
+        const lineFromAttr = parseFloat(over.attr ?? '')
+        const lineValue = !isNaN(lineFromAttr) ? lineFromAttr : !isNaN(lineFromName) ? lineFromName : null
+        if (lineValue === null) continue
+        markets.push({
+          eventId: String(fixtureId),
+          marketType: 'total',
+          shape: '2way',
+          outcomes: [
+            buildOutcome(`Over ${lineValue}`,  over.americanOdds,  'over'),
+            buildOutcome(`Under ${lineValue}`, under.americanOdds, 'under'),
+          ],
+          lineValue,
+          sourceSlug: 'sports_interaction',
+          capturedAt: now,
+        })
       }
     }
   }
@@ -522,13 +491,6 @@ export const sportsInteractionAdapter: SourceAdapter = {
                 `&statisticsModes=None&firstMarketGroupOnly=false${mgParam}`
               const data = await fetchJson(url, API_HEADERS)
               rawPayloads.push(data)
-              // Debug: log first fixture-view response structure
-              if (allMarkets.length === 0 && allEvents.length === 0) {
-                const raws: any[] = data.fixtures ?? (data.fixture ? [data.fixture] : [])
-                const sample = raws[0] ?? {}
-                console.log(`[sports_interaction] fixture-view[${id}] totalMarketsCount=${sample.totalMarketsCount}`)
-                console.log(`[sports_interaction] fixture-view[${id}] raw (2000):`, JSON.stringify(data).slice(0, 2000))
-              }
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
               allEvents.push(...events)
               allMarkets.push(...markets)
