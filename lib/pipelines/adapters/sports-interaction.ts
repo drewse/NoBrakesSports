@@ -502,7 +502,7 @@ export const sportsInteractionAdapter: SourceAdapter = {
                 firstView = false
                 const raws = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
                 const sample = raws[0] ?? {}
-                console.log(`[sports_interaction] fixture-view[${id}]: optionMarkets=${JSON.stringify(sample.optionMarkets ?? []).slice(0, 200)}`)
+                console.log(`[sports_interaction] fixture-view[${id}]: totalMarketsCount=${sample.totalMarketsCount}, isOpenForBetting=${sample.isOpenForBetting}, optionMarkets.length=${(sample.optionMarkets ?? []).length}`)
               }
               rawPayloads.push(data)
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
