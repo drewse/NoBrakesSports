@@ -430,6 +430,7 @@ export const sportsInteractionAdapter: SourceAdapter = {
         )
 
         console.log(`[sports_interaction] ${allFixtures.length} total fixtures → ${gameFixtures.length} game fixtures with 2 participants`)
+        if (gameFixtures.length > 0) console.log(`[sports_interaction] first game fixture:`, JSON.stringify(gameFixtures[0]).slice(0, 800))
 
         const parsed = parseFixtureList({ fixtures: gameFixtures })
         const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
