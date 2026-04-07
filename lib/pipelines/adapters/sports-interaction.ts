@@ -517,7 +517,7 @@ export const sportsInteractionAdapter: SourceAdapter = {
               const url =
                 `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
                 `&fixtureIds=${id}&state=Latest` +
-                `&offerMapping=Filtered&scoreboardMode=None` +
+                `&offerMapping=All&scoreboardMode=None` +
                 `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
                 `&statisticsModes=None&firstMarketGroupOnly=false${mgParam}`
               const data = await fetchJson(url, API_HEADERS)
@@ -527,12 +527,10 @@ export const sportsInteractionAdapter: SourceAdapter = {
                 const raws: any[] = data.fixtures ?? (data.fixture ? [data.fixture] : [])
                 const sample = raws[0] ?? {}
                 console.log(`[sports_interaction] fixture-view[${id}] keys:`, Object.keys(data).join(', '))
-                console.log(`[sports_interaction] fixture-view[${id}] fixture keys:`, Object.keys(sample).join(', '))
-                console.log(`[sports_interaction] fixture-view[${id}] optionMarkets.length=${(sample.optionMarkets ?? []).length}, marketGroups keys:`, Object.keys(sample.marketGroups ?? {}).join(', '))
+                console.log(`[sports_interaction] fixture-view[${id}] totalMarketsCount=${sample.totalMarketsCount}, optionMarkets.length=${(sample.optionMarkets ?? []).length}`)
                 const mg = sample.marketGroups
                 const mgArray: any[] = Array.isArray(mg) ? mg : (mg && typeof mg === 'object' ? Object.values(mg) : [])
-                console.log(`[sports_interaction] fixture-view[${id}] mgArray.length=${mgArray.length}, first group keys:`, mgArray[0] ? Object.keys(mgArray[0]).join(', ') : 'none')
-                if (mgArray[0]) console.log(`[sports_interaction] fixture-view[${id}] first group optionMarkets.length:`, (mgArray[0].optionMarkets ?? []).length)
+                console.log(`[sports_interaction] fixture-view[${id}] marketGroups type=${Array.isArray(mg) ? 'array' : typeof mg}, values=${mgArray.length}, first value:`, JSON.stringify(mgArray[0]).slice(0, 300))
               }
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
               allEvents.push(...events)
