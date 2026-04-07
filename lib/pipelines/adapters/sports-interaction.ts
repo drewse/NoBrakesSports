@@ -522,6 +522,18 @@ export const sportsInteractionAdapter: SourceAdapter = {
                 `&statisticsModes=None&firstMarketGroupOnly=false${mgParam}`
               const data = await fetchJson(url, API_HEADERS)
               rawPayloads.push(data)
+              // Debug: log first fixture-view response structure
+              if (allMarkets.length === 0 && allEvents.length === 0) {
+                const raws: any[] = data.fixtures ?? (data.fixture ? [data.fixture] : [])
+                const sample = raws[0] ?? {}
+                console.log(`[sports_interaction] fixture-view[${id}] keys:`, Object.keys(data).join(', '))
+                console.log(`[sports_interaction] fixture-view[${id}] fixture keys:`, Object.keys(sample).join(', '))
+                console.log(`[sports_interaction] fixture-view[${id}] optionMarkets.length=${(sample.optionMarkets ?? []).length}, marketGroups keys:`, Object.keys(sample.marketGroups ?? {}).join(', '))
+                const mg = sample.marketGroups
+                const mgArray: any[] = Array.isArray(mg) ? mg : (mg && typeof mg === 'object' ? Object.values(mg) : [])
+                console.log(`[sports_interaction] fixture-view[${id}] mgArray.length=${mgArray.length}, first group keys:`, mgArray[0] ? Object.keys(mgArray[0]).join(', ') : 'none')
+                if (mgArray[0]) console.log(`[sports_interaction] fixture-view[${id}] first group optionMarkets.length:`, (mgArray[0].optionMarkets ?? []).length)
+              }
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
               allEvents.push(...events)
               allMarkets.push(...markets)
