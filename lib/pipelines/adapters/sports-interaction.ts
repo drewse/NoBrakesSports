@@ -501,14 +501,14 @@ export const sportsInteractionAdapter: SourceAdapter = {
                 `&fixtureIds=${id}&state=Latest` +
                 `&offerMapping=Filtered&scoreboardMode=None` +
                 `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-                `&statisticsModes=None&firstMarketGroupOnly=false`
+                `&statisticsModes=None&firstMarketGroupOnly=true&marketGroupId=1`
               const data = await fetchJson(url, API_HEADERS)
               if (firstView) {
                 firstView = false
                 const raws = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
                 const sample = raws[0] ?? {}
                 const mg = sample.marketGroups ?? []
-                console.log(`[sports_interaction] fixture-view[${id}]: totalMarketsCount=${sample.totalMarketsCount}, optionMarkets=${JSON.stringify(sample.optionMarkets ?? []).slice(0, 400)}`)
+                console.log(`[sports_interaction] fixture-view[${id}]: totalMarketsCount=${sample.totalMarketsCount}, availableMarketGroupIds=${JSON.stringify(data.availableMarketGroupIds ?? []).slice(0, 200)}, optionMarkets.length=${(sample.optionMarkets ?? []).length}`)
               }
               rawPayloads.push(data)
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
