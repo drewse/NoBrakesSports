@@ -385,17 +385,9 @@ export const sportsInteractionAdapter: SourceAdapter = {
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
 
-    // Sport IDs confirmed from /bettingoffer/counts?tagTypes=Sport
-    const SPORTS = [
-      { id: 7,  name: 'Basketball' },
-      { id: 12, name: 'Hockey' },
-      { id: 11, name: 'Football' },
-      { id: 23, name: 'Baseball' },
-      { id: 4,  name: 'Soccer' },
-    ]
+    // Target sport IDs — used for client-side filtering since tagIds is ignored by the API
+    const TARGET_SPORT_IDS = new Set([4, 7, 11, 12, 23])
 
-    // Only pull fixtures for leagues we explicitly support — avoids fetching
-    // hundreds of obscure competitions and keeps batch count manageable.
     const TARGET_LEAGUES = new Set([
       'nba', 'nba_gleague', 'ncaab', 'nhl', 'ahl', 'nfl', 'ncaaf', 'mlb',
       'epl', 'mls', 'laliga', 'bundesliga', 'seria_a', 'ligue_one', 'ucl',
@@ -412,40 +404,47 @@ export const sportsInteractionAdapter: SourceAdapter = {
       const rawPayloads: unknown[] = []
       const errors: string[] = []
       const fixtureMap = new Map<number, SiFixture>()
-
-      // Step 1: get fixture list per sport, filter to target leagues
       const allFixtureIds: number[] = []
-      await Promise.allSettled(
-        SPORTS.map(async (sport) => {
-          try {
-            const url =
-              `${API}/bettingoffer/fixtures?${COMMON_PARAMS}` +
-              `&tagIds=${sport.id}&tagTypes=Sport&state=Latest&skip=0&take=200`
-            const data = await fetchJson(url, API_HEADERS)
-            const fixtures: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
-            // Log raw competition names from first few fixtures to debug slug mapping
-            const sampleComps = fixtures.slice(0, 5).map((f: any) =>
-              f.competition?.name?.value ?? f.league?.name?.value ??
-              (f.tags ?? []).find((t: any) => t.type === 'Competition')?.name?.value ??
-              (f.tags ?? []).find((t: any) => t.type === 'Sport')?.name?.value ??
-              `[keys:${Object.keys(f).join(',')}]`
-            )
-            console.log(`[sports_interaction] ${sport.name} sample comps:`, JSON.stringify(sampleComps))
-            // Dump first fixture raw to diagnose why parseFixtureList returns 0
-            if (fixtures.length > 0) console.log(`[sports_interaction] ${sport.name} first fixture raw:`, JSON.stringify(fixtures[0]).slice(0, 600))
-            const parsed = parseFixtureList({ fixtures })
-            const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
-            const allSlugs = [...new Set(parsed.map(f => f.leagueSlug))].slice(0, 20)
-            console.log(`[sports_interaction] ${sport.name}: ${fixtures.length} raw → ${parsed.length} parsed → ${filtered.length} target-league. slugs: ${allSlugs.join(',')}`)
-            for (const f of filtered) {
-              fixtureMap.set(f.id, f)
-              allFixtureIds.push(f.id)
-            }
-          } catch (e: any) {
-            errors.push(`${sport.name} fixtures: ${e.message}`)
-          }
-        })
-      )
+
+      // The fixtures endpoint ignores tagIds/tagTypes — it returns all fixtures
+      // regardless of sport filter. Fetch multiple pages and filter client-side by:
+      //   1. fixture.sport.id in target set (Basketball/Hockey/Football/Baseball/Soccer)
+      //   2. fixture.participants.length === 2 (actual games, not futures/tournaments)
+      //   3. competition name → leagueSlug in TARGET_LEAGUES
+      try {
+        // Fetch two pages to get enough game fixtures
+        const pages = await Promise.all([0, 200].map(skip =>
+          fetchJson(
+            `${API}/bettingoffer/fixtures?${COMMON_PARAMS}&state=Latest&skip=${skip}&take=200`,
+            API_HEADERS
+          )
+        ))
+        const allFixtures: any[] = pages.flatMap((d: any) =>
+          d?.fixtures ?? (d?.fixture ? [d.fixture] : [])
+        )
+
+        // Filter: target sport, has 2 participants (game, not futures)
+        const gameFixtures = allFixtures.filter((f: any) =>
+          TARGET_SPORT_IDS.has(f.sport?.id) &&
+          (f.participants ?? []).length === 2
+        )
+
+        console.log(`[sports_interaction] ${allFixtures.length} total fixtures → ${gameFixtures.length} game fixtures with 2 participants`)
+
+        const parsed = parseFixtureList({ fixtures: gameFixtures })
+        const filtered = parsed.filter(f => TARGET_LEAGUES.has(f.leagueSlug))
+        const slugCounts = filtered.reduce((acc: Record<string, number>, f) => {
+          acc[f.leagueSlug] = (acc[f.leagueSlug] ?? 0) + 1; return acc
+        }, {})
+        console.log(`[sports_interaction] ${parsed.length} parsed → ${filtered.length} target-league:`, JSON.stringify(slugCounts))
+
+        for (const f of filtered) {
+          fixtureMap.set(f.id, f)
+          allFixtureIds.push(f.id)
+        }
+      } catch (e: any) {
+        errors.push(`fixtures fetch: ${e.message}`)
+      }
 
       console.log(`[sports_interaction] filtered fixture IDs: ${allFixtureIds.length}`)
       if (allFixtureIds.length === 0) {
