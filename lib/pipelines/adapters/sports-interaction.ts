@@ -76,10 +76,12 @@ function toLeagueSlug(competitionName: string): string {
     'ncaab':                       'ncaab',
     'ncaa basketball':             'ncaab',
     'euroleague':                  'euroleague',
+    'euroleague - men':            'euroleague',
     'nbl':                         'nbl',
     // Hockey
     'nhl':                         'nhl',
     'ahl':                         'ahl',
+    'american hockey league':      'ahl',
     // Football
     'nfl':                         'nfl',
     'ncaa football':               'ncaaf',
@@ -90,23 +92,31 @@ function toLeagueSlug(competitionName: string): string {
     'premier league':              'epl',
     'mls':                         'mls',
     'major league soccer':         'mls',
+    'usa - major league soccer':   'mls',
     'la liga':                     'laliga',
+    'spain - la liga':             'laliga',
     'bundesliga':                  'bundesliga',
+    'germany - bundesliga':        'bundesliga',
     'serie a':                     'seria_a',
+    'italy - serie a':             'seria_a',
     'ligue 1':                     'ligue_one',
+    'france - ligue 1':            'ligue_one',
     'eredivisie':                  'eredivisie',
+    'netherlands - eredivisie':    'eredivisie',
     'primeira liga':               'liga_portugal',
+    'portugal - primeira liga':    'liga_portugal',
     'scottish premiership':        'spl',
+    'scotland - premiership':      'spl',
     'champions league':            'ucl',
     'uefa champions league':       'ucl',
     'europa league':               'uel',
     'uefa europa league':          'uel',
     'conference league':           'uecl',
     'fa cup':                      'fa_cup',
+    'england - fa cup':            'fa_cup',
     'championship':                'efl_champ',
     'efl championship':            'efl_champ',
-    'league one':                  'efl_league1',
-    'league two':                  'efl_league2',
+    'england - championship':      'efl_champ',
     'a-league men':                'australia_aleague',
     'a-league':                    'australia_aleague',
     'k league 1':                  'k_league1',
@@ -114,6 +124,7 @@ function toLeagueSlug(competitionName: string): string {
     'j. league':                   'j_league',
     'j league':                    'j_league',
     'liga mx':                     'liga_mx',
+    'mexico - liga mx':            'liga_mx',
   }
 
   return exact[n] ?? n.replace(/\s+/g, '_')
@@ -429,8 +440,8 @@ export const sportsInteractionAdapter: SourceAdapter = {
       //   2. fixture.participants.length === 2 (actual games, not futures/tournaments)
       //   3. competition name → leagueSlug in TARGET_LEAGUES
       try {
-        // Fetch two pages to get enough game fixtures
-        const pages = await Promise.all([0, 200].map(skip =>
+        // Fetch multiple pages — NBA/NHL/MLB games appear after the futures entries
+        const pages = await Promise.all([0, 200, 400, 600, 800].map(skip =>
           fetchJson(
             `${API}/bettingoffer/fixtures?${COMMON_PARAMS}&state=Latest&skip=${skip}&take=200`,
             API_HEADERS
