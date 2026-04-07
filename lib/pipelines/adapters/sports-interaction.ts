@@ -454,7 +454,9 @@ export const sportsInteractionAdapter: SourceAdapter = {
         const slugCounts = filtered.reduce((acc: Record<string, number>, f) => {
           acc[f.leagueSlug] = (acc[f.leagueSlug] ?? 0) + 1; return acc
         }, {})
+        const allSlugs = [...new Set(parsed.map(f => f.leagueSlug))].sort()
         console.log(`[sports_interaction] ${parsed.length} parsed → ${filtered.length} target-league:`, JSON.stringify(slugCounts))
+        console.log(`[sports_interaction] all slugs found:`, allSlugs.join(', '))
 
         for (const f of filtered) {
           fixtureMap.set(f.id, f)
@@ -485,9 +487,9 @@ export const sportsInteractionAdapter: SourceAdapter = {
               const url =
                 `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
                 `&fixtureIds=${ids.join(',')}&state=Latest` +
-                `&offerMapping=Filtered&scoreboardMode=None` +
+                `&offerMapping=All&scoreboardMode=None` +
                 `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
-                `&statisticsModes=None&firstMarketGroupOnly=true`
+                `&statisticsModes=None&firstMarketGroupOnly=false`
               const data = await fetchJson(url, API_HEADERS)
               if (i === 0 && j === 0) {
                 // Log first batch response shape to diagnose parsing issues
