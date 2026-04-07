@@ -482,37 +482,34 @@ export const sportsInteractionAdapter: SourceAdapter = {
         return { raw: rawPayloads, events: [], markets: [], errors } as any
       }
 
-      // Step 2: batch-fetch market data — run 5 batches concurrently
-      const BATCH = 25
-      const CONCURRENCY = 5
-      const batches: number[][] = []
-      for (let i = 0; i < allFixtureIds.length; i += BATCH) {
-        batches.push(allFixtureIds.slice(i, i + BATCH))
-      }
-
-      for (let i = 0; i < batches.length; i += CONCURRENCY) {
-        const chunk = batches.slice(i, i + CONCURRENCY)
+      // Step 2: fetch market data per fixture individually (10 concurrent).
+      // Comma-separated fixtureIds only returns 1 result — endpoint takes one ID at a time.
+      const CONCURRENCY = 10
+      let firstView = true
+      for (let i = 0; i < allFixtureIds.length; i += CONCURRENCY) {
+        const chunk = allFixtureIds.slice(i, i + CONCURRENCY)
         await Promise.allSettled(
-          chunk.map(async (ids, j) => {
+          chunk.map(async (id) => {
             try {
               const url =
                 `${API}/bettingoffer/fixture-view?${COMMON_PARAMS}` +
-                `&fixtureIds=${ids.join(',')}&state=Latest` +
+                `&fixtureIds=${id}&state=Latest` +
                 `&offerMapping=All&scoreboardMode=None` +
                 `&useRegionalisedConfiguration=true&includeRelatedFixtures=false` +
                 `&statisticsModes=None&firstMarketGroupOnly=false`
               const data = await fetchJson(url, API_HEADERS)
-              if (i === 0 && j === 0) {
-                // Log first batch response shape to diagnose parsing issues
+              if (firstView) {
+                firstView = false
                 const raws = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
-                console.log(`[sports_interaction] fixture-view sample: keys=${Object.keys(data ?? {}).join(',')}, fixtures=${raws.length}, first fixture keys=${Object.keys(raws[0] ?? {}).join(',')}`)
+                const sample = raws[0] ?? {}
+                console.log(`[sports_interaction] fixture-view[${id}]: optionMarkets=${JSON.stringify(sample.optionMarkets ?? []).slice(0, 200)}`)
               }
               rawPayloads.push(data)
               const { events, markets } = extractMarketsFromFixtureView(data, fixtureMap)
               allEvents.push(...events)
               allMarkets.push(...markets)
             } catch (e: any) {
-              errors.push(`fixture-view batch ${i + j}: ${e.message}`)
+              errors.push(`fixture-view ${id}: ${e.message}`)
             }
           })
         )
