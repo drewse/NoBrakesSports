@@ -4,6 +4,7 @@ import { pointsbetOnAdapter } from './adapters/pointsbet-on'
 import { bet365OnAdapter } from './adapters/bet365-on'
 import { sportsInteractionAdapter } from './adapters/sports-interaction'
 import { pinnacleAdapter } from './adapters/pinnacle'
+import { betRiversOnAdapter } from './adapters/betrivers-on'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Central Adapter Registry
@@ -22,7 +23,7 @@ export const ALL_PIPELINE_SLUGS = [
   'draftkings',
   'betmgm',
   'caesars',
-  'betrivers',
+  'betrivers_on',
   'bet365',
   'pinnacle',
   'sports_interaction',
@@ -61,6 +62,7 @@ ADAPTERS.set('pointsbet_on', pointsbetOnAdapter)
 ADAPTERS.set('bet365', bet365OnAdapter)
 ADAPTERS.set('sports_interaction', sportsInteractionAdapter)
 ADAPTERS.set('pinnacle', pinnacleAdapter)
+ADAPTERS.set('betrivers_on', betRiversOnAdapter)
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
