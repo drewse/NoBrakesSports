@@ -56,8 +56,6 @@ const TARGETS: Array<{ sport: string; league: string; slug: string }> = [
   { sport: 'american_football', league: 'nfl',              slug: 'nfl' },
   // Baseball
   { sport: 'baseball',          league: 'mlb',              slug: 'mlb' },
-  // Soccer
-  { sport: 'football',          league: 'mls',              slug: 'mls' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
