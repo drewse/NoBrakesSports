@@ -232,22 +232,19 @@ export const betRiversOnAdapter: SourceAdapter = {
       })
     )
 
-    // Collect event IDs + build event objects
-    // Cap per league to avoid timeout on large soccer leagues
-    const MAX_EVENTS_PER_LEAGUE = 20
-    interface KeptEvent { kambiId: number; event: CanonicalEvent }
-    const kept: KeptEvent[] = []
-
+    // Extract events + markets directly from listView — each item has betOffers embedded.
+    // No per-event API call needed: listView returns the main market per event already.
+    // This keeps total HTTP requests = number of leagues (≤ 25), well within timeout.
     for (const res of listViews) {
       if (res.status === 'rejected') {
         errors.push(`listView fetch: ${res.reason?.message ?? res.reason}`)
         continue
       }
       const { target, data } = res.value
+      rawPayloads.push(data)
       const items: any[] = data.events ?? []
       let count = 0
       for (const item of items) {
-        if (count >= MAX_EVENTS_PER_LEAGUE) break
         const ev = item.event
         if (!ev || ev.state === 'STARTED' || ev.state === 'FINISHED') continue
         if (!ev.homeName || !ev.awayName) continue
@@ -260,35 +257,14 @@ export const betRiversOnAdapter: SourceAdapter = {
           leagueSlug: target.slug,
           sourceSlug: 'betrivers_on',
         })
-        kept.push({ kambiId: ev.id, event: canonical })
         allEvents.push(canonical)
+
+        // Extract markets from the embedded betOffers in this listView item
+        const markets = extractMarkets(item, String(ev.id), target.slug)
+        allMarkets.push(...markets)
         count++
       }
-      console.log(`[betrivers] ${target.slug}: ${items.length} available, ${count} kept`)
-    }
-
-    rawPayloads.push({ eventCount: kept.length })
-
-    if (kept.length === 0) {
-      return { raw: rawPayloads, events: [], markets: [], errors } as any
-    }
-
-    // Step 2: fetch full betOffers for each event — 15 concurrent
-    const CONCURRENCY = 15
-    for (let i = 0; i < kept.length; i += CONCURRENCY) {
-      const chunk = kept.slice(i, i + CONCURRENCY)
-      await Promise.allSettled(
-        chunk.map(async ({ kambiId, event }) => {
-          try {
-            const data = await apiGet(`/betoffer/event/${kambiId}.json?lang=en_CA&includeParticipants=true`)
-            rawPayloads.push(data)
-            const markets = extractMarkets(data, String(kambiId), event.leagueSlug)
-            allMarkets.push(...markets)
-          } catch (e: any) {
-            errors.push(`betoffer ${kambiId}: ${e.message}`)
-          }
-        })
-      )
+      console.log(`[betrivers] ${target.slug}: ${items.length} events, ${count} processed`)
     }
 
     console.log(`[betrivers] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`)
