@@ -233,6 +233,8 @@ export const betRiversOnAdapter: SourceAdapter = {
     )
 
     // Collect event IDs + build event objects
+    // Cap per league to avoid timeout on large soccer leagues
+    const MAX_EVENTS_PER_LEAGUE = 20
     interface KeptEvent { kambiId: number; event: CanonicalEvent }
     const kept: KeptEvent[] = []
 
@@ -243,7 +245,9 @@ export const betRiversOnAdapter: SourceAdapter = {
       }
       const { target, data } = res.value
       const items: any[] = data.events ?? []
+      let count = 0
       for (const item of items) {
+        if (count >= MAX_EVENTS_PER_LEAGUE) break
         const ev = item.event
         if (!ev || ev.state === 'STARTED' || ev.state === 'FINISHED') continue
         if (!ev.homeName || !ev.awayName) continue
@@ -258,8 +262,9 @@ export const betRiversOnAdapter: SourceAdapter = {
         })
         kept.push({ kambiId: ev.id, event: canonical })
         allEvents.push(canonical)
+        count++
       }
-      console.log(`[betrivers] ${target.slug}: ${items.length} events`)
+      console.log(`[betrivers] ${target.slug}: ${items.length} available, ${count} kept`)
     }
 
     rawPayloads.push({ eventCount: kept.length })
@@ -268,8 +273,8 @@ export const betRiversOnAdapter: SourceAdapter = {
       return { raw: rawPayloads, events: [], markets: [], errors } as any
     }
 
-    // Step 2: fetch full betOffers for each event — 5 concurrent to avoid 429s
-    const CONCURRENCY = 5
+    // Step 2: fetch full betOffers for each event — 15 concurrent
+    const CONCURRENCY = 15
     for (let i = 0; i < kept.length; i += CONCURRENCY) {
       const chunk = kept.slice(i, i + CONCURRENCY)
       await Promise.allSettled(
