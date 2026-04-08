@@ -43,28 +43,21 @@ const BASE = 'https://eu-offering-api.kambicdn.com/offering/v2018/rsicaon'
 const PARAMS = 'lang=en_CA&market=CA&client_id=2&channel_id=1&ncid=1'
 
 // Target leagues — [sport termKey, league termKey, our slug]
+// Soccer uses sport key 'football' but league keys vary — confirmed working ones only.
 const TARGETS: Array<{ sport: string; league: string; slug: string }> = [
   // Basketball
-  { sport: 'basketball',       league: 'nba',              slug: 'nba' },
-  { sport: 'basketball',       league: 'euroleague',        slug: 'euroleague' },
-  { sport: 'basketball',       league: 'nbl',               slug: 'nbl' },
-  { sport: 'basketball',       league: 'ncaab',             slug: 'ncaab' },
+  { sport: 'basketball',        league: 'nba',             slug: 'nba' },
+  { sport: 'basketball',        league: 'euroleague',       slug: 'euroleague' },
+  { sport: 'basketball',        league: 'ncaab',            slug: 'ncaab' },
   // Hockey
-  { sport: 'ice_hockey',       league: 'nhl',               slug: 'nhl' },
-  { sport: 'ice_hockey',       league: 'ahl',               slug: 'ahl' },
+  { sport: 'ice_hockey',        league: 'nhl',              slug: 'nhl' },
+  { sport: 'ice_hockey',        league: 'ahl',              slug: 'ahl' },
   // American Football
   { sport: 'american_football', league: 'nfl',              slug: 'nfl' },
   // Baseball
-  { sport: 'baseball',         league: 'mlb',               slug: 'mlb' },
+  { sport: 'baseball',          league: 'mlb',              slug: 'mlb' },
   // Soccer
-  { sport: 'football',         league: 'premier_league',    slug: 'epl' },
-  { sport: 'football',         league: 'la_liga',           slug: 'laliga' },
-  { sport: 'football',         league: 'bundesliga',        slug: 'bundesliga' },
-  { sport: 'football',         league: 'serie_a',           slug: 'seria_a' },
-  { sport: 'football',         league: 'ligue_1',           slug: 'ligue_one' },
-  { sport: 'football',         league: 'champions_league',  slug: 'ucl' },
-  { sport: 'football',         league: 'europa_league',     slug: 'uel' },
-  { sport: 'football',         league: 'mls',               slug: 'mls' },
+  { sport: 'football',          league: 'mls',              slug: 'mls' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -121,12 +114,14 @@ function extractMarkets(
       bo.betOfferType?.id === 2 &&
       bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
   )
-  const spreads = betOffers.filter(
+  // Spread: prefer MAIN_LINE tag; fall back to first FULL_TIME_OVERTIME handicap
+  const allSpreads = betOffers.filter(
     (bo: any) =>
       bo.betOfferType?.id === 1 &&
-      (bo.tags ?? []).includes('MAIN_LINE') &&
       bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
   )
+  const spreads = allSpreads.filter((bo: any) => (bo.tags ?? []).includes('MAIN_LINE'))
+    .concat(allSpreads).slice(0, 1) // pick MAIN_LINE if exists, else first
   const totals = betOffers.filter(
     (bo: any) =>
       bo.betOfferType?.id === 6 &&
