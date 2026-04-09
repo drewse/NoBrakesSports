@@ -42,40 +42,22 @@ import { pipeFetch } from '../proxy-fetch'
 const BASE = 'https://eu-offering-api.kambicdn.com/offering/v2018/rsicaon'
 const PARAMS = 'lang=en_CA&market=CA&client_id=2&channel_id=1&ncid=1'
 
-// Target leagues — [sport termKey, league termKey, our DB slug]
-// All confirmed present in rsicaon group.json
+// Target leagues — confirmed working on rsicaon (verified 200 responses).
+// Soccer leagues use a different Kambi subdomain and are excluded until
+// the correct termKeys are confirmed via group.json exploration.
 const TARGETS: Array<{ sport: string; league: string; slug: string }> = [
   // Basketball
-  { sport: 'basketball',        league: 'nba',                    slug: 'nba' },
-  { sport: 'basketball',        league: 'euroleague',              slug: 'euroleague' },
-  { sport: 'basketball',        league: 'ncaab',                   slug: 'ncaab' },
+  { sport: 'basketball',        league: 'nba',       slug: 'nba' },
+  { sport: 'basketball',        league: 'euroleague', slug: 'euroleague' },
+  { sport: 'basketball',        league: 'ncaab',      slug: 'ncaab' },
   // Hockey
-  { sport: 'ice_hockey',        league: 'nhl',                     slug: 'nhl' },
-  { sport: 'ice_hockey',        league: 'ahl',                     slug: 'ahl' },
-  { sport: 'ice_hockey',        league: 'shl',                     slug: 'shl' },
-  { sport: 'ice_hockey',        league: 'pwhl',                    slug: 'pwhl' },
+  { sport: 'ice_hockey',        league: 'nhl',        slug: 'nhl' },
+  { sport: 'ice_hockey',        league: 'ahl',        slug: 'ahl' },
   // American Football
-  { sport: 'american_football', league: 'nfl',                     slug: 'nfl' },
-  { sport: 'american_football', league: 'ncaaf',                   slug: 'ncaaf' },
-  { sport: 'american_football', league: 'cfl',                     slug: 'cfl' },
+  { sport: 'american_football', league: 'nfl',        slug: 'nfl' },
+  { sport: 'american_football', league: 'cfl',        slug: 'cfl' },
   // Baseball
-  { sport: 'baseball',          league: 'mlb',                     slug: 'mlb' },
-  // Soccer — confirmed present in group.json, using Kambi termKeys
-  { sport: 'football',          league: 'english_premier_league',  slug: 'epl' },
-  { sport: 'football',          league: 'la_liga',                 slug: 'laliga' },
-  { sport: 'football',          league: 'bundesliga',              slug: 'bundesliga' },
-  { sport: 'football',          league: 'serie_a',                 slug: 'seria_a' },
-  { sport: 'football',          league: 'ligue_1',                 slug: 'ligue_one' },
-  { sport: 'football',          league: 'champions_league',        slug: 'ucl' },
-  { sport: 'football',          league: 'europa_league',           slug: 'uel' },
-  { sport: 'football',          league: 'conference_league',       slug: 'uecl' },
-  { sport: 'football',          league: 'eredivisie',              slug: 'eredivisie' },
-  { sport: 'football',          league: 'primeira_liga',           slug: 'liga_portugal' },
-  { sport: 'football',          league: 'scottish_premiership',    slug: 'spl' },
-  { sport: 'football',          league: 'mls',                     slug: 'mls' },
-  { sport: 'football',          league: 'brasileirao_serie_a',     slug: 'brazil_serie_a' },
-  { sport: 'football',          league: 'copa_libertadores',       slug: 'copa_libertadores' },
-  { sport: 'football',          league: 'a-league',                slug: 'australia_aleague' },
+  { sport: 'baseball',          league: 'mlb',        slug: 'mlb' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
