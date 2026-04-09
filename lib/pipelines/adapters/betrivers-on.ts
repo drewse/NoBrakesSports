@@ -80,14 +80,18 @@ const TARGETS: Array<{ sport: string; league: string; slug: string }> = [
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function apiGet(path: string): Promise<any> {
+async function apiGet(path: string, timeoutMs = 8000): Promise<any> {
   const url = `${BASE}${path}`
-  const res = await pipeFetch(url, {
+  const fetchPromise = pipeFetch(url, {
     headers: {
       Accept: 'application/json',
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
     },
   })
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms: ${url}`)), timeoutMs)
+  )
+  const res = await Promise.race([fetchPromise, timeoutPromise])
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
   return res.json()
 }
