@@ -30,18 +30,25 @@ function getAgent(): ProxyAgent | null {
  */
 export async function pipeFetch(
   url: string,
-  init?: { headers?: Record<string, string>; method?: string; body?: string }
+  init?: { headers?: Record<string, string>; method?: string; body?: string; signal?: AbortSignal }
 ): Promise<Response> {
   const agent = getAgent()
+  const { signal: callerSignal, ...rest } = init ?? {}
+
+  // Compose caller's abort signal with our internal 15s timeout.
+  // AbortSignal.any() fires whichever triggers first.
+  const signals: AbortSignal[] = [AbortSignal.timeout(15000)]
+  if (callerSignal) signals.push(callerSignal)
+  const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals)
 
   if (!agent) {
-    return fetch(url, { ...init, signal: AbortSignal.timeout(15000) })
+    return fetch(url, { ...rest, signal })
   }
 
   // undici fetch with ProxyAgent — types diverge from standard fetch, cast as needed
   return undiciFetch(url, {
-    ...(init as any),
+    ...(rest as any),
     dispatcher: agent,
-    signal: AbortSignal.timeout(15000), // 15s timeout per request
+    signal,
   }) as unknown as Response
 }

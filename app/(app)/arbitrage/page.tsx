@@ -44,9 +44,12 @@ export default async function ArbitragePage() {
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
-  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  // Query current_market_odds — one row per (event, source, market_type).
+  // This table has ~500 rows total vs market_snapshots which grows unboundedly.
+  // Filter stale odds: snapshot_time within last 4 hours (adapters run every ~15 min).
+  const staleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
   const { data: snapshots } = await supabase
-    .from('market_snapshots')
+    .from('current_market_odds')
     .select(
       `
       event_id, source_id, market_type, home_price, away_price, draw_price, snapshot_time,
@@ -54,10 +57,8 @@ export default async function ArbitragePage() {
       source:market_sources(id, name, slug)
     `
     )
-    .gt('snapshot_time', cutoff)
     .eq('market_type', 'moneyline')
-    .order('snapshot_time', { ascending: false })
-    .limit(2000)
+    .gt('snapshot_time', staleCutoff)
 
   // Filter out Polymarket and apply user's book selection
   const filteredSnapshots = (snapshots ?? []).filter(s => {
@@ -95,17 +96,9 @@ export default async function ArbitragePage() {
   }[] = []
 
   for (const snapsRaw of byEvent.values()) {
-    // Deduplicate to latest snapshot per source — multiple runs in the window
-    // would otherwise create phantom arbs comparing a book against itself.
-    const latestBySource = new Map<string, typeof snapsRaw[0]>()
-    for (const s of snapsRaw) {
-      const sourceId = (s as any).source_id
-      const existing = latestBySource.get(sourceId)
-      if (!existing || s.snapshot_time > existing.snapshot_time) {
-        latestBySource.set(sourceId, s)
-      }
-    }
-    const snaps = Array.from(latestBySource.values())
+    // current_market_odds already has exactly one row per (event, source, market_type)
+    // so no dedup needed — but we keep the pass-through for type consistency.
+    const snaps = snapsRaw
 
     const event = (snaps[0] as any).event
     // Pre-game only: skip events that have already started

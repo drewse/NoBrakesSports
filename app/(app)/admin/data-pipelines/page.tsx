@@ -27,16 +27,26 @@ export default async function DataPipelinesPage() {
   if (!profile?.is_admin) redirect('/dashboard')
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  const { data: pipelines } = await supabase
-    .from('data_pipelines')
-    .select('*')
-    .order('priority', { ascending: true })
+  const [pipelinesRes, oddsFlagRes, recentRunsRes] = await Promise.all([
+    supabase
+      .from('data_pipelines')
+      .select('*')
+      .order('priority', { ascending: true }),
+    supabase
+      .from('feature_flags')
+      .select('is_enabled')
+      .eq('key', 'odds_api_sync')
+      .single(),
+    supabase
+      .from('pipeline_runs')
+      .select('pipeline_slug, status, is_no_op, snapshots_changed, snapshots_skipped, started_at, finished_at, timed_out')
+      .order('started_at', { ascending: false })
+      .limit(200),
+  ])
 
-  const { data: oddsFlag } = await supabase
-    .from('feature_flags')
-    .select('is_enabled')
-    .eq('key', 'odds_api_sync')
-    .single()
+  const { data: pipelines }    = pipelinesRes
+  const { data: oddsFlag }     = oddsFlagRes
+  const recentRuns             = (recentRunsRes.data ?? []) as any[]
 
   const all = (pipelines ?? []) as Pipeline[]
 
@@ -45,6 +55,17 @@ export default async function DataPipelinesPage() {
   const disabled = all.filter(p => !p.is_enabled).length
   const errors   = all.filter(p => p.status === 'error').length
   const planned  = all.filter(p => p.status === 'planned').length
+  const circuitOpen = all.filter(p => {
+    if (!p.circuit_open_at) return false
+    return (Date.now() - new Date(p.circuit_open_at).getTime()) < 60 * 60 * 1000
+  }).length
+
+  // No-op rate from recent runs (last 200): what fraction produced zero snapshot changes?
+  const completedRuns = recentRuns.filter((r: any) => r.status !== 'running')
+  const noOpRuns      = completedRuns.filter((r: any) => r.is_no_op)
+  const noOpPct       = completedRuns.length > 0
+    ? Math.round((noOpRuns.length / completedRuns.length) * 100)
+    : null
 
   const oddsSyncEnabled = oddsFlag?.is_enabled ?? false
 
@@ -101,7 +122,7 @@ export default async function DataPipelinesPage() {
       </div>
 
       {/* Secondary stats row */}
-      <div className="flex items-center gap-4 text-xs text-nb-500">
+      <div className="flex items-center gap-4 text-xs text-nb-500 flex-wrap">
         <span><span className="text-nb-300 font-medium">{planned}</span> planned</span>
         <span>·</span>
         <span><span className="text-nb-300 font-medium">{all.filter(p => p.status === 'inactive').length}</span> inactive</span>
@@ -109,6 +130,23 @@ export default async function DataPipelinesPage() {
         <span><span className="text-nb-300 font-medium">{all.filter(p => p.health_status === 'healthy').length}</span> healthy</span>
         <span>·</span>
         <span><span className="text-nb-300 font-medium">{all.filter(p => p.ingestion_method != null).length}</span> with ingestion method</span>
+        {circuitOpen > 0 && (
+          <>
+            <span>·</span>
+            <span className="text-orange-400 font-medium">{circuitOpen} circuit{circuitOpen > 1 ? 's' : ''} open</span>
+          </>
+        )}
+        {noOpPct !== null && (
+          <>
+            <span>·</span>
+            <span title="% of recent runs that wrote zero new snapshot rows (odds unchanged)">
+              <span className={`font-medium ${noOpPct > 80 ? 'text-green-400' : noOpPct > 50 ? 'text-nb-300' : 'text-amber-400'}`}>
+                {noOpPct}%
+              </span>{' '}
+              no-op rate
+            </span>
+          </>
+        )}
       </div>
 
       {/* Pipeline table */}

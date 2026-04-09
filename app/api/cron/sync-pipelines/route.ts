@@ -1,5 +1,5 @@
 // GET /api/cron/sync-pipelines
-// Vercel cron — runs all enabled sportsbook pipelines to collect odds.
+// Vercel cron — runs all enabled, non-running sportsbook pipelines.
 // Triggered by vercel.json cron schedule.
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -7,7 +7,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { ingestPipeline } from '@/lib/pipelines/ingest'
 
 export const runtime = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 300
 
 function verifyCron(request: NextRequest): boolean {
   const secret = request.headers.get('authorization')?.replace('Bearer ', '')
@@ -25,10 +25,14 @@ export async function GET(request: NextRequest) {
 
   const db = createAdminClient()
 
+  // Skip pipelines that are already running — they hold the lock and will
+  // be skipped by acquirePipelineLock anyway, but filtering here avoids
+  // spawning work for them at all.
   const { data: enabledPipelines } = await db
     .from('data_pipelines')
     .select('slug')
     .eq('is_enabled', true)
+    .eq('is_running', false)
     .order('priority', { ascending: true })
 
   const slugs = (enabledPipelines ?? []).map((p: any) => p.slug)
@@ -39,8 +43,8 @@ export async function GET(request: NextRequest) {
 
   for (const slug of slugs) {
     try {
-      const result = await ingestPipeline(db, slug)
-      totalEvents += result.eventsUpserted
+      const result = await ingestPipeline(db, slug, { triggerSource: 'cron' })
+      totalEvents    += result.eventsUpserted
       totalSnapshots += result.snapshotsInserted
       results.push(result)
     } catch (e: any) {
@@ -50,8 +54,8 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    pipelinesRun: slugs.length,
-    totalEventsUpserted: totalEvents,
+    pipelinesRun:          slugs.length,
+    totalEventsUpserted:   totalEvents,
     totalSnapshotsInserted: totalSnapshots,
     results,
   })

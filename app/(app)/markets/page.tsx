@@ -58,10 +58,12 @@ export default async function MarketsPage({
 
   if (events.length > 0) {
     const eventIds = events.map((e: any) => e.id)
-    // Only show snapshots from the last 6 hours to exclude stale Odds API data
+    // Query current_market_odds — one row per (event, source, market_type).
+    // Replaces the market_snapshots query which scanned thousands of historical rows.
+    // No time cutoff needed: current_market_odds.snapshot_time is always fresh.
     const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
     const { data } = await supabase
-      .from('market_snapshots')
+      .from('current_market_odds')
       .select('event_id, source_id, market_type, snapshot_time')
       .in('event_id', eventIds)
       .gt('snapshot_time', snapshotCutoff)

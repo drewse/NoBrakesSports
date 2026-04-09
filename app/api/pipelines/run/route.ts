@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `Unknown slug: ${slug}` }, { status: 400 })
     }
     try {
-      const result = await ingestPipeline(db, slug)
+      const result = await ingestPipeline(db, slug, { triggerSource: 'manual' })
       return NextResponse.json(result)
     } catch (e: any) {
       return NextResponse.json({ error: e.message }, { status: 500 })
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 
   for (const s of slugsToRun) {
     try {
-      const result = await ingestPipeline(db, s)
+      const result = await ingestPipeline(db, s, { triggerSource: 'manual' })
       results.push(result)
     } catch (e: any) {
       results.push({ slug: s, error: e.message })

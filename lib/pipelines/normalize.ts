@@ -120,6 +120,31 @@ export function normalizeEvent(raw: RawEventInput): CanonicalEvent {
   }
 }
 
+/**
+ * Compute a deterministic cross-source identity key for an event.
+ *
+ * Problem solved: every sportsbook has its own internal ID for the same game.
+ * If we use `${source}:${sourceId}` as the DB key, Pinnacle and BetRivers
+ * create two separate rows for "Toronto Raptors vs Miami Heat" — duplicates.
+ *
+ * Solution: key on (league, date, normalized home team, normalized away team).
+ * All sources describing the same real game map to the same DB row.
+ *
+ * Date is UTC YYYY-MM-DD — normalizes away the minor start-time differences
+ * (one book says 7:00 PM, another says 7:10 PM for the same game).
+ * Cross-midnight edge cases are rare for mainstream North American sports.
+ *
+ * @example
+ *   canonicalEventKey(event)
+ *   // → "nba:2026-04-09:toronto raptors:miami heat"
+ */
+export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
+  const normalizeTeam = (name: string) =>
+    name.toLowerCase().trim().replace(/\s+/g, ' ')
+  const date = new Date(event.startTime).toISOString().slice(0, 10) // YYYY-MM-DD UTC
+  return `${event.leagueSlug}:${date}:${normalizeTeam(event.homeTeam)}:${normalizeTeam(event.awayTeam)}`
+}
+
 function mapEventStatus(raw: string): CanonicalEventStatus {
   const s = raw.toLowerCase()
   if (s === 'scheduled' || s === 'pregame' || s === 'upcoming') return 'scheduled'
