@@ -35,7 +35,7 @@ export async function pipeFetch(
   const agent = getAgent()
 
   if (!agent) {
-    return fetch(url, init)
+    return fetch(url, { ...init, signal: AbortSignal.timeout(15000) })
   }
 
   // undici fetch with ProxyAgent — types diverge from standard fetch, cast as needed
