@@ -5,24 +5,22 @@
 // Base URL:  https://eu-offering-api.kambicdn.com/offering/v2018/rsicaon
 // Auth:      None — fully public JSON API
 //
-// No Playwright needed — standard JSON over HTTPS, no bot protection.
+// Uses withBrowser (Playwright) so requests go through Chromium — same as all
+// other working adapters. pipeFetch (Node.js fetch) hangs indefinitely on
+// Kambi endpoints that don't respond quickly.
 //
 // Data flow:
-//   1. GET /listView/{sport}/{league}.json for each target league
-//        → event IDs + team names + start times
-//   2. GET /betoffer/event/{id}.json for each event
-//        → full market set; filter to main moneyline, spread, total
+//   1. visit SEED_URL to get a Chromium session
+//   2. fetchJson /listView/{sport}/{league}.json for each target league
+//        → events with one embedded betOffer (the main market)
+//   Markets are extracted directly from listView betOffers — no per-event calls.
 //
 // Odds format:
-//   outcome.oddsAmerican  = string, e.g. "-114", "107" (no + prefix always)
-//   outcome.line          = integer × 1000, e.g. 6000 = +6, 249000 = 249
+//   outcome.oddsAmerican  = string e.g. "-114", "107"
+//   outcome.line          = integer × 1000  e.g. 6000 = +6, 249000 = 249
 //
-// betOfferType IDs:
-//   2 = Match (moneyline)   1 = Handicap (spread)   6 = Over/Under (total)
-//
-// outcome.type values:
-//   OT_ONE = home   OT_TWO = away   OT_CROSS = draw
-//   OT_OVER = over  OT_UNDER = under
+// betOfferType IDs:  2=moneyline  1=spread  6=total
+// outcome.type:      OT_ONE=home  OT_TWO=away  OT_CROSS=draw  OT_OVER  OT_UNDER
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type {
@@ -35,48 +33,32 @@ import type {
   CanonicalOutcome,
 } from '../types'
 import { normalizeEvent, americanToImplied, detectMarketShape } from '../normalize'
-import { pipeFetch } from '../proxy-fetch'
+import { withBrowser } from '../browser-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const BASE = 'https://eu-offering-api.kambicdn.com/offering/v2018/rsicaon'
 const PARAMS = 'lang=en_CA&market=CA&client_id=2&channel_id=1&ncid=1'
+const SEED_URL = `${BASE}/listView/basketball/nba.json?${PARAMS}`
 
-// Target leagues — confirmed working on rsicaon (verified 200 responses).
-// Soccer leagues use a different Kambi subdomain and are excluded until
-// the correct termKeys are confirmed via group.json exploration.
+const API_HEADERS = {
+  Accept: 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+}
+
+// Confirmed working on rsicaon
 const TARGETS: Array<{ sport: string; league: string; slug: string }> = [
-  // Basketball
   { sport: 'basketball',        league: 'nba',       slug: 'nba' },
   { sport: 'basketball',        league: 'euroleague', slug: 'euroleague' },
   { sport: 'basketball',        league: 'ncaab',      slug: 'ncaab' },
-  // Hockey
   { sport: 'ice_hockey',        league: 'nhl',        slug: 'nhl' },
   { sport: 'ice_hockey',        league: 'ahl',        slug: 'ahl' },
-  // American Football
   { sport: 'american_football', league: 'nfl',        slug: 'nfl' },
   { sport: 'american_football', league: 'cfl',        slug: 'cfl' },
-  // Baseball
   { sport: 'baseball',          league: 'mlb',        slug: 'mlb' },
 ]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function apiGet(path: string, timeoutMs = 8000): Promise<any> {
-  const url = `${BASE}${path}`
-  const fetchPromise = pipeFetch(url, {
-    headers: {
-      Accept: 'application/json',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    },
-  })
-  const timeoutPromise = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms: ${url}`)), timeoutMs)
-  )
-  const res = await Promise.race([fetchPromise, timeoutPromise])
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`)
-  return res.json()
-}
 
 function parseAmericanOdds(s: string): number {
   return parseInt(s.replace('+', ''), 10)
@@ -93,39 +75,22 @@ function getSide(type: string): CanonicalOutcome['side'] {
   }
 }
 
-// ── Market extraction from a full betoffer/event response ─────────────────────
-
-function extractMarkets(
-  data: any,
-  eventId: string,
-  leagueSlug: string
-): CanonicalMarket[] {
-  const betOffers: any[] = data.betOffers ?? []
+function extractMarkets(item: any, eventId: string, leagueSlug: string): CanonicalMarket[] {
+  const betOffers: any[] = item.betOffers ?? []
   const now = new Date().toISOString()
   const out: CanonicalMarket[] = []
 
-  // Helper: pick open outcomes only
   const openOutcomes = (bo: any): any[] =>
     (bo.outcomes ?? []).filter((o: any) => o.status === 'OPEN')
 
-  // Identify main full-game markets:
-  // - Moneyline: betOfferType.id=2, lifetime FULL_TIME_OVERTIME
-  // - Spread:    betOfferType.id=1, tag MAIN_LINE
-  // - Total:     betOfferType.id=6, lifetime FULL_TIME_OVERTIME, no "Team" in criterion label
-
   const moneylines = betOffers.filter(
-    (bo: any) =>
-      bo.betOfferType?.id === 2 &&
-      bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
+    (bo: any) => bo.betOfferType?.id === 2 && bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
   )
-  // Spread: prefer MAIN_LINE tag; fall back to first FULL_TIME_OVERTIME handicap
   const allSpreads = betOffers.filter(
-    (bo: any) =>
-      bo.betOfferType?.id === 1 &&
-      bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
+    (bo: any) => bo.betOfferType?.id === 1 && bo.criterion?.lifetime === 'FULL_TIME_OVERTIME'
   )
   const spreads = allSpreads.filter((bo: any) => (bo.tags ?? []).includes('MAIN_LINE'))
-    .concat(allSpreads).slice(0, 1) // pick MAIN_LINE if exists, else first
+    .concat(allSpreads).slice(0, 1)
   const totals = betOffers.filter(
     (bo: any) =>
       bo.betOfferType?.id === 6 &&
@@ -145,15 +110,7 @@ function extractMarkets(
       outcomes.push({ side: getSide(o.type), label: o.label, price, impliedProb: americanToImplied(price) })
     }
     if (outcomes.length >= 2) {
-      out.push({
-        eventId,
-        marketType: 'moneyline',
-        shape: detectMarketShape(leagueSlug, 'moneyline'),
-        outcomes,
-        lineValue: null,
-        sourceSlug: 'betrivers_on',
-        capturedAt: now,
-      })
+      out.push({ eventId, marketType: 'moneyline', shape: detectMarketShape(leagueSlug, 'moneyline'), outcomes, lineValue: null, sourceSlug: 'betrivers_on', capturedAt: now })
     }
   }
 
@@ -168,8 +125,7 @@ function extractMarkets(
       if (isNaN(price)) continue
       const line = (o.line ?? 0) / 1000
       if (lineValue === null) lineValue = Math.abs(line)
-      const sign = line >= 0 ? '+' : ''
-      outcomes.push({ side: getSide(o.type), label: `${o.label} ${sign}${line}`, price, impliedProb: americanToImplied(price) })
+      outcomes.push({ side: getSide(o.type), label: `${o.label} ${line >= 0 ? '+' : ''}${line}`, price, impliedProb: americanToImplied(price) })
     }
     if (outcomes.length >= 2 && lineValue !== null) {
       out.push({ eventId, marketType: 'spread', shape: '2way', outcomes, lineValue, sourceSlug: 'betrivers_on', capturedAt: now })
@@ -204,71 +160,75 @@ export const betRiversOnAdapter: SourceAdapter = {
   ingestionMethod: 'direct-api (Kambi rsicaon)',
 
   async fetchEvents(): Promise<FetchEventsResult> {
-    const start = Date.now()
-    const allEvents: CanonicalEvent[] = []
-    const allMarkets: CanonicalMarket[] = []
-    const rawPayloads: unknown[] = []
-    const errors: string[] = []
+    return withBrowser(async ({ visit, fetchJson }) => {
+      const start = Date.now()
+      await visit(SEED_URL)
 
-    // Step 1: fetch listView for all target leagues in parallel
-    const listViews = await Promise.allSettled(
-      TARGETS.map(async (t) => {
-        const data = await apiGet(`/listView/${t.sport}/${t.league}.json?${PARAMS}`)
-        return { target: t, data }
-      })
-    )
+      const allEvents: CanonicalEvent[] = []
+      const allMarkets: CanonicalMarket[] = []
+      const rawPayloads: unknown[] = []
+      const errors: string[] = []
 
-    // Extract events + markets directly from listView — each item has betOffers embedded.
-    // No per-event API call needed: listView returns the main market per event already.
-    // This keeps total HTTP requests = number of leagues (≤ 25), well within timeout.
-    for (const res of listViews) {
-      if (res.status === 'rejected') {
-        errors.push(`listView fetch: ${res.reason?.message ?? res.reason}`)
-        continue
-      }
-      const { target, data } = res.value
-      rawPayloads.push(data)
-      const items: any[] = data.events ?? []
-      let count = 0
-      for (const item of items) {
-        const ev = item.event
-        if (!ev || ev.state === 'STARTED' || ev.state === 'FINISHED') continue
-        if (!ev.homeName || !ev.awayName) continue
-
-        const canonical = normalizeEvent({
-          externalId: String(ev.id),
-          homeTeam:   ev.homeName,
-          awayTeam:   ev.awayName,
-          startTime:  ev.start,
-          leagueSlug: target.slug,
-          sourceSlug: 'betrivers_on',
+      // Fetch all target leagues in parallel inside Chromium
+      const listViews = await Promise.allSettled(
+        TARGETS.map(async (t) => {
+          const url = `${BASE}/listView/${t.sport}/${t.league}.json?${PARAMS}`
+          const data = await fetchJson(url, API_HEADERS)
+          return { target: t, data }
         })
-        allEvents.push(canonical)
+      )
 
-        // Extract markets from the embedded betOffers in this listView item
-        const markets = extractMarkets(item, String(ev.id), target.slug)
-        allMarkets.push(...markets)
-        count++
+      for (const res of listViews) {
+        if (res.status === 'rejected') {
+          errors.push(`listView ${res.reason?.message ?? res.reason}`)
+          continue
+        }
+        const { target, data } = res.value
+        rawPayloads.push(data)
+        const items: any[] = data.events ?? []
+        let count = 0
+        for (const item of items) {
+          const ev = item.event
+          if (!ev || ev.state === 'STARTED' || ev.state === 'FINISHED') continue
+          if (!ev.homeName || !ev.awayName) continue
+          allEvents.push(normalizeEvent({
+            externalId: String(ev.id),
+            homeTeam:   ev.homeName,
+            awayTeam:   ev.awayName,
+            startTime:  ev.start,
+            leagueSlug: target.slug,
+            sourceSlug: 'betrivers_on',
+          }))
+          allMarkets.push(...extractMarkets(item, String(ev.id), target.slug))
+          count++
+        }
+        console.log(`[betrivers] ${target.slug}: ${items.length} events, ${count} processed`)
       }
-      console.log(`[betrivers] ${target.slug}: ${items.length} events, ${count} processed`)
-    }
 
-    console.log(`[betrivers] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`)
-    if (errors.length) console.error('[betrivers] errors:', errors.slice(0, 5))
+      console.log(`[betrivers] fetchEvents: ${allEvents.length} events, ${allMarkets.length} markets, ${errors.length} errors in ${Date.now() - start}ms`)
+      if (errors.length) console.error('[betrivers] errors:', errors)
 
-    return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
+      return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
+    })
   },
 
   async fetchMarkets(eventId: string): Promise<FetchMarketsResult> {
-    const data = await apiGet(`/betoffer/event/${eventId}.json?lang=en_CA&includeParticipants=true`)
-    const markets = extractMarkets(data, eventId, '')
-    return { raw: data, markets }
+    return withBrowser(async ({ visit, fetchJson }) => {
+      await visit(SEED_URL)
+      const url = `${BASE}/betoffer/event/${eventId}.json?lang=en_CA&includeParticipants=true`
+      const data = await fetchJson(url, API_HEADERS)
+      const markets = extractMarkets(data, eventId, '')
+      return { raw: data, markets }
+    })
   },
 
   async healthCheck(): Promise<HealthCheckResult> {
     const start = Date.now()
     try {
-      const data = await apiGet(`/listView/basketball/nba.json?${PARAMS}`)
+      const data = await withBrowser(async ({ visit, fetchJson }) => {
+        await visit(SEED_URL)
+        return fetchJson(SEED_URL, API_HEADERS)
+      })
       const count = (data.events ?? []).length
       if (count === 0) throw new Error('No NBA events returned')
       const latencyMs = Date.now() - start
