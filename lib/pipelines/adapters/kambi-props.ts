@@ -53,16 +53,18 @@ export interface KambiPropResult {
 
 /**
  * Discover all upcoming events for a sport path.
+ * Uses the listView endpoint (confirmed working) not event/group.
  */
 async function fetchEvents(sportPath: string): Promise<KambiEvent[]> {
-  const url = `${BASE}/event/group.json?${PARAMS}&sport=${sportPath}`
+  const url = `${BASE}/listView/${sportPath}/all/all/matches.json?${PARAMS}`
   const resp = await fetch(url)
   if (!resp.ok) return []
 
   const data = await resp.json()
   const events: KambiEvent[] = []
 
-  for (const ev of data.events ?? []) {
+  for (const item of data.events ?? []) {
+    const ev = item.event ?? item
     // Only pre-game events
     if (ev.state !== 'NOT_STARTED') continue
     events.push({

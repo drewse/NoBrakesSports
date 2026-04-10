@@ -90,11 +90,19 @@ export async function GET(req: NextRequest) {
       scrapePinnacleProps(controller.signal),
     ])
 
-    if (kambi.status === 'fulfilled') kambiResults = kambi.value
-    else errors.push(`Kambi scrape failed: ${kambi.reason}`)
+    if (kambi.status === 'fulfilled') {
+      kambiResults = kambi.value
+      if (kambiResults.length === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`Kambi scrape failed: ${String(kambi.reason)}`)
+    }
 
-    if (pinnacle.status === 'fulfilled') pinnacleResults = pinnacle.value
-    else errors.push(`Pinnacle scrape failed: ${pinnacle.reason}`)
+    if (pinnacle.status === 'fulfilled') {
+      pinnacleResults = pinnacle.value
+      if (pinnacleResults.length === 0) errors.push('Pinnacle: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`Pinnacle scrape failed: ${String(pinnacle.reason)}`)
+    }
   } finally {
     clearTimeout(timeout)
   }
