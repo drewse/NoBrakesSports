@@ -22,9 +22,10 @@ interface TopbarProps {
   title?: string
   sources?: { name: string; slug: string }[]
   initialEnabledBooks?: string[] | null
+  canadianSlugs?: string[]
 }
 
-export function Topbar({ profile, title, sources = [], initialEnabledBooks = null }: TopbarProps) {
+export function Topbar({ profile, title, sources = [], initialEnabledBooks = null, canadianSlugs }: TopbarProps) {
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
 
@@ -50,7 +51,7 @@ export function Topbar({ profile, title, sources = [], initialEnabledBooks = nul
         </Button>
 
         {sources.length > 0 && (
-          <BookSelector sources={sources} initialEnabled={initialEnabledBooks} />
+          <BookSelector sources={sources} initialEnabled={initialEnabledBooks} canadianSlugs={canadianSlugs} />
         )}
 
         <Button variant="ghost" size="icon" className="relative text-nb-400 hover:text-white" aria-label="Notifications">

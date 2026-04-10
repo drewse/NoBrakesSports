@@ -17,12 +17,8 @@ import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 
 export const metadata = { title: 'Arbitrage' }
 
-// League abbreviation -> slug mapping used for shape detection
-const ABBREV_TO_SLUG: Record<string, string> = {
-  EPL: 'epl',
-  MLS: 'mls',
-  'NCAA Soccer': 'ncaasoccer',
-}
+// Sport slugs that use 3-way moneyline (home/draw/away)
+const THREE_WAY_SPORT_SLUGS = new Set(['soccer'])
 
 export default async function ArbitragePage() {
   const supabase = await createClient()
@@ -53,7 +49,7 @@ export default async function ArbitragePage() {
     .select(
       `
       event_id, source_id, market_type, home_price, away_price, draw_price, snapshot_time,
-      event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug)),
+      event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug, sport:sports(slug))),
       source:market_sources(id, name, slug)
     `
     )
@@ -104,10 +100,13 @@ export default async function ArbitragePage() {
     // Pre-game only: skip events that have already started
     if (!isUpcomingEvent(event?.start_time)) continue
     const leagueAbbrev: string = event?.league?.abbreviation ?? ''
-    const leagueSlug: string =
-      event?.league?.slug ?? ABBREV_TO_SLUG[leagueAbbrev] ?? ''
+    const leagueSlug: string = event?.league?.slug ?? ''
+    const sportSlug: string = event?.league?.sport?.slug ?? ''
 
-    const shape = getMarketShape(leagueSlug || null, null, 'moneyline')
+    // Use sport-level detection: all soccer = 3-way moneyline
+    const shape: MarketShape = THREE_WAY_SPORT_SLUGS.has(sportSlug)
+      ? '3way'
+      : getMarketShape(leagueSlug || null, sportSlug || null, 'moneyline')
 
     // Filter out snapshots that are likely 1X2 (regulation 3-way) odds
     // masquerading as 2-way moneyline. In a real 2-way market, a single book's

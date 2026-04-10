@@ -27,15 +27,23 @@ export default async function AppLayout({
     .eq('id', user.id)
     .single()
 
-  // Fetch sportsbook sources for the book filter selector (exclude prediction markets)
-  const { data: sourcesRaw } = await supabase
-    .from('market_sources')
-    .select('name, slug')
-    .eq('source_type', 'sportsbook')
-    .eq('is_active', true)
-    .order('display_order', { ascending: true })
+  // Fetch sportsbook sources + pipeline slugs in parallel
+  const [{ data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
+    supabase
+      .from('market_sources')
+      .select('name, slug')
+      .eq('source_type', 'sportsbook')
+      .eq('is_active', true)
+      .order('display_order', { ascending: true }),
+    supabase
+      .from('data_pipelines')
+      .select('slug')
+      .eq('source_type', 'sportsbook'),
+  ])
 
   const sources = sourcesRaw ?? []
+  // All pipeline slugs = the Canadian book list (data_pipelines tracks Ontario/CA books)
+  const canadianSlugs = (pipelinesRaw ?? []).map((p: any) => p.slug)
 
   const cookieStore = await cookies()
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
@@ -50,6 +58,7 @@ export default async function AppLayout({
           profile={profile as Profile | null}
           sources={sources}
           initialEnabledBooks={initialEnabledBooks}
+          canadianSlugs={canadianSlugs}
         />
         <main className="flex-1 overflow-y-auto">
           {children}

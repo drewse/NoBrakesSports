@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import {
   BOOK_FILTER_COOKIE,
   USA_BOOK_SLUGS,
-  CANADA_BOOK_SLUGS,
+  CANADA_BOOK_SLUGS_FALLBACK,
 } from '@/lib/book-filter'
 
 interface Source {
@@ -18,12 +18,7 @@ interface Source {
 interface BookSelectorProps {
   sources: Source[]
   initialEnabled: string[] | null  // null = all enabled
-}
-
-function getRegion(slug: string): 'usa' | 'canada' | 'intl' {
-  if (USA_BOOK_SLUGS.has(slug)) return 'usa'
-  if (CANADA_BOOK_SLUGS.has(slug)) return 'canada'
-  return 'intl'
+  canadianSlugs?: string[]         // from data_pipelines table — authoritative CA list
 }
 
 const REGION_LABEL: Record<string, string> = {
@@ -38,10 +33,31 @@ const REGION_CLASSES: Record<string, string> = {
   intl: 'bg-nb-800 text-nb-400',
 }
 
-export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
+export function BookSelector({ sources, initialEnabled, canadianSlugs }: BookSelectorProps) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // Canadian books = pipeline slugs from DB, with static fallback
+  const canadianSet = canadianSlugs && canadianSlugs.length > 0
+    ? new Set(canadianSlugs)
+    : CANADA_BOOK_SLUGS_FALLBACK
+
+  // Region detection — a book can belong to multiple regions (overlap allowed)
+  function getRegions(slug: string): Set<'usa' | 'canada' | 'intl'> {
+    const regions = new Set<'usa' | 'canada' | 'intl'>()
+    if (USA_BOOK_SLUGS.has(slug)) regions.add('usa')
+    if (canadianSet.has(slug)) regions.add('canada')
+    if (regions.size === 0) regions.add('intl')
+    return regions
+  }
+
+  // Primary region for sorting/badge display
+  function getPrimaryRegion(slug: string): 'usa' | 'canada' | 'intl' {
+    if (canadianSet.has(slug)) return 'canada'
+    if (USA_BOOK_SLUGS.has(slug)) return 'usa'
+    return 'intl'
+  }
 
   const allSlugs = sources.map(s => s.slug)
 
@@ -73,10 +89,10 @@ export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
     if (preset === 'all') {
       next = new Set(allSlugs)
     } else if (preset === 'usa') {
-      const usaSlugs = sources.filter(s => getRegion(s.slug) === 'usa').map(s => s.slug)
+      const usaSlugs = sources.filter(s => getRegions(s.slug).has('usa')).map(s => s.slug)
       next = new Set(usaSlugs.length > 0 ? usaSlugs : allSlugs)
     } else {
-      const caSlugs = sources.filter(s => getRegion(s.slug) === 'canada').map(s => s.slug)
+      const caSlugs = sources.filter(s => getRegions(s.slug).has('canada')).map(s => s.slug)
       next = new Set(caSlugs.length > 0 ? caSlugs : allSlugs)
     }
     persist(next)
@@ -95,20 +111,26 @@ export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
   }
 
   const isAll = allSlugs.every(s => enabled.has(s))
-  const isUsaPreset =
-    sources.filter(s => getRegion(s.slug) === 'usa').every(s => enabled.has(s.slug)) &&
-    sources.filter(s => getRegion(s.slug) !== 'usa').every(s => !enabled.has(s.slug))
-  const isCanadaPreset =
-    sources.filter(s => getRegion(s.slug) === 'canada').every(s => enabled.has(s.slug)) &&
-    sources.filter(s => getRegion(s.slug) !== 'canada').every(s => !enabled.has(s.slug))
+
+  const usaSources = sources.filter(s => getRegions(s.slug).has('usa'))
+  const caSources = sources.filter(s => getRegions(s.slug).has('canada'))
+
+  const isUsaPreset = !isAll &&
+    usaSources.length > 0 &&
+    usaSources.every(s => enabled.has(s.slug)) &&
+    sources.filter(s => !getRegions(s.slug).has('usa')).every(s => !enabled.has(s.slug))
+  const isCanadaPreset = !isAll &&
+    caSources.length > 0 &&
+    caSources.every(s => enabled.has(s.slug)) &&
+    sources.filter(s => !getRegions(s.slug).has('canada')).every(s => !enabled.has(s.slug))
 
   const label = isAll ? 'All Books' : `${enabled.size} of ${sources.length} Books`
 
-  // Sort sources: USA first, then Canada, then Intl, alphabetically within each
+  // Sort sources: Canada first (our primary market), then USA, then Intl
   const sorted = [...sources].sort((a, b) => {
-    const rOrder = { usa: 0, canada: 1, intl: 2 }
-    const ra = rOrder[getRegion(a.slug)]
-    const rb = rOrder[getRegion(b.slug)]
+    const rOrder = { canada: 0, usa: 1, intl: 2 }
+    const ra = rOrder[getPrimaryRegion(a.slug)]
+    const rb = rOrder[getPrimaryRegion(b.slug)]
     if (ra !== rb) return ra - rb
     return a.name.localeCompare(b.name)
   })
@@ -145,17 +167,17 @@ export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
               <button
                 onClick={() => selectPreset('usa')}
                 className={`flex-1 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  isUsaPreset && !isAll
+                  isUsaPreset
                     ? 'bg-blue-600 text-white'
                     : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
                 }`}
               >
-                🇺🇸 USA Only
+                🇺🇸 USA
               </button>
               <button
                 onClick={() => selectPreset('canada')}
                 className={`flex-1 rounded px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                  isCanadaPreset && !isAll
+                  isCanadaPreset
                     ? 'bg-red-700 text-white'
                     : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
                 }`}
@@ -168,7 +190,7 @@ export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
           {/* Book list */}
           <div className="max-h-72 overflow-y-auto p-2">
             {sorted.map(source => {
-              const region = getRegion(source.slug)
+              const regions = getRegions(source.slug)
               const isChecked = enabled.has(source.slug)
               return (
                 <button
@@ -188,9 +210,15 @@ export function BookSelector({ sources, initialEnabled }: BookSelectorProps) {
                   <span className={`text-xs flex-1 text-left ${isChecked ? 'text-white' : 'text-nb-400'}`}>
                     {source.name}
                   </span>
-                  <span className={`text-[9px] font-semibold px-1 py-0.5 rounded ${REGION_CLASSES[region]}`}>
-                    {REGION_LABEL[region]}
-                  </span>
+                  <div className="flex gap-0.5">
+                    {(['canada', 'usa', 'intl'] as const)
+                      .filter(r => regions.has(r))
+                      .map(r => (
+                        <span key={r} className={`text-[9px] font-semibold px-1 py-0.5 rounded ${REGION_CLASSES[r]}`}>
+                          {REGION_LABEL[r]}
+                        </span>
+                      ))}
+                  </div>
                 </button>
               )
             })}

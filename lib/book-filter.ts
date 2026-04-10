@@ -11,12 +11,14 @@ export const USA_BOOK_SLUGS = new Set([
   'williamhill_us', 'station', 'wynn', 'golden_nugget',
 ])
 
-// Canadian-licensed sportsbooks (Odds API region: ca)
-export const CANADA_BOOK_SLUGS = new Set([
-  'unibet_ca', 'sports_interaction', 'thescorebet', 'betway_ca',
-  'bwin_ca', 'rivalry', 'northstarbets', 'bet99', 'proline',
-  'betvictor_ca', 'caesars_ca', 'betmgm_ca', 'pointsbet_ca',
-  'fanduel_ca', 'draftkings_ca', 'espnbet_ca',
+// Canadian-licensed sportsbooks — static fallback.
+// At runtime the BookSelector receives pipeline slugs from the DB
+// (data_pipelines table) which is the authoritative Canadian book list.
+export const CANADA_BOOK_SLUGS_FALLBACK = new Set([
+  'sports_interaction', 'thescore', 'pointsbet_on', 'betway', 'betvictor',
+  'bet99', 'northstarbets', 'proline', '888sport', 'bwin', 'betano',
+  'leovegas', 'tonybet', 'casumo', 'ballybet', 'partypoker', 'jackpotbet',
+  'fanduel', 'draftkings', 'betmgm', 'caesars', 'betrivers', 'bet365', 'pinnacle',
 ])
 
 /**

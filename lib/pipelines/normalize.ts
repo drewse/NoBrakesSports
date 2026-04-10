@@ -60,10 +60,31 @@ export function decimalToAmerican(decimal: number): number {
 
 /** Leagues where draw is a valid outcome (3-way moneyline). */
 const THREE_WAY_LEAGUE_SLUGS = new Set([
-  'epl', 'mls', 'laliga', 'bundesliga', 'seriea', 'ligue1', 'eredivisie',
-  'championship', 'scottishprem', 'premierleague_au', 'ligamx', 'brasileirao',
-  'uefachampionsleague', 'uefaeuropaleague', 'ncaasoccer', 'nwsl',
-  'fifa_world_cup', 'fifa_womens_world_cup',
+  // Tier 1
+  'epl', 'mls', 'laliga', 'bundesliga', 'seria_a', 'ligue_one', 'eredivisie',
+  'liga_portugal', 'spl',
+  // Americas
+  'liga_mx', 'brazil_serie_a', 'brazil_serie_b', 'copa_libertadores', 'copa_sudamericana',
+  'argentina_primera', 'chile_primera', 'league_of_ireland',
+  // UEFA
+  'ucl', 'uel', 'uecl', 'ucl_women', 'fa_cup', 'dfb_pokal', 'copa_del_rey', 'coupe_de_france',
+  // Second tiers
+  'efl_champ', 'efl_league1', 'efl_league2', 'championship', 'league_one', 'league_two',
+  'scottish_prem', 'bundesliga2', 'bundesliga3', 'la_liga2', 'ligue_two', 'serie_b',
+  // Europe
+  'austria_bundesliga', 'belgium_pro_a', 'swiss_super', 'swiss_super_league',
+  'belgian_pro_league', 'super_lig', 'turkish_super_lig', 'frauen_bundesliga',
+  'norway_eliteserien', 'denmark_superliga', 'danish_superliga',
+  'sweden_allsvenskan', 'swedish_allsvenskan', 'finland_veikkaus',
+  'greece_super', 'ekstraklasa', 'russia_premier',
+  // Asia / Middle East
+  'j_league', 'k_league1', 'k_league', 'australia_aleague', 'a_league',
+  'china_super', 'saudi_pro', 'saudi_pro_league', 'isl',
+  // International
+  'fifa_wc', 'fifa_world_cup', 'fifa_womens_world_cup', 'wcq_europe',
+  'uefa_euro', 'copa_america', 'concacaf_nations', 'africa_cup',
+  // NWSL / NCAA
+  'nwsl', 'ncaasoccer',
 ])
 
 /**

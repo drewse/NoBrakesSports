@@ -34,7 +34,7 @@ export default async function EventDetailPage({
   // Fetch the event
   const { data: eventRaw } = await supabase
     .from('events')
-    .select('id, title, start_time, status, league_id, league:leagues(id, name, abbreviation, slug, sport_id)')
+    .select('id, title, start_time, status, league_id, league:leagues(id, name, abbreviation, slug, sport_id, sport:sports(slug))')
     .eq('id', eventId)
     .single()
 
@@ -105,7 +105,8 @@ export default async function EventDetailPage({
 
   // Determine market shape (2-way vs 3-way)
   const leagueSlug = event.league?.slug ?? null
-  const moneylineShape = getMarketShape(leagueSlug, null, 'moneyline')
+  const sportSlug = event.league?.sport?.slug ?? null
+  const moneylineShape = getMarketShape(leagueSlug, sportSlug, 'moneyline')
   const isThreeWay = moneylineShape === '3way'
 
   // Stats for header

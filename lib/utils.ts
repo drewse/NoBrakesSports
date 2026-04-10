@@ -130,8 +130,35 @@ export function getInitials(name: string): string {
 // Sports whose standard h2h/moneyline market is 3-way (home/draw/away)
 const THREE_WAY_SPORTS = new Set(['soccer', 'football_soccer'])
 
-// League slugs that are 3-way (EPL, MLS, etc.)
-const THREE_WAY_LEAGUES = new Set(['epl', 'mls', 'ncaasoccer'])
+// League slugs that are 3-way moneyline (all soccer leagues).
+// Intentionally comprehensive — every soccer slug from DB migrations + Odds API mappings.
+const THREE_WAY_LEAGUES = new Set([
+  // Tier 1
+  'epl', 'mls', 'laliga', 'bundesliga', 'seria_a', 'ligue_one', 'eredivisie',
+  'liga_portugal', 'spl',
+  // Americas
+  'liga_mx', 'brazil_serie_a', 'brazil_serie_b', 'copa_libertadores', 'copa_sudamericana',
+  'argentina_primera', 'chile_primera', 'league_of_ireland',
+  // UEFA
+  'ucl', 'uel', 'uecl', 'ucl_women', 'fa_cup', 'dfb_pokal', 'copa_del_rey', 'coupe_de_france',
+  // Second tiers
+  'efl_champ', 'efl_league1', 'efl_league2', 'championship', 'league_one', 'league_two',
+  'scottish_prem', 'bundesliga2', 'bundesliga3', 'la_liga2', 'ligue_two', 'serie_b',
+  // Europe
+  'austria_bundesliga', 'belgium_pro_a', 'swiss_super', 'swiss_super_league',
+  'belgian_pro_league', 'super_lig', 'turkish_super_lig', 'frauen_bundesliga',
+  'norway_eliteserien', 'denmark_superliga', 'danish_superliga',
+  'sweden_allsvenskan', 'swedish_allsvenskan', 'finland_veikkaus',
+  'greece_super', 'ekstraklasa', 'russia_premier',
+  // Asia / Middle East
+  'j_league', 'k_league1', 'k_league', 'australia_aleague', 'a_league',
+  'china_super', 'saudi_pro', 'saudi_pro_league', 'isl',
+  // International
+  'fifa_wc', 'fifa_world_cup', 'fifa_womens_world_cup', 'wcq_europe',
+  'uefa_euro', 'copa_america', 'concacaf_nations', 'africa_cup',
+  // NWSL / NCAA
+  'nwsl', 'ncaasoccer',
+])
 
 export type MarketShape = '2way' | '3way'
 
