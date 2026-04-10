@@ -148,6 +148,11 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     const mapped = mapKambiCategory(label)
     if (!mapped) continue
 
+    // Skip binary props (20+ Points, anytime scorer, double-double).
+    // These are threshold yes/no bets — not comparable cross-book since each
+    // book offers different thresholds. Only over/under lines are useful for arb detection.
+    if (mapped.isBinary) continue
+
     const outcomes = offer.outcomes ?? []
     if (outcomes.length === 0) continue
 
