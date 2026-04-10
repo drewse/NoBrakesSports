@@ -133,9 +133,13 @@ interface KambiOutcome {
 
 /**
  * Parse a batch of Kambi betOffers into normalized props.
+ * Only keeps the MAIN line per player per category (first occurrence).
+ * Kambi doesn't tag alternate player prop lines, so we dedup by keeping the first.
  */
 function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> {
   const byEvent = new Map<number, NormalizedProp[]>()
+  // Track seen (event, category, player) to skip alternates
+  const seenMainLine = new Set<string>()
 
   for (const offer of offers) {
     const label = offer.criterion?.englishLabel || offer.criterion?.label || ''
@@ -149,6 +153,15 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     const playerRaw = outcomes[0]?.participant
     if (!playerRaw) continue
     const playerName = normalizePlayerName(playerRaw)
+
+    // Dedup: only keep the first (main) line per player per category per event.
+    // Kambi returns alternate lines without a MAIN_LINE tag for player props,
+    // so the first occurrence is the primary line.
+    if (!mapped.isBinary) {
+      const dedupKey = `${offer.eventId}|${mapped.category}|${playerName}`
+      if (seenMainLine.has(dedupKey)) continue
+      seenMainLine.add(dedupKey)
+    }
 
     // Parse over/under or yes/no prices
     let overPrice: number | null = null

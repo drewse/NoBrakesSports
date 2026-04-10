@@ -169,11 +169,16 @@ export async function scrapePinnacleProps(
             const mapped = mapPinnacleCategory(description)
             if (!mapped) return []
 
-            const markets = await fetchMatchupMarkets(pm.id, signal)
+            const allMarkets = await fetchMatchupMarkets(pm.id, signal)
             const props: NormalizedProp[] = []
 
+            // CRITICAL: /markets/related/straight returns the prop market PLUS
+            // all parent game markets (spreads, totals, alternates). Only keep
+            // markets for THIS prop's matchupId.
+            const markets = allMarkets.filter(m => m.matchupId === pm.id)
+
             for (const market of markets) {
-              // Only period 0 (full game), non-alternate for main lines
+              // Only period 0 (full game), open markets
               if (market.period !== 0) continue
               if (market.status !== 'open') continue
 
