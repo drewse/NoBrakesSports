@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { scrapeKambiProps, type KambiPropResult, type KambiGameMarket } from '@/lib/pipelines/adapters/kambi-props'
+import { scrapeAllKambiOperators, type KambiPropResult, type KambiGameMarket, type KambiOperatorResults } from '@/lib/pipelines/adapters/kambi-props'
 import { scrapePinnacleProps, type PinnaclePropResult } from '@/lib/pipelines/adapters/pinnacle-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
     .delete()
     .gt('line_value', 100)
 
-  let kambiResults: KambiPropResult[] = []
+  let kambiOperatorResults: KambiOperatorResults[] = []
   let pinnacleResults: PinnaclePropResult[] = []
 
   // 1. Scrape both sources in parallel
@@ -93,13 +93,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const [kambi, pinnacle] = await Promise.allSettled([
-      scrapeKambiProps(controller.signal),
+      scrapeAllKambiOperators(controller.signal),
       scrapePinnacleProps(controller.signal),
     ])
 
     if (kambi.status === 'fulfilled') {
-      kambiResults = kambi.value
-      if (kambiResults.length === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
+      kambiOperatorResults = kambi.value
+      const totalEvents = kambiOperatorResults.reduce((s, o) => s + o.results.length, 0)
+      if (totalEvents === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
     } else {
       errors.push(`Kambi scrape failed: ${String(kambi.reason)}`)
     }
@@ -155,35 +156,56 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 3. Resolve source IDs for Kambi and Pinnacle
+  // 3. Resolve source IDs for all Kambi operators + Pinnacle
+  const allSlugs = [
+    ...kambiOperatorResults.map(o => o.operator.sourceSlug),
+    'pinnacle',
+  ]
   const { data: sources } = await db
     .from('market_sources')
     .select('id, slug')
-    .in('slug', ['betrivers', 'pinnacle'])
+    .in('slug', allSlugs)
 
   const sourceMap = new Map<string, string>()
   for (const s of sources ?? []) {
     sourceMap.set(s.slug, s.id)
   }
 
-  const kambiSourceId = sourceMap.get('betrivers')
+  // Auto-create missing sources for new Kambi operators
+  for (const op of kambiOperatorResults) {
+    if (!sourceMap.has(op.operator.sourceSlug)) {
+      const { data: newSource } = await db
+        .from('market_sources')
+        .insert({
+          name: op.operator.displayName,
+          slug: op.operator.sourceSlug,
+          source_type: 'sportsbook',
+          is_active: true,
+        })
+        .select('id')
+        .single()
+      if (newSource) sourceMap.set(op.operator.sourceSlug, newSource.id)
+    }
+  }
+
   const pinnacleSourceId = sourceMap.get('pinnacle')
 
   // 4. Transform scraped props into DB rows
   const propRows: PropRow[] = []
 
-  // Process Kambi results
-  if (kambiSourceId) {
+  // Process Kambi results — one pass per operator
+  for (const { operator, results: kambiResults } of kambiOperatorResults) {
+    const sourceId = sourceMap.get(operator.sourceSlug)
+    if (!sourceId) continue
+
     for (const result of kambiResults) {
       const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
       const date = new Date(result.event.start).toISOString().slice(0, 10)
       const home = result.event.homeName.toLowerCase().trim()
       const away = result.event.awayName.toLowerCase().trim()
 
-      // Try exact canonical key match
       let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
         ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      // Try normalized team name match
       if (!eventId) {
         eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
           ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
@@ -191,7 +213,7 @@ export async function GET(req: NextRequest) {
       if (!eventId) continue
 
       for (const prop of result.props) {
-        propRows.push(buildPropRow(eventId, kambiSourceId, prop, now))
+        propRows.push(buildPropRow(eventId, sourceId, prop, now))
       }
     }
   }
@@ -219,9 +241,12 @@ export async function GET(req: NextRequest) {
   }
 
   // 4b. Write Kambi game-level markets (ML, spread, total) into current_market_odds.
-  // This ensures BetRivers has full game-level coverage even when Odds API is out of credits.
+  // All Kambi operators write here so Markets page shows multiple sources.
   const gameMarketRows: any[] = []
-  if (kambiSourceId) {
+  for (const { operator, results: kambiResults } of kambiOperatorResults) {
+    const sourceId = sourceMap.get(operator.sourceSlug)
+    if (!sourceId) continue
+
     for (const result of kambiResults) {
       const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
       const date = new Date(result.event.start).toISOString().slice(0, 10)
@@ -243,7 +268,7 @@ export async function GET(req: NextRequest) {
         const awayProb = gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null
         gameMarketRows.push({
           event_id: eventId,
-          source_id: kambiSourceId,
+          source_id: sourceId,
           market_type: gm.marketType,
           odds_hash: oddsHash,
           home_price: gm.homePrice,
@@ -291,9 +316,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       ok: true,
       message: 'No props matched to DB events',
-      kambiEvents: kambiResults.length,
+      kambiOperators: kambiOperatorResults.length,
       pinnacleEvents: pinnacleResults.length,
       dbEvents: dbEvents.length,
+      gameMarketsUpserted,
       errors,
       elapsed: Date.now() - startTime,
     })
@@ -397,8 +423,12 @@ export async function GET(req: NextRequest) {
   const elapsed = Date.now() - startTime
   return NextResponse.json({
     ok: true,
-    kambiEvents: kambiResults.length,
-    kambiProps: kambiResults.reduce((s, r) => s + r.props.length, 0),
+    kambiOperators: kambiOperatorResults.map(o => ({
+      slug: o.operator.sourceSlug,
+      events: o.results.length,
+      props: o.results.reduce((s, r) => s + r.props.length, 0),
+      gameMarkets: o.results.reduce((s, r) => s + r.gameMarkets.length, 0),
+    })),
     gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
