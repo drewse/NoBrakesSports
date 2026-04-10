@@ -211,7 +211,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (propRows.length === 0) {
+  // Dedup propRows: if the same (event, source, category, player, line) appears
+  // multiple times, keep only the last one. This prevents "ON CONFLICT DO UPDATE
+  // command cannot affect row a second time" errors in batch upserts.
+  const dedupMap = new Map<string, PropRow>()
+  for (const row of propRows) {
+    const key = propKey(row.event_id, row.source_id, row.prop_category, row.player_name, row.line_value)
+    dedupMap.set(key, row)
+  }
+  const dedupedRows = [...dedupMap.values()]
+
+  if (dedupedRows.length === 0) {
     return NextResponse.json({
       ok: true,
       message: 'No props matched to DB events',
@@ -224,7 +234,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 5. Fetch existing hashes for change detection
-  const eventIds = [...new Set(propRows.map(r => r.event_id))]
+  const eventIds = [...new Set(dedupedRows.map(r => r.event_id))]
   const { data: existingProps } = await db
     .from('prop_odds')
     .select('event_id, source_id, prop_category, player_name, line_value, odds_hash')
@@ -240,7 +250,7 @@ export async function GET(req: NextRequest) {
   const changed: PropRow[] = []
   const unchanged: PropRow[] = []
 
-  for (const row of propRows) {
+  for (const row of dedupedRows) {
     const key = propKey(row.event_id, row.source_id, row.prop_category, row.player_name, row.line_value)
     const existingHash = existingHashMap.get(key)
 
@@ -326,6 +336,7 @@ export async function GET(req: NextRequest) {
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
     matchedToDb: propRows.length,
+    deduped: dedupedRows.length,
     changed: changed.length,
     unchanged: unchanged.length,
     upsertErrors,

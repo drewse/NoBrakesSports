@@ -18,9 +18,11 @@ import {
 
 const BASE = 'https://guest.api.arcadia.pinnacle.com/0.1'
 const API_KEY = 'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R'
-const HEADERS = {
+const HEADERS: Record<string, string> = {
   'x-api-key': API_KEY,
   'Content-Type': 'application/json',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  'Accept': 'application/json',
 }
 
 // Pinnacle league IDs
@@ -86,9 +88,17 @@ export interface PinnaclePropResult {
  */
 async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Promise<PinnacleMatchup[]> {
   const url = `${BASE}/leagues/${leagueId}/matchups`
-  const resp = await fetch(url, { headers: HEADERS, signal })
-  if (!resp.ok) return []
-  return resp.json()
+  try {
+    const resp = await fetch(url, { headers: HEADERS, signal })
+    if (!resp.ok) {
+      console.error(`Pinnacle matchups ${leagueId}: HTTP ${resp.status}`)
+      return []
+    }
+    return resp.json()
+  } catch (e) {
+    console.error(`Pinnacle matchups ${leagueId} fetch error:`, e)
+    return []
+  }
 }
 
 /**
