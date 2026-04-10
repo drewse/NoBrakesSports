@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { MarketComparisonSection } from '@/components/markets/market-comparison-section'
+import { PropComparisonSection } from '@/components/markets/prop-comparison-section'
 import { formatEventTime, formatRelativeTime, getMarketShape } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
 import type { MarketSnapshot } from '@/types'
@@ -109,8 +110,32 @@ export default async function EventDetailPage({
   const moneylineShape = getMarketShape(leagueSlug, sportSlug, 'moneyline')
   const isThreeWay = moneylineShape === '3way'
 
+  // Fetch prop odds for this event
+  const { data: propOddsRaw } = await supabase
+    .from('prop_odds')
+    .select('*, source:market_sources(id, name, slug)')
+    .eq('event_id', eventId)
+    .gt('snapshot_time', snapshotCutoff)
+
+  const propOdds = (propOddsRaw ?? []).map((p: any) => ({
+    source_id: p.source_id,
+    source_name: p.source?.name ?? '—',
+    source_slug: p.source?.slug ?? '',
+    prop_category: p.prop_category,
+    player_name: p.player_name,
+    line_value: p.line_value,
+    over_price: p.over_price,
+    under_price: p.under_price,
+    yes_price: p.yes_price,
+    no_price: p.no_price,
+    snapshot_time: p.snapshot_time,
+  }))
+
   // Stats for header
-  const sourceCount = new Set(latestSnapshots.map(s => s.source_id)).size
+  const sourceCount = new Set([
+    ...latestSnapshots.map(s => s.source_id),
+    ...propOdds.map((p: any) => p.source_id),
+  ]).size
   const lastUpdated = allSnapshots[0]?.snapshot_time ?? null
 
   const { home, away } = parseTeams(event.title)
@@ -192,6 +217,9 @@ export default async function EventDetailPage({
           isThreeWay={isThreeWay}
         />
       ))}
+
+      {/* Prop comparison section */}
+      <PropComparisonSection props={propOdds} />
     </div>
   )
 }

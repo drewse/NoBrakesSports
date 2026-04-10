@@ -14,6 +14,8 @@ import {
 } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
+import { ArbTabs } from '@/components/arbitrage/arb-tabs'
+import { PropArbTable, type PropArb } from '@/components/arbitrage/prop-arb-table'
 
 export const metadata = { title: 'Arbitrage' }
 
@@ -196,6 +198,87 @@ export default async function ArbitragePage() {
     ...arbs.map((a) => a.bestAwaySource),
   ]).size
 
+  // ── Prop Arb Detection ────────────────────────────────────────────────────
+  const propArbs: PropArb[] = []
+
+  const propStaleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString() // 30 min for props
+  const { data: propOddsRaw } = await supabase
+    .from('prop_odds')
+    .select(`
+      event_id, source_id, prop_category, player_name, line_value,
+      over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
+      event:events(id, title, start_time, league:leagues(abbreviation)),
+      source:market_sources(id, name, slug)
+    `)
+    .gt('snapshot_time', propStaleCutoff)
+    .not('over_price', 'is', null)
+    .not('under_price', 'is', null)
+
+  if (propOddsRaw && propOddsRaw.length > 0) {
+    // Filter by enabled books
+    const filteredProps = propOddsRaw.filter((p: any) => {
+      const slug = p.source?.slug ?? ''
+      if (enabledBooks && !enabledBooks.has(slug)) return false
+      return true
+    })
+
+    // Group by (event_id, prop_category, player_name, line_value)
+    const propGroups = new Map<string, any[]>()
+    for (const p of filteredProps) {
+      if (!(p as any).event || !isUpcomingEvent((p as any).event?.start_time)) continue
+      const key = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}`
+      if (!propGroups.has(key)) propGroups.set(key, [])
+      propGroups.get(key)!.push(p)
+    }
+
+    // Find arbs: best over from one book vs best under from another
+    for (const group of propGroups.values()) {
+      if (group.length < 2) continue // need 2+ books
+
+      const bestOver = group.reduce((best: any, p: any) =>
+        (p.over_price ?? -Infinity) > (best.over_price ?? -Infinity) ? p : best
+      )
+      const bestUnder = group.reduce((best: any, p: any) =>
+        (p.under_price ?? -Infinity) > (best.under_price ?? -Infinity) ? p : best
+      )
+
+      // Must come from different books
+      if (bestOver.source_id === bestUnder.source_id) continue
+
+      const overProb = americanToImpliedProb(bestOver.over_price)
+      const underProb = americanToImpliedProb(bestUnder.under_price)
+      const combinedProb = overProb + underProb
+
+      if (combinedProb < 1.0) {
+        const profitPct = (1 / combinedProb - 1) * 100
+        const ev = (bestOver as any).event
+        propArbs.push({
+          eventTitle: ev?.title ?? '—',
+          league: ev?.league?.abbreviation ?? '—',
+          propCategory: bestOver.prop_category,
+          playerName: bestOver.player_name,
+          lineValue: bestOver.line_value,
+          bestOverPrice: bestOver.over_price,
+          bestOverSource: (bestOver as any).source?.name ?? '—',
+          bestUnderPrice: bestUnder.under_price,
+          bestUnderSource: (bestUnder as any).source?.name ?? '—',
+          overProb,
+          underProb,
+          combinedProb,
+          profitPct,
+          lastUpdated: group.reduce(
+            (max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max,
+            group[0].snapshot_time,
+          ),
+        })
+      }
+    }
+
+    propArbs.sort((a, b) => b.profitPct - a.profitPct)
+  }
+
+  const totalArbs = arbs.length + propArbs.length
+
   function ProfitDisplay({ value }: { value: number }) {
     if (value > 1) {
       return (
@@ -249,12 +332,23 @@ export default async function ArbitragePage() {
           <Badge variant="pro">PRO</Badge>
         </div>
         <p className="text-xs text-nb-400">
-          {arbs.length} opportunities detected across {uniqueBooks} books
+          {totalArbs} opportunities detected ({arbs.length} game, {propArbs.length} prop) across {uniqueBooks} books
         </p>
       </div>
 
       <ProGate isPro={isPro} featureName="Arbitrage" blur={false}>
-        {arbs.length === 0 ? (
+        <ArbTabs
+          gameCount={arbs.length}
+          propCount={propArbs.length}
+          propContent={
+            <Card className="bg-nb-900 border-nb-800">
+              <CardContent className="p-0">
+                <PropArbTable arbs={propArbs} />
+              </CardContent>
+            </Card>
+          }
+          gameContent={
+        arbs.length === 0 ? (
           <Card className="bg-nb-900 border-nb-800">
             <CardContent className="px-6 py-12 flex flex-col items-center justify-center text-center gap-3">
               <p className="text-white text-sm font-medium">
@@ -383,7 +477,9 @@ export default async function ArbitragePage() {
               </div>
             </CardContent>
           </Card>
-        )}
+        )
+          }
+        />
       </ProGate>
     </div>
   )

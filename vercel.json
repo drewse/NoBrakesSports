@@ -11,12 +11,17 @@
     {
       "path": "/api/cron/sync-pipelines",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-props",
+      "schedule": "*/2 * * * *"
     }
   ],
   "functions": {
     "app/api/cron/sync-odds/route.ts": { "maxDuration": 300 },
     "app/api/cron/sync-kalshi/route.ts": { "maxDuration": 30 },
     "app/api/cron/sync-pipelines/route.ts": { "maxDuration": 300 },
-    "app/api/pipelines/run/route.ts": { "maxDuration": 300 }
+    "app/api/pipelines/run/route.ts": { "maxDuration": 300 },
+    "app/api/cron/sync-props/route.ts": { "maxDuration": 300 }
   }
 }
