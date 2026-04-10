@@ -77,6 +77,13 @@ export async function GET(req: NextRequest) {
   const now = new Date().toISOString()
   const errors: string[] = []
 
+  // One-time cleanup: delete bad Pinnacle prop data where line_value > 100
+  // (game totals that leaked through before the matchupId filter fix)
+  await db
+    .from('prop_odds')
+    .delete()
+    .gt('line_value', 100)
+
   let kambiResults: KambiPropResult[] = []
   let pinnacleResults: PinnaclePropResult[] = []
 

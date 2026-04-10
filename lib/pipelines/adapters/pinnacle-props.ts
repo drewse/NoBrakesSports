@@ -15,6 +15,7 @@ import {
   americanToImpliedProb,
   type NormalizedProp,
 } from '../prop-normalizer'
+import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://guest.api.arcadia.pinnacle.com/0.1'
 const API_KEY = 'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R'
@@ -89,7 +90,7 @@ export interface PinnaclePropResult {
 async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Promise<PinnacleMatchup[]> {
   const url = `${BASE}/leagues/${leagueId}/matchups`
   try {
-    const resp = await fetch(url, { headers: HEADERS, signal })
+    const resp = await pipeFetch(url, { headers: HEADERS, signal })
     if (!resp.ok) {
       console.error(`Pinnacle matchups ${leagueId}: HTTP ${resp.status}`)
       return []
@@ -106,9 +107,14 @@ async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Prom
  */
 async function fetchMatchupMarkets(matchupId: number, signal?: AbortSignal): Promise<PinnacleMarket[]> {
   const url = `${BASE}/matchups/${matchupId}/markets/related/straight`
-  const resp = await fetch(url, { headers: HEADERS, signal })
-  if (!resp.ok) return []
-  return resp.json()
+  try {
+    const resp = await pipeFetch(url, { headers: HEADERS, signal })
+    if (!resp.ok) return []
+    return resp.json()
+  } catch (e) {
+    console.error(`Pinnacle market ${matchupId} fetch error:`, e)
+    return []
+  }
 }
 
 /**
