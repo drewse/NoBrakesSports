@@ -46,9 +46,21 @@ export interface KambiEvent {
   leaguePath: string
 }
 
+export interface KambiGameMarket {
+  marketType: 'moneyline' | 'spread' | 'total'
+  homePrice: number | null
+  awayPrice: number | null
+  drawPrice: number | null
+  spreadValue: number | null
+  totalValue: number | null
+  overPrice: number | null
+  underPrice: number | null
+}
+
 export interface KambiPropResult {
   event: KambiEvent
   props: NormalizedProp[]
+  gameMarkets: KambiGameMarket[]
 }
 
 /**
@@ -227,6 +239,83 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
   return byEvent
 }
 
+// Game-level criterion labels
+const GAME_MARKET_LABELS: Record<string, 'moneyline' | 'spread' | 'total'> = {
+  'moneyline - including overtime': 'moneyline',
+  'moneyline': 'moneyline',
+  'point spread - including overtime': 'spread',
+  'point spread': 'spread',
+  'handicap': 'spread',
+  'run line': 'spread',
+  'run line - including extra innings': 'spread',
+  'puck line - including overtime': 'spread',
+  'total points - including overtime': 'total',
+  'total points': 'total',
+  'total runs - including extra innings': 'total',
+  'total runs': 'total',
+  'total goals - including overtime': 'total',
+  'total goals': 'total',
+  'total match goals': 'total',
+}
+
+/**
+ * Parse game-level betOffers (ML, spread, total) from a batch.
+ * Only keeps MAIN_LINE tagged offers.
+ */
+function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[]> {
+  const byEvent = new Map<number, KambiGameMarket[]>()
+
+  for (const offer of offers) {
+    // Only main lines for game-level markets
+    if (!offer.tags?.includes('MAIN_LINE')) continue
+
+    const label = (offer.criterion?.englishLabel || offer.criterion?.label || '').toLowerCase().trim()
+    const marketType = GAME_MARKET_LABELS[label]
+    if (!marketType) continue
+
+    const outcomes = offer.outcomes ?? []
+    if (outcomes.length === 0) continue
+
+    let homePrice: number | null = null
+    let awayPrice: number | null = null
+    let drawPrice: number | null = null
+    let spreadValue: number | null = null
+    let totalValue: number | null = null
+    let overPrice: number | null = null
+    let underPrice: number | null = null
+
+    for (const o of outcomes) {
+      const american = o.oddsAmerican ? parseInt(o.oddsAmerican, 10) : null
+      if (american == null || isNaN(american)) continue
+      const type = (o.type || '').toUpperCase()
+
+      if (marketType === 'moneyline') {
+        if (type === 'OT_ONE') homePrice = american
+        else if (type === 'OT_TWO') awayPrice = american
+        else if (type === 'OT_CROSS') drawPrice = american
+      } else if (marketType === 'spread') {
+        spreadValue = o.line != null ? o.line / 1000 : null
+        if (type === 'OT_ONE') homePrice = american
+        else if (type === 'OT_TWO') awayPrice = american
+      } else if (marketType === 'total') {
+        totalValue = o.line != null ? o.line / 1000 : null
+        if (type.includes('OVER') || (o.label || '').toLowerCase() === 'over') overPrice = american
+        else if (type.includes('UNDER') || (o.label || '').toLowerCase() === 'under') underPrice = american
+      }
+    }
+
+    const gm: KambiGameMarket = {
+      marketType, homePrice, awayPrice, drawPrice,
+      spreadValue, totalValue, overPrice, underPrice,
+    }
+
+    if (!byEvent.has(offer.eventId)) byEvent.set(offer.eventId, [])
+    byEvent.get(offer.eventId)!.push(gm)
+  }
+
+  return byEvent
+}
+
 /**
  * Full Kambi scrape: fetch every prop for every event across all configured sports.
  *
@@ -265,10 +354,12 @@ export async function scrapeKambiProps(
         const eventIds = batch.map(e => e.eventId)
         const offers = await fetchAllBetOffers(eventIds, signal)
         const propsByEvent = parseBetOffers(offers)
+        const gameMarketsByEvent = parseGameMarkets(offers)
 
         return batch.map(event => ({
           event,
           props: propsByEvent.get(event.eventId) ?? [],
+          gameMarkets: gameMarketsByEvent.get(event.eventId) ?? [],
         }))
       })
     )

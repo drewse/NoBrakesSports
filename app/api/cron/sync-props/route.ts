@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { scrapeKambiProps, type KambiPropResult } from '@/lib/pipelines/adapters/kambi-props'
+import { scrapeKambiProps, type KambiPropResult, type KambiGameMarket } from '@/lib/pipelines/adapters/kambi-props'
 import { scrapePinnacleProps, type PinnaclePropResult } from '@/lib/pipelines/adapters/pinnacle-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
@@ -218,6 +218,65 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // 4b. Write Kambi game-level markets (ML, spread, total) into current_market_odds.
+  // This ensures BetRivers has full game-level coverage even when Odds API is out of credits.
+  const gameMarketRows: any[] = []
+  if (kambiSourceId) {
+    for (const result of kambiResults) {
+      const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
+      const date = new Date(result.event.start).toISOString().slice(0, 10)
+      const home = result.event.homeName.toLowerCase().trim()
+      const away = result.event.awayName.toLowerCase().trim()
+
+      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
+        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
+      if (!eventId) {
+        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
+          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
+      }
+      if (!eventId) continue
+
+      for (const gm of result.gameMarkets) {
+        const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
+          .map(v => v ?? '').join('|')
+        const homeProb = gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null
+        const awayProb = gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null
+        gameMarketRows.push({
+          event_id: eventId,
+          source_id: kambiSourceId,
+          market_type: gm.marketType,
+          odds_hash: oddsHash,
+          home_price: gm.homePrice,
+          away_price: gm.awayPrice,
+          draw_price: gm.drawPrice,
+          spread_value: gm.spreadValue,
+          total_value: gm.totalValue,
+          over_price: gm.overPrice,
+          under_price: gm.underPrice,
+          home_implied_prob: homeProb,
+          away_implied_prob: awayProb,
+          movement_direction: 'flat',
+          snapshot_time: now,
+          changed_at: now,
+        })
+      }
+    }
+  }
+
+  let gameMarketsUpserted = 0
+  if (gameMarketRows.length > 0) {
+    const CHUNK = 500
+    for (let i = 0; i < gameMarketRows.length; i += CHUNK) {
+      const { error } = await db
+        .from('current_market_odds')
+        .upsert(gameMarketRows.slice(i, i + CHUNK), {
+          onConflict: 'event_id,source_id,market_type',
+        })
+      if (error) errors.push(`current_market_odds upsert: ${error.message}`)
+      else gameMarketsUpserted += gameMarketRows.slice(i, i + CHUNK).length
+    }
+  }
+
   // Dedup propRows: if the same (event, source, category, player, line) appears
   // multiple times, keep only the last one. This prevents "ON CONFLICT DO UPDATE
   // command cannot affect row a second time" errors in batch upserts.
@@ -340,6 +399,7 @@ export async function GET(req: NextRequest) {
     ok: true,
     kambiEvents: kambiResults.length,
     kambiProps: kambiResults.reduce((s, r) => s + r.props.length, 0),
+    gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
     matchedToDb: propRows.length,
