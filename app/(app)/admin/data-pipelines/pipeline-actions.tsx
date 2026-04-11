@@ -29,17 +29,24 @@ export type Pipeline = {
   updated_at: string
 }
 
-// ── Odds API coverage map ─────────────────────────────────────────────────────
-// Pipeline slugs that The Odds API covers via the CA region.
-// These rows get a visual indicator so it's clear they're covered even without
-// a custom adapter.
-const ODDS_API_SLUGS = new Set([
-  'draftkings', 'fanduel', 'betmgm', 'caesars', 'betrivers',
-  'bet365', 'pinnacle', 'sports_interaction', 'thescore', 'pointsbet_on',
-  'betway', 'betvictor', 'bet99', 'northstarbets', 'proline',
-  '888sport', 'bwin', 'betano', 'leovegas', 'tonybet',
-  'casumo', 'ballybet', 'partypoker', 'jackpotbet',
+// ── Data source platform map ──────────────────────────────────────────────────
+// Maps pipeline slugs to their underlying platform for display badges.
+const KAMBI_SLUGS = new Set([
+  'betrivers', 'unibet', 'leovegas', '888sport', 'betvictor', 'casumo',
 ])
+const DIRECT_API_SLUGS: Record<string, string> = {
+  pinnacle: 'Pinnacle API',
+  pointsbet_on: 'PointsBet API',
+  draftkings: 'DK API',
+  fanduel: 'FD API',
+  bet365: 'bet365 API',
+  betway: 'Entain CDS',
+  sports_interaction: 'Entain CDS',
+  betmgm: 'Roar Digital',
+  caesars: 'Caesars API',
+  thescore: 'Penn API',
+  bet99: 'Amelco WS',
+}
 
 // ── Toggle enable/disable ────────────────────────────────────────────────────
 
@@ -444,7 +451,8 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
   const [pipeline, setPipeline] = useState<Pipeline>(initial)
   const [showErrorModal, setShowErrorModal] = useState(false)
 
-  const hasOddsApi = ODDS_API_SLUGS.has(pipeline.slug)
+  const isKambi = KAMBI_SLUGS.has(pipeline.slug)
+  const directApi = DIRECT_API_SLUGS[pipeline.slug]
   const hasAdapter = pipeline.ingestion_method != null
 
   const HEALTH_CLASSES: Record<string, string> = {
@@ -469,7 +477,7 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
         <ErrorModal pipeline={pipeline} onClose={() => setShowErrorModal(false)} />
       )}
 
-      <tr className={`border-b border-border/40 hover:bg-nb-800/20 transition-colors ${hasOddsApi ? 'border-l-2 border-l-sky-500/30' : ''}`}>
+      <tr className={`border-b border-border/40 hover:bg-nb-800/20 transition-colors ${isKambi ? 'border-l-2 border-l-violet-500/30' : directApi ? 'border-l-2 border-l-sky-500/30' : ''}`}>
 
         {/* Book / Source */}
         <td className="px-4 py-3 min-w-[160px]">
@@ -477,14 +485,19 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
           <p className="text-[10px] text-nb-600 font-mono">{pipeline.slug}</p>
           {/* Data source badges */}
           <div className="flex items-center gap-1 mt-1 flex-wrap">
-            {hasOddsApi && (
+            {isKambi && (
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20 uppercase tracking-wide">
+                Kambi
+              </span>
+            )}
+            {directApi && (
               <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 uppercase tracking-wide">
-                Odds API
+                {directApi}
               </span>
             )}
             {hasAdapter && (
-              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20 uppercase tracking-wide">
-                Adapter
+              <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 border border-green-500/20 uppercase tracking-wide">
+                Live
               </span>
             )}
           </div>
@@ -524,9 +537,6 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
               ? <span className="text-[10px] text-nb-400">{pipeline.ingestion_method}</span>
               : <span className="text-[10px] text-nb-700">—</span>
             }
-            {hasOddsApi && !hasAdapter && (
-              <span className="text-[9px] text-sky-500">via Odds API</span>
-            )}
           </div>
         </td>
 

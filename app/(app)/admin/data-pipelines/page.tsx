@@ -27,16 +27,11 @@ export default async function DataPipelinesPage() {
   if (!profile?.is_admin) redirect('/dashboard')
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  const [pipelinesRes, oddsFlagRes, recentRunsRes] = await Promise.all([
+  const [pipelinesRes, recentRunsRes] = await Promise.all([
     supabase
       .from('data_pipelines')
       .select('*')
       .order('priority', { ascending: true }),
-    supabase
-      .from('feature_flags')
-      .select('is_enabled')
-      .eq('key', 'odds_api_sync')
-      .single(),
     supabase
       .from('pipeline_runs')
       .select('pipeline_slug, status, is_no_op, snapshots_changed, snapshots_skipped, started_at, finished_at, timed_out')
@@ -45,7 +40,6 @@ export default async function DataPipelinesPage() {
   ])
 
   const { data: pipelines }    = pipelinesRes
-  const { data: oddsFlag }     = oddsFlagRes
   const recentRuns             = (recentRunsRes.data ?? []) as any[]
 
   const all = (pipelines ?? []) as Pipeline[]
@@ -66,8 +60,6 @@ export default async function DataPipelinesPage() {
   const noOpPct       = completedRuns.length > 0
     ? Math.round((noOpRuns.length / completedRuns.length) * 100)
     : null
-
-  const oddsSyncEnabled = oddsFlag?.is_enabled ?? false
 
   const summaryCards = [
     { label: 'Total Pipelines', value: total,    icon: Database,      color: 'text-nb-300' },
@@ -91,18 +83,10 @@ export default async function DataPipelinesPage() {
           </p>
         </div>
 
-        {/* Odds API status pill */}
-        <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium shrink-0 ${
-          oddsSyncEnabled
-            ? 'border-green-500/30 bg-green-500/10 text-green-400'
-            : 'border-nb-700 bg-nb-800 text-nb-400'
-        }`}>
-          <span className={`h-1.5 w-1.5 rounded-full ${oddsSyncEnabled ? 'bg-green-400' : 'bg-nb-600'}`} />
-          The Odds API sync:
-          <span className="font-semibold">{oddsSyncEnabled ? 'Enabled' : 'Disabled'}</span>
-          <a href="/admin/feature-flags" className="ml-1 underline underline-offset-2 text-nb-500 hover:text-white text-[10px]">
-            manage →
-          </a>
+        {/* Prop sync indicator */}
+        <div className="flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs font-medium shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-400 animate-pulse" />
+          <span className="text-violet-300">Prop sync: <span className="font-semibold text-violet-200">every 2 min</span></span>
         </div>
       </div>
 
@@ -199,8 +183,8 @@ export default async function DataPipelinesPage() {
 
       {/* Footer note */}
       <p className="text-[10px] text-nb-700 leading-relaxed">
-        All pipelines are in <span className="text-nb-500">planned</span> state pending scraper implementation.
-        Enable / disable toggles are safe to use — no live ingestion will start until the ingestion method is set and the pipeline is wired up.
+        Kambi books (BetRivers, Unibet, LeoVegas) scrape every 2 min via prop sync cron.
+        Direct API books need individual adapter implementation. See <a href="/admin" className="text-nb-500 underline">Book Tracker</a> for implementation roadmap.
       </p>
     </div>
   )
