@@ -268,18 +268,30 @@ const GAME_MARKET_LABELS: Record<string, 'moneyline' | 'spread' | 'total'> = {
 
 /**
  * Parse game-level betOffers (ML, spread, total) from a batch.
- * Only keeps MAIN_LINE tagged offers.
+ * Keeps the first offer per (event, market_type) — prefers MAIN_LINE tagged but
+ * falls back to any matching offer (Kambi doesn't tag ML as MAIN_LINE).
  */
 function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[]> {
   const byEvent = new Map<number, KambiGameMarket[]>()
+  // Track seen (event, market_type) to keep only the primary line
+  const seenGameMarket = new Set<string>()
 
-  for (const offer of offers) {
-    // Only main lines for game-level markets
-    if (!offer.tags?.includes('MAIN_LINE')) continue
+  // Sort so MAIN_LINE tagged offers come first (preferred)
+  const sorted = [...offers].sort((a, b) => {
+    const aMain = a.tags?.includes('MAIN_LINE') ? 0 : 1
+    const bMain = b.tags?.includes('MAIN_LINE') ? 0 : 1
+    return aMain - bMain
+  })
 
+  for (const offer of sorted) {
     const label = (offer.criterion?.englishLabel || offer.criterion?.label || '').toLowerCase().trim()
     const marketType = GAME_MARKET_LABELS[label]
     if (!marketType) continue
+
+    // Only keep the first (main) line per event per market type
+    const dedupKey = `${offer.eventId}|${marketType}`
+    if (seenGameMarket.has(dedupKey)) continue
+    seenGameMarket.add(dedupKey)
 
     const outcomes = offer.outcomes ?? []
     if (outcomes.length === 0) continue
