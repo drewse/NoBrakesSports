@@ -246,8 +246,8 @@ function TotalTable({ snapshots }: { snapshots: MarketSnapshot[] }) {
   return (
     <div className="space-y-4">
       {groups.map(([totalValue, groupSnaps]) => {
-        // Over is stored in home_price (per sync logic)
-        const overPrices = groupSnaps.map(s => s.home_price)
+        const overPrices = groupSnaps.map(s => s.over_price)
+        const underPrices = groupSnaps.map(s => s.under_price)
 
         return (
           <div key={totalValue}>
@@ -268,6 +268,9 @@ function TotalTable({ snapshots }: { snapshots: MarketSnapshot[] }) {
                     <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
                       Over {totalValue}
                     </th>
+                    <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
+                      Under {totalValue}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -280,8 +283,14 @@ function TotalTable({ snapshots }: { snapshots: MarketSnapshot[] }) {
                       </td>
                       <td className="px-4 py-2.5">
                         <PriceCell
-                          price={snap.home_price}
-                          best={isBest(snap.home_price, overPrices)}
+                          price={snap.over_price}
+                          best={isBest(snap.over_price, overPrices)}
+                        />
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <PriceCell
+                          price={snap.under_price}
+                          best={isBest(snap.under_price, underPrices)}
                         />
                       </td>
                     </tr>

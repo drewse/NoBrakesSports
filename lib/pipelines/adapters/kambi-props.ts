@@ -288,13 +288,16 @@ function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[
     const marketType = GAME_MARKET_LABELS[label]
     if (!marketType) continue
 
-    // Only keep the first (main) line per event per market type
-    const dedupKey = `${offer.eventId}|${marketType}`
-    if (seenGameMarket.has(dedupKey)) continue
-    seenGameMarket.add(dedupKey)
-
     const outcomes = offer.outcomes ?? []
     if (outcomes.length === 0) continue
+
+    // For moneyline: one per event. For spread/total: allow alternate lines.
+    const lineVal = outcomes[0]?.line != null ? outcomes[0].line / 1000 : 0
+    const dedupKey = marketType === 'moneyline'
+      ? `${offer.eventId}|${marketType}`
+      : `${offer.eventId}|${marketType}|${lineVal}`
+    if (seenGameMarket.has(dedupKey)) continue
+    seenGameMarket.add(dedupKey)
 
     let homePrice: number | null = null
     let awayPrice: number | null = null

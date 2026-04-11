@@ -266,10 +266,15 @@ export async function GET(req: NextRequest) {
           .map(v => v ?? '').join('|')
         const homeProb = gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null
         const awayProb = gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null
+        // line_value: the spread or total number, null for moneyline
+        const lineValue = gm.marketType === 'spread' ? gm.spreadValue
+          : gm.marketType === 'total' ? gm.totalValue
+          : null
         gameMarketRows.push({
           event_id: eventId,
           source_id: sourceId,
           market_type: gm.marketType,
+          line_value: lineValue,
           odds_hash: oddsHash,
           home_price: gm.homePrice,
           away_price: gm.awayPrice,
@@ -288,17 +293,25 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Dedup game market rows before upsert
+  const gmDedupMap = new Map<string, any>()
+  for (const row of gameMarketRows) {
+    const key = `${row.event_id}|${row.source_id}|${row.market_type}|${row.line_value ?? 'null'}`
+    gmDedupMap.set(key, row)
+  }
+  const dedupedGameRows = [...gmDedupMap.values()]
+
   let gameMarketsUpserted = 0
-  if (gameMarketRows.length > 0) {
+  if (dedupedGameRows.length > 0) {
     const CHUNK = 500
-    for (let i = 0; i < gameMarketRows.length; i += CHUNK) {
+    for (let i = 0; i < dedupedGameRows.length; i += CHUNK) {
       const { error } = await db
         .from('current_market_odds')
-        .upsert(gameMarketRows.slice(i, i + CHUNK), {
-          onConflict: 'event_id,source_id,market_type',
+        .upsert(dedupedGameRows.slice(i, i + CHUNK), {
+          onConflict: 'event_id,source_id,market_type,line_value',
         })
       if (error) errors.push(`current_market_odds upsert: ${error.message}`)
-      else gameMarketsUpserted += gameMarketRows.slice(i, i + CHUNK).length
+      else gameMarketsUpserted += dedupedGameRows.slice(i, i + CHUNK).length
     }
   }
 
