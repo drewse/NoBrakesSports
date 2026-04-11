@@ -481,13 +481,24 @@ function propKey(
   return `${eventId}|${sourceId}|${category}|${playerName}|${lineValue ?? 'null'}`
 }
 
+const TEAM_CITY_ALIASES: Record<string, string> = {
+  'la ': 'los angeles ', 'ny ': 'new york ', 'gs ': 'golden state ',
+  'sa ': 'san antonio ', 'no ': 'new orleans ', 'okc ': 'oklahoma city ',
+  'tb ': 'tampa bay ', 'kc ': 'kansas city ', 'gb ': 'green bay ',
+  'ne ': 'new england ',
+}
+
 function normalizeTeamForMatch(name: string): string {
-  return name
+  let n = name
     .toLowerCase()
     .replace(/\./g, '')
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
+  for (const [abbr, full] of Object.entries(TEAM_CITY_ALIASES)) {
+    if (n.startsWith(abbr)) { n = full + n.slice(abbr.length); break }
+  }
+  return n
 }
 
 function round4(n: number): number {

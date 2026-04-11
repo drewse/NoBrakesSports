@@ -71,25 +71,18 @@ export default async function EventDetailPage({
     )
   }
 
-  // Fetch snapshots for this event from the last 6 hours, newest first
+  // Fetch current odds for this event — one row per (source, market_type).
+  // Uses current_market_odds (the live table) instead of market_snapshots (history).
   const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const { data: snapshotsRaw } = await supabase
-    .from('market_snapshots')
+    .from('current_market_odds')
     .select('*, source:market_sources(id, name, slug, source_type)')
     .eq('event_id', eventId)
     .gt('snapshot_time', snapshotCutoff)
-    .order('snapshot_time', { ascending: false })
 
   const allSnapshots = (snapshotsRaw ?? []) as MarketSnapshot[]
-
-  // Deduplicate: for each (source_id, market_type) pair, keep only the latest snapshot
-  const seen = new Set<string>()
-  const latestSnapshots = allSnapshots.filter(s => {
-    const key = `${s.source_id}:${s.market_type}`
-    if (seen.has(key)) return false
-    seen.add(key)
-    return true
-  })
+  // current_market_odds already has one row per (source, market_type) — no dedup needed
+  const latestSnapshots = allSnapshots
 
   // Group by market_type
   const byMarketType = new Map<string, MarketSnapshot[]>()

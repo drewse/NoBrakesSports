@@ -159,9 +159,34 @@ export function normalizeEvent(raw: RawEventInput): CanonicalEvent {
  *   canonicalEventKey(event)
  *   // → "nba:2026-04-09:toronto raptors:miami heat"
  */
+// City abbreviation → full name mapping for canonical team name normalization.
+// Books use inconsistent naming: "LA Clippers" vs "Los Angeles Clippers",
+// "NY Knicks" vs "New York Knicks", etc.
+const TEAM_CITY_ALIASES: Record<string, string> = {
+  'la ': 'los angeles ',
+  'ny ': 'new york ',
+  'gs ': 'golden state ',
+  'sa ': 'san antonio ',
+  'no ': 'new orleans ',
+  'okc ': 'oklahoma city ',
+  'tb ': 'tampa bay ',
+  'kc ': 'kansas city ',
+  'gb ': 'green bay ',
+  'ne ': 'new england ',
+}
+
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
-  const normalizeTeam = (name: string) =>
-    name.toLowerCase().trim().replace(/\s+/g, ' ')
+  const normalizeTeam = (name: string) => {
+    let n = name.toLowerCase().trim().replace(/\s+/g, ' ')
+    // Expand city abbreviations so "la clippers" → "los angeles clippers"
+    for (const [abbr, full] of Object.entries(TEAM_CITY_ALIASES)) {
+      if (n.startsWith(abbr)) {
+        n = full + n.slice(abbr.length)
+        break
+      }
+    }
+    return n
+  }
   const date = new Date(event.startTime).toISOString().slice(0, 10) // YYYY-MM-DD UTC
   return `${event.leagueSlug}:${date}:${normalizeTeam(event.homeTeam)}:${normalizeTeam(event.awayTeam)}`
 }
