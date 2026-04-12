@@ -41,7 +41,7 @@ const BOOK_TRACKER: BookEntry[] = [
   { name: 'Casumo',        slug: 'casumo',       platform: 'Kambi',         difficulty: 'easy',   status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Kambi but client ID (csm) requires auth session' },
   // ── Medium ─────────────────────────────────────────────────────────────
   { name: 'DraftKings',    slug: 'draftkings',   platform: 'DK API',        difficulty: 'medium', status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Public API, no auth needed. CA-ON-SB site.' },
-  { name: 'FanDuel',       slug: 'fanduel',      platform: 'FD API',        difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Ontario endpoint. Needs proxy + DevTools investigation' },
+  { name: 'FanDuel',       slug: 'fanduel',      platform: 'FD API',        difficulty: 'medium', status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Public API with _ak key. NBA/MLB/NHL.' },
   { name: 'bet365',        slug: 'bet365',       platform: 'Proprietary',   difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Complex proprietary API. Needs DevTools investigation' },
   { name: 'Betway',        slug: 'betway',       platform: 'Entain CDS',    difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Entain platform. Same as Sports Interaction' },
   { name: 'Sports Interaction', slug: 'sports_interaction', platform: 'Entain CDS', difficulty: 'medium', status: 'planned', gameLevel: false, props: false, frequency: null, notes: 'Entain GraphQL API. Needs DevTools investigation' },
