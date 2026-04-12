@@ -58,24 +58,45 @@ export default async function MarketsPage({
 
   if (events.length > 0) {
     const eventIds = events.map((e: any) => e.id)
-    // Query current_market_odds for source/market metadata.
-    // Use an RPC or view approach to avoid hitting Supabase default row limits.
-    // With alternate lines, each event can have 2000+ rows. We only need
-    // distinct (event_id, source_id, market_type) for the listing.
-    // Strategy: query only moneyline rows (one per source per event) to get sources,
-    // then query distinct market_types separately.
     const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
-    const BATCH = 50
+
+    // Two lightweight queries per batch:
+    // 1. Moneyline rows (line_value IS NULL) → gives us source list per event
+    // 2. One row per market_type per event (using moneyline + first spread + first total)
+    const BATCH = 100
     for (let i = 0; i < eventIds.length; i += BATCH) {
       const batch = eventIds.slice(i, i + BATCH)
-      // Get all rows but with a high limit to cover alternate lines
-      const { data } = await supabase
+
+      // Query moneyline rows only — one per source per event, no alternates
+      const { data: mlData } = await supabase
         .from('current_market_odds')
         .select('event_id, source_id, market_type, snapshot_time')
         .in('event_id', batch)
+        .eq('market_type', 'moneyline')
         .gt('snapshot_time', snapshotCutoff)
-        .limit(10000)
-      if (data) snapshotMeta.push(...data)
+        .limit(5000)
+      if (mlData) snapshotMeta.push(...mlData)
+
+      // Query one spread + one total per event per source (just need to know they exist)
+      for (const mtype of ['spread', 'total'] as const) {
+        const { data: lineData } = await supabase
+          .from('current_market_odds')
+          .select('event_id, source_id, market_type, snapshot_time')
+          .in('event_id', batch)
+          .eq('market_type', mtype)
+          .gt('snapshot_time', snapshotCutoff)
+          .limit(5000)
+        if (lineData) {
+          // Dedup: keep only first per (event_id, source_id, market_type)
+          const seen = new Set<string>()
+          for (const row of lineData) {
+            const key = `${row.event_id}|${row.source_id}|${row.market_type}`
+            if (seen.has(key)) continue
+            seen.add(key)
+            snapshotMeta.push(row)
+          }
+        }
+      }
     }
   }
 
