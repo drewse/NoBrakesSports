@@ -10,6 +10,7 @@
  */
 
 import { normalizePlayerName } from '../prop-normalizer'
+import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
 const GAME_LINES_SUBCATEGORY = '4511'
@@ -111,7 +112,7 @@ async function fetchLeague(
 ): Promise<DKResult[]> {
   const url = buildLeagueUrl(league.leagueId)
   try {
-    const resp = await fetch(url)
+    const resp = await pipeFetch(url)
     if (!resp.ok) {
       console.error(`DK league ${league.name}: HTTP ${resp.status}`)
       return []
