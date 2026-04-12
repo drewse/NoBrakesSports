@@ -112,9 +112,17 @@ async function fetchLeague(
 ): Promise<DKResult[]> {
   const url = buildLeagueUrl(league.leagueId)
   try {
-    const resp = await pipeFetch(url)
+    // Try direct fetch first, fall back to proxy if blocked
+    let resp: Response
+    try {
+      resp = await fetch(url, { signal: AbortSignal.timeout(10000) })
+      if (!resp.ok && resp.status === 403) throw new Error('blocked')
+    } catch {
+      resp = await pipeFetch(url)
+    }
     if (!resp.ok) {
-      console.error(`DK league ${league.name}: HTTP ${resp.status}`)
+      const body = await resp.text().catch(() => '')
+      console.error(`DK league ${league.name}: HTTP ${resp.status} ${body.slice(0, 200)}`)
       return []
     }
     const data = await resp.json()
