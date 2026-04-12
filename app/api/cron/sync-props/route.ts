@@ -87,15 +87,15 @@ export async function GET(req: NextRequest) {
   let kambiOperatorResults: KambiOperatorResults[] = []
   let pinnacleResults: PinnaclePropResult[] = []
 
-  // 1. Scrape both sources in parallel
+  // 1. Scrape Kambi operators (Pinnacle disabled — TLS reset through proxy)
+  // Pinnacle game-level odds come through the pipeline adapter system instead.
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 240_000) // 4 min safety
 
   try {
-    const [kambi, pinnacle] = await Promise.allSettled([
-      scrapeAllKambiOperators(controller.signal),
-      scrapePinnacleProps(controller.signal),
-    ])
+    const kambi = await scrapeAllKambiOperators(controller.signal)
+      .then(v => ({ status: 'fulfilled' as const, value: v }))
+      .catch(e => ({ status: 'rejected' as const, reason: e }))
 
     if (kambi.status === 'fulfilled') {
       kambiOperatorResults = kambi.value
@@ -103,13 +103,6 @@ export async function GET(req: NextRequest) {
       if (totalEvents === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
     } else {
       errors.push(`Kambi scrape failed: ${String(kambi.reason)}`)
-    }
-
-    if (pinnacle.status === 'fulfilled') {
-      pinnacleResults = pinnacle.value
-      if (pinnacleResults.length === 0) errors.push('Pinnacle: scrape succeeded but returned 0 events')
-    } else {
-      errors.push(`Pinnacle scrape failed: ${String(pinnacle.reason)}`)
     }
   } finally {
     clearTimeout(timeout)
