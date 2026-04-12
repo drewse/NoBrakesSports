@@ -12,6 +12,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { scrapeAllKambiOperators, type KambiPropResult, type KambiGameMarket, type KambiOperatorResults } from '@/lib/pipelines/adapters/kambi-props'
 import { scrapePinnacleProps, type PinnaclePropResult } from '@/lib/pipelines/adapters/pinnacle-props'
+import { scrapeDraftKings, type DKResult } from '@/lib/pipelines/adapters/draftkings-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
@@ -86,16 +87,17 @@ export async function GET(req: NextRequest) {
 
   let kambiOperatorResults: KambiOperatorResults[] = []
   let pinnacleResults: PinnaclePropResult[] = []
+  let dkResults: DKResult[] = []
 
-  // 1. Scrape Kambi operators (Pinnacle disabled — TLS reset through proxy)
-  // Pinnacle game-level odds come through the pipeline adapter system instead.
+  // 1. Scrape all sources in parallel
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 240_000) // 4 min safety
 
   try {
-    const kambi = await scrapeAllKambiOperators(controller.signal)
-      .then(v => ({ status: 'fulfilled' as const, value: v }))
-      .catch(e => ({ status: 'rejected' as const, reason: e }))
+    const [kambi, dk] = await Promise.allSettled([
+      scrapeAllKambiOperators(controller.signal),
+      scrapeDraftKings(controller.signal),
+    ])
 
     if (kambi.status === 'fulfilled') {
       kambiOperatorResults = kambi.value
@@ -103,6 +105,13 @@ export async function GET(req: NextRequest) {
       if (totalEvents === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
     } else {
       errors.push(`Kambi scrape failed: ${String(kambi.reason)}`)
+    }
+
+    if (dk.status === 'fulfilled') {
+      dkResults = dk.value
+      if (dkResults.length === 0) errors.push('DraftKings: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`DraftKings scrape failed: ${String(dk.reason)}`)
     }
   } finally {
     clearTimeout(timeout)
@@ -197,10 +206,49 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 3. Resolve source IDs for all Kambi operators + Pinnacle
+  // Auto-create events from DraftKings too
+  for (const result of dkResults) {
+    const leagueSlug = result.event.leagueSlug
+    const leagueId = leagueIdBySlug.get(leagueSlug)
+    if (!leagueId) continue
+
+    const date = new Date(result.event.startTime).toISOString().slice(0, 10)
+    const home = result.event.homeName.toLowerCase().trim()
+    const away = result.event.awayName.toLowerCase().trim()
+
+    const existing = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
+      ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
+      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
+      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
+    if (existing) continue
+
+    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const { data: newEvent } = await db
+      .from('events')
+      .insert({
+        title,
+        start_time: result.event.startTime,
+        status: 'scheduled',
+        league_id: leagueId,
+        external_id: `dk:${result.event.eventId}`,
+      })
+      .select('id')
+      .single()
+
+    if (newEvent) {
+      eventsCreated++
+      eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, newEvent.id)
+      eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, newEvent.id)
+      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, newEvent.id)
+      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, newEvent.id)
+    }
+  }
+
+  // 3. Resolve source IDs for all operators
   const allSlugs = [
     ...kambiOperatorResults.map(o => o.operator.sourceSlug),
     'pinnacle',
+    'draftkings',
   ]
   const { data: sources } = await db
     .from('market_sources')
@@ -332,6 +380,54 @@ export async function GET(req: NextRequest) {
         })
       }
     }
+  }
+
+  // Process DraftKings game markets
+  const dkSourceId = sourceMap.get('draftkings')
+  if (dkSourceId) {
+    for (const result of dkResults) {
+      const leagueSlug = result.event.leagueSlug
+      const date = new Date(result.event.startTime).toISOString().slice(0, 10)
+      const home = result.event.homeName.toLowerCase().trim()
+      const away = result.event.awayName.toLowerCase().trim()
+
+      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
+        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
+      if (!eventId) {
+        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
+          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
+      }
+      if (!eventId) continue
+
+      for (const gm of result.gameMarkets) {
+        const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
+          .map(v => v ?? '').join('|')
+        const lineValue = gm.marketType === 'spread' ? gm.spreadValue
+          : gm.marketType === 'total' ? gm.totalValue : null
+        gameMarketRows.push({
+          event_id: eventId,
+          source_id: dkSourceId,
+          market_type: gm.marketType,
+          line_value: lineValue,
+          odds_hash: oddsHash,
+          home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
+          spread_value: gm.spreadValue, total_value: gm.totalValue,
+          over_price: gm.overPrice, under_price: gm.underPrice,
+          home_implied_prob: gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null,
+          away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
+          movement_direction: 'flat', snapshot_time: now, changed_at: now,
+        })
+      }
+    }
+  }
+
+  // Auto-create DraftKings source if missing
+  if (!dkSourceId && dkResults.length > 0) {
+    const { data: newSource } = await db
+      .from('market_sources')
+      .insert({ name: 'DraftKings', slug: 'draftkings', source_type: 'sportsbook', is_active: true })
+      .select('id').single()
+    if (newSource) sourceMap.set('draftkings', newSource.id)
   }
 
   // Dedup game market rows before upsert
@@ -485,6 +581,7 @@ export async function GET(req: NextRequest) {
       props: o.results.reduce((s, r) => s + r.props.length, 0),
       gameMarkets: o.results.reduce((s, r) => s + r.gameMarkets.length, 0),
     })),
+    draftkings: { events: dkResults.length, gameMarkets: dkResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
     gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
