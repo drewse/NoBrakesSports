@@ -3,49 +3,40 @@
  *
  * Public API — no auth, no proxy needed. HTTP 200 from curl/Vercel confirmed.
  *
- * Endpoints:
- *   Events list:  /sportscontent/pagedata/league/v1/leagues/{leagueId}
- *   Game markets:  /sportscontent/controldata/event/eventSubcategory/v1/markets?templateVars={eventId}&...subcategoryId=4511
- *   Player props:  same endpoint with prop subcategory IDs
+ * Single endpoint returns events + markets + selections for an entire league:
+ *   /controldata/league/leagueSubcategory/v1/markets?templateVars={leagueId}&...
  *
  * Site: CA-ON-SB (Ontario)
  */
 
-import {
-  normalizePlayerName,
-  computePropOddsHash,
-  americanToImpliedProb,
-  type NormalizedProp,
-} from '../prop-normalizer'
+import { normalizePlayerName } from '../prop-normalizer'
 
-const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api'
+const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
+const GAME_LINES_SUBCATEGORY = '4511'
 
 // DraftKings league IDs
 export const DK_LEAGUES: { sport: string; leagueId: string; leagueSlug: string; name: string }[] = [
-  { sport: 'basketball', leagueId: '42648', leagueSlug: 'nba',         name: 'NBA' },
-  { sport: 'baseball',   leagueId: '84240', leagueSlug: 'mlb',         name: 'MLB' },
-  { sport: 'ice_hockey', leagueId: '42133', leagueSlug: 'nhl',         name: 'NHL' },
-  { sport: 'soccer',     leagueId: '40253', leagueSlug: 'epl',         name: 'EPL' },
-  { sport: 'soccer',     leagueId: '59974', leagueSlug: 'laliga',      name: 'La Liga' },
-  { sport: 'soccer',     leagueId: '59979', leagueSlug: 'bundesliga',  name: 'Bundesliga' },
-  { sport: 'soccer',     leagueId: '59977', leagueSlug: 'seria_a',     name: 'Serie A' },
-  { sport: 'soccer',     leagueId: '59976', leagueSlug: 'ligue_one',   name: 'Ligue 1' },
+  { sport: 'basketball', leagueId: '42648',  leagueSlug: 'nba',         name: 'NBA' },
+  { sport: 'baseball',   leagueId: '84240',  leagueSlug: 'mlb',         name: 'MLB' },
+  { sport: 'ice_hockey', leagueId: '42133',  leagueSlug: 'nhl',         name: 'NHL' },
+  { sport: 'soccer',     leagueId: '40253',  leagueSlug: 'epl',         name: 'EPL' },
+  { sport: 'soccer',     leagueId: '59974',  leagueSlug: 'laliga',      name: 'La Liga' },
+  { sport: 'soccer',     leagueId: '59979',  leagueSlug: 'bundesliga',  name: 'Bundesliga' },
+  { sport: 'soccer',     leagueId: '59977',  leagueSlug: 'seria_a',     name: 'Serie A' },
+  { sport: 'soccer',     leagueId: '59976',  leagueSlug: 'ligue_one',   name: 'Ligue 1' },
 ]
 
-// Subcategory IDs for market types
-const GAME_LINES_SUBCATEGORY = '4511'
-
-// DK team name abbreviations → full names
+// DK team abbreviations → full names
 const DK_TEAM_NAMES: Record<string, string> = {
   'ATL Hawks': 'Atlanta Hawks', 'BOS Celtics': 'Boston Celtics', 'BKN Nets': 'Brooklyn Nets',
   'CHA Hornets': 'Charlotte Hornets', 'CHI Bulls': 'Chicago Bulls', 'CLE Cavaliers': 'Cleveland Cavaliers',
   'DAL Mavericks': 'Dallas Mavericks', 'DEN Nuggets': 'Denver Nuggets', 'DET Pistons': 'Detroit Pistons',
   'GS Warriors': 'Golden State Warriors', 'HOU Rockets': 'Houston Rockets', 'IND Pacers': 'Indiana Pacers',
-  'LA Clippers': 'Los Angeles Clippers', 'LAL Lakers': 'Los Angeles Lakers',
+  'LA Clippers': 'Los Angeles Clippers', 'LA Lakers': 'Los Angeles Lakers', 'LAL Lakers': 'Los Angeles Lakers',
   'MEM Grizzlies': 'Memphis Grizzlies', 'MIA Heat': 'Miami Heat', 'MIL Bucks': 'Milwaukee Bucks',
   'MIN Timberwolves': 'Minnesota Timberwolves', 'NO Pelicans': 'New Orleans Pelicans',
   'NY Knicks': 'New York Knicks', 'OKC Thunder': 'Oklahoma City Thunder', 'ORL Magic': 'Orlando Magic',
-  'PHI 76ers': 'Philadelphia 76ers', 'PHX Suns': 'Phoenix Suns', 'POR Trail Blazers': 'Portland Trail Blazers',
+  'PHI 76ers': 'Philadelphia 76ers', 'PHO Suns': 'Phoenix Suns', 'POR Trail Blazers': 'Portland Trail Blazers',
   'SAC Kings': 'Sacramento Kings', 'SA Spurs': 'San Antonio Spurs', 'TOR Raptors': 'Toronto Raptors',
   'UTA Jazz': 'Utah Jazz', 'WAS Wizards': 'Washington Wizards',
   // MLB
@@ -90,59 +81,60 @@ export interface DKGameMarket {
 export interface DKResult {
   event: DKEvent
   gameMarkets: DKGameMarket[]
-  props: NormalizedProp[]
 }
 
 /**
- * Fetch all events for a DK league.
+ * Parse DraftKings American odds string to integer.
+ * DK uses unicode minus (U+2212) and plus (U+002B).
  */
-async function fetchLeagueEvents(leagueId: string, sport: string, leagueSlug: string): Promise<DKEvent[]> {
-  const url = `${BASE}/sportscontent/pagedata/league/v1/leagues/${leagueId}`
+function parseAmerican(odds: string | undefined | null): number | null {
+  if (!odds) return null
+  const cleaned = odds.replace(/\u2212/g, '-').replace(/\u002B/g, '+')
+  const num = parseInt(cleaned, 10)
+  return isNaN(num) ? null : num
+}
+
+/**
+ * Build the league subcategory URL that returns events + markets + selections in one call.
+ */
+function buildLeagueUrl(leagueId: string): string {
+  const eventsQuery = `$filter=leagueId eq '${leagueId}' AND clientMetadata/Subcategories/any(s: s/Id eq '${GAME_LINES_SUBCATEGORY}')`
+  const marketsQuery = `$filter=clientMetadata/subCategoryId eq '${GAME_LINES_SUBCATEGORY}' AND tags/all(t: t ne 'SportcastBetBuilder')`
+  return `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(eventsQuery)}&marketsQuery=${encodeURIComponent(marketsQuery)}&include=Events&entity=events`
+}
+
+/**
+ * Fetch all events + game-level markets for a DK league in a single request.
+ */
+async function fetchLeague(
+  league: typeof DK_LEAGUES[number],
+): Promise<DKResult[]> {
+  const url = buildLeagueUrl(league.leagueId)
   try {
     const resp = await fetch(url)
-    if (!resp.ok) return []
+    if (!resp.ok) {
+      console.error(`DK league ${league.name}: HTTP ${resp.status}`)
+      return []
+    }
     const data = await resp.json()
 
-    const events: DKEvent[] = []
+    // Build event map
+    const eventMap = new Map<string, DKEvent>()
     for (const ev of data.events ?? []) {
       if (ev.status !== 'NOT_STARTED') continue
       const home = ev.participants?.find((p: any) => p.venueRole === 'Home')
       const away = ev.participants?.find((p: any) => p.venueRole === 'Away')
       if (!home || !away) continue
 
-      events.push({
+      eventMap.set(ev.id, {
         eventId: ev.id,
         name: ev.name,
         homeName: expandTeamName(home.name),
         awayName: expandTeamName(away.name),
         startTime: ev.startEventDate,
-        sport,
-        leagueSlug,
+        sport: league.sport,
+        leagueSlug: league.leagueSlug,
       })
-    }
-    return events
-  } catch (e) {
-    console.error(`DK league ${leagueId} fetch error:`, e)
-    return []
-  }
-}
-
-/**
- * Fetch game-level markets (ML, spread, total) for an event.
- */
-async function fetchGameMarkets(eventId: string): Promise<DKGameMarket[]> {
-  const query = `$filter=eventId eq '${eventId}' AND clientMetadata/subCategoryId eq '${GAME_LINES_SUBCATEGORY}' AND tags/all(t: t ne 'SportcastBetBuilder')`
-  const url = `${BASE}/sportscontent/controldata/event/eventSubcategory/v1/markets?templateVars=${eventId}&marketsQuery=${encodeURIComponent(query)}&include=MarketSplits&entity=markets`
-
-  try {
-    const resp = await fetch(url)
-    if (!resp.ok) return []
-    const data = await resp.json()
-
-    const markets: DKGameMarket[] = []
-    const marketsById = new Map<string, any>()
-    for (const m of data.markets ?? []) {
-      marketsById.set(m.id, m)
     }
 
     // Group selections by market
@@ -153,92 +145,82 @@ async function fetchGameMarkets(eventId: string): Promise<DKGameMarket[]> {
       selectionsByMarket.set(s.marketId, list)
     }
 
-    for (const [marketId, market] of marketsById) {
-      const selections = selectionsByMarket.get(marketId) ?? []
-      const typeName = market.marketType?.name?.toLowerCase() ?? ''
+    // Parse markets and attach to events
+    const marketsByEvent = new Map<string, DKGameMarket[]>()
+    for (const market of data.markets ?? []) {
+      const eventId = market.eventId
+      if (!eventMap.has(eventId)) continue
+
+      const typeName = (market.marketType?.name ?? '').toLowerCase()
+      const selections = selectionsByMarket.get(market.id) ?? []
+
+      let gm: DKGameMarket | null = null
 
       if (typeName === 'moneyline') {
         const home = selections.find((s: any) => s.outcomeType === 'Home')
         const away = selections.find((s: any) => s.outcomeType === 'Away')
         const draw = selections.find((s: any) => s.outcomeType === 'Draw')
-        markets.push({
+        gm = {
           marketType: 'moneyline',
           homePrice: parseAmerican(home?.displayOdds?.american),
           awayPrice: parseAmerican(away?.displayOdds?.american),
           drawPrice: parseAmerican(draw?.displayOdds?.american),
           spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
-        })
+        }
       } else if (typeName === 'spread') {
         const home = selections.find((s: any) => s.outcomeType === 'Home')
         const away = selections.find((s: any) => s.outcomeType === 'Away')
-        markets.push({
+        const spreadVal = home?.points != null ? Math.abs(home.points) : (away?.points != null ? Math.abs(away.points) : null)
+        gm = {
           marketType: 'spread',
           homePrice: parseAmerican(home?.displayOdds?.american),
           awayPrice: parseAmerican(away?.displayOdds?.american),
           drawPrice: null,
-          spreadValue: home?.points ?? away?.points ? Math.abs(away?.points ?? home?.points) : null,
+          spreadValue: spreadVal,
           totalValue: null, overPrice: null, underPrice: null,
-        })
+        }
       } else if (typeName === 'total') {
         const over = selections.find((s: any) => s.outcomeType === 'Over')
         const under = selections.find((s: any) => s.outcomeType === 'Under')
-        markets.push({
+        gm = {
           marketType: 'total',
           homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
           totalValue: over?.points ?? under?.points ?? null,
           overPrice: parseAmerican(over?.displayOdds?.american),
           underPrice: parseAmerican(under?.displayOdds?.american),
-        })
+        }
+      }
+
+      if (gm) {
+        if (!marketsByEvent.has(eventId)) marketsByEvent.set(eventId, [])
+        marketsByEvent.get(eventId)!.push(gm)
       }
     }
-    return markets
+
+    // Combine
+    const results: DKResult[] = []
+    for (const [eventId, event] of eventMap) {
+      results.push({
+        event,
+        gameMarkets: marketsByEvent.get(eventId) ?? [],
+      })
+    }
+    return results
   } catch (e) {
-    console.error(`DK game markets ${eventId} error:`, e)
+    console.error(`DK league ${league.name} error:`, e)
     return []
   }
 }
 
 /**
- * Parse DraftKings American odds string to integer.
- * DK uses unicode minus (−) not regular hyphen (-).
- */
-function parseAmerican(odds: string | undefined | null): number | null {
-  if (!odds) return null
-  // Replace unicode minus with regular minus
-  const cleaned = odds.replace(/\u2212/g, '-').replace(/\u002B/g, '+')
-  const num = parseInt(cleaned, 10)
-  return isNaN(num) ? null : num
-}
-
-/**
- * Full DraftKings scrape: all leagues, all events, game-level markets.
+ * Full DraftKings scrape: all leagues, one API call per league.
  */
 export async function scrapeDraftKings(
   signal?: AbortSignal,
 ): Promise<DKResult[]> {
-  const results: DKResult[] = []
-
-  // Fetch events for all leagues in parallel
-  const leagueEvents = await Promise.all(
-    DK_LEAGUES.map(league => fetchLeagueEvents(league.leagueId, league.sport, league.leagueSlug))
+  // Fetch all leagues in parallel
+  const leagueResults = await Promise.all(
+    DK_LEAGUES.map(league => fetchLeague(league))
   )
-
-  const allEvents = leagueEvents.flat()
-  if (allEvents.length === 0) return results
-
-  // Fetch game markets for each event with concurrency limit
-  const MAX_CONCURRENT = 5
-  for (let i = 0; i < allEvents.length; i += MAX_CONCURRENT) {
-    if (signal?.aborted) break
-    const batch = allEvents.slice(i, i + MAX_CONCURRENT)
-    const batchResults = await Promise.all(
-      batch.map(async (event) => {
-        const gameMarkets = await fetchGameMarkets(event.eventId)
-        return { event, gameMarkets, props: [] as NormalizedProp[] }
-      })
-    )
-    results.push(...batchResults)
-  }
-
-  return results
+  return leagueResults.flat()
 }
