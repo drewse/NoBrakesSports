@@ -108,44 +108,92 @@ export async function GET(req: NextRequest) {
     clearTimeout(timeout)
   }
 
-  // 2. Build event-matching lookup: canonical key → DB event UUID
+  // 2. Build event-matching lookup + auto-create missing events
   //    Fetch all upcoming events from DB
-  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString() // 2hr in past (for in-progress)
+  const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const { data: dbEvents } = await db
     .from('events')
     .select('id, title, start_time, league_id, league:leagues(slug)')
     .gt('start_time', cutoff)
 
-  if (!dbEvents || dbEvents.length === 0) {
-    return NextResponse.json({
-      ok: true,
-      message: 'No upcoming events in DB to match props against',
-      errors,
-      elapsed: Date.now() - startTime,
-    })
-  }
+  // Fetch league slug→id mapping for event creation
+  const { data: leaguesRaw } = await db
+    .from('leagues')
+    .select('id, slug')
+  const leagueIdBySlug = new Map<string, string>()
+  for (const l of leaguesRaw ?? []) leagueIdBySlug.set(l.slug, l.id)
 
-  // Parse event titles to build a team-name matching index
-  // Title format: "Team A vs Team B" or "Team A @ Team B"
-  const eventByKey = new Map<string, string>() // canonical key fragment → event UUID
-  const eventByTeams = new Map<string, string>() // "home|away" normalized → event UUID
+  // Build lookup from existing events
+  const eventByKey = new Map<string, string>()
+  const eventByTeams = new Map<string, string>()
 
-  for (const ev of dbEvents as any[]) {
+  for (const ev of (dbEvents ?? []) as any[]) {
     const leagueSlug = ev.league?.slug ?? ''
     const date = new Date(ev.start_time).toISOString().slice(0, 10)
-
-    // Parse title: "Away vs Home" or "Away @ Home"
     const parts = ev.title.split(/\s+(?:vs\.?|@)\s+/i)
     if (parts.length === 2) {
       const away = parts[0].toLowerCase().trim()
       const home = parts[1].toLowerCase().trim()
-      const key = `${leagueSlug}:${date}:${home}:${away}`
-      eventByKey.set(key, ev.id)
-      // Also store reverse order for flexible matching
+      eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, ev.id)
       eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, ev.id)
-      // Team-name index for fuzzy matching
       eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, ev.id)
       eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, ev.id)
+    }
+  }
+
+  // Collect all Kambi events that need DB event creation
+  let eventsCreated = 0
+  const firstOperator = kambiOperatorResults[0]
+  if (firstOperator) {
+    for (const result of firstOperator.results) {
+      const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
+      const leagueId = leagueIdBySlug.get(leagueSlug)
+      if (!leagueId) continue
+
+      const date = new Date(result.event.start).toISOString().slice(0, 10)
+      const home = result.event.homeName.toLowerCase().trim()
+      const away = result.event.awayName.toLowerCase().trim()
+
+      // Check if event already exists
+      const existing = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
+        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
+        ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
+        ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
+      if (existing) continue
+
+      // Create the event
+      const title = `${result.event.awayName} vs ${result.event.homeName}`
+      const { data: newEvent, error: evErr } = await db
+        .from('events')
+        .insert({
+          title,
+          start_time: result.event.start,
+          status: 'scheduled',
+          league_id: leagueId,
+          external_id: `kambi:${result.event.eventId}`,
+        })
+        .select('id')
+        .single()
+
+      if (newEvent) {
+        eventsCreated++
+        const newId = newEvent.id
+        eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, newId)
+        eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, newId)
+        eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, newId)
+        eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, newId)
+      } else if (evErr) {
+        // Likely duplicate external_id — try to fetch existing
+        const { data: existingEv } = await db
+          .from('events')
+          .select('id')
+          .eq('external_id', `kambi:${result.event.eventId}`)
+          .single()
+        if (existingEv) {
+          eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, existingEv.id)
+          eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, existingEv.id)
+        }
+      }
     }
   }
 
@@ -324,7 +372,8 @@ export async function GET(req: NextRequest) {
       message: 'No props matched to DB events',
       kambiOperators: kambiOperatorResults.length,
       pinnacleEvents: pinnacleResults.length,
-      dbEvents: dbEvents.length,
+      dbEvents: (dbEvents?.length ?? 0) + eventsCreated,
+      eventsCreated,
       gameMarketsUpserted,
       errors,
       elapsed: Date.now() - startTime,
@@ -429,6 +478,7 @@ export async function GET(req: NextRequest) {
   const elapsed = Date.now() - startTime
   return NextResponse.json({
     ok: true,
+    eventsCreated,
     kambiOperators: kambiOperatorResults.map(o => ({
       slug: o.operator.sourceSlug,
       events: o.results.length,
