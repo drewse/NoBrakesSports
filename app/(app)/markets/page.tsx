@@ -58,16 +58,18 @@ export default async function MarketsPage({
 
   if (events.length > 0) {
     const eventIds = events.map((e: any) => e.id)
-    // Query current_market_odds — one row per (event, source, market_type).
-    // Replaces the market_snapshots query which scanned thousands of historical rows.
-    // No time cutoff needed: current_market_odds.snapshot_time is always fresh.
+    // Query current_market_odds in batches to avoid URL length limits with large .in() arrays
     const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
-    const { data } = await supabase
-      .from('current_market_odds')
-      .select('event_id, source_id, market_type, snapshot_time')
-      .in('event_id', eventIds)
-      .gt('snapshot_time', snapshotCutoff)
-    if (data) snapshotMeta.push(...data)
+    const BATCH = 50
+    for (let i = 0; i < eventIds.length; i += BATCH) {
+      const batch = eventIds.slice(i, i + BATCH)
+      const { data } = await supabase
+        .from('current_market_odds')
+        .select('event_id, source_id, market_type, snapshot_time')
+        .in('event_id', batch)
+        .gt('snapshot_time', snapshotCutoff)
+      if (data) snapshotMeta.push(...data)
+    }
   }
 
   // Aggregate per event: distinct sources, market types, latest snapshot
