@@ -554,10 +554,10 @@ export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { e
         {/* Last success */}
         <td className="px-4 py-3 text-[11px] text-nb-500">{fmt(pipeline.last_success_at)}</td>
 
-        {/* Last error — clickable */}
+        {/* Last error — only show if last error is more recent than last success */}
         <td className="px-4 py-3 min-w-[140px]">
           <div className="flex flex-col gap-1">
-            {pipeline.last_error_at ? (
+            {pipeline.last_error_at && (!pipeline.last_success_at || pipeline.last_error_at > pipeline.last_success_at) ? (
               <button
                 onClick={() => setShowErrorModal(true)}
                 className="group text-left"
