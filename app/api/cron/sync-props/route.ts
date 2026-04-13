@@ -147,22 +147,51 @@ export async function GET(req: NextRequest) {
   const leagueIdBySlug = new Map<string, string>()
   for (const l of leaguesRaw ?? []) leagueIdBySlug.set(l.slug, l.id)
 
-  // Build lookup from existing events
+  // Build lookup from existing events using ORDER-INDEPENDENT keys.
+  // Key format: "league:date:sortedTeamA:sortedTeamB" — same key regardless
+  // of which team is listed first in the title.
   const eventByKey = new Map<string, string>()
-  const eventByTeams = new Map<string, string>()
+
+  function makeMatchKey(leagueSlug: string, date: string, teamA: string, teamB: string): string {
+    const a = normalizeTeamForMatch(teamA)
+    const b = normalizeTeamForMatch(teamB)
+    // Sort alphabetically so order doesn't matter
+    const sorted = [a, b].sort()
+    return `${leagueSlug}:${date}:${sorted[0]}:${sorted[1]}`
+  }
+
+  // Also index by team nickname (last word) for fuzzy matching
+  function makeNicknameKey(leagueSlug: string, date: string, teamA: string, teamB: string): string {
+    const nickA = normalizeTeamForMatch(teamA).split(' ').pop() ?? ''
+    const nickB = normalizeTeamForMatch(teamB).split(' ').pop() ?? ''
+    const sorted = [nickA, nickB].sort()
+    return `nick:${leagueSlug}:${date}:${sorted[0]}:${sorted[1]}`
+  }
 
   for (const ev of (dbEvents ?? []) as any[]) {
     const leagueSlug = ev.league?.slug ?? ''
     const date = new Date(ev.start_time).toISOString().slice(0, 10)
     const parts = ev.title.split(/\s+(?:vs\.?|@)\s+/i)
     if (parts.length === 2) {
-      const away = parts[0].toLowerCase().trim()
-      const home = parts[1].toLowerCase().trim()
-      eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, ev.id)
-      eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, ev.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, ev.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, ev.id)
+      const teamA = parts[0].trim()
+      const teamB = parts[1].trim()
+      eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), ev.id)
+      eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), ev.id)
     }
+  }
+
+  /** Find existing event ID for a game */
+  function findEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string): string | undefined {
+    const date = new Date(startTime).toISOString().slice(0, 10)
+    return eventByKey.get(makeMatchKey(leagueSlug, date, teamA, teamB))
+      ?? eventByKey.get(makeNicknameKey(leagueSlug, date, teamA, teamB))
+  }
+
+  /** Register a new event in the lookup */
+  function registerEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string, eventId: string) {
+    const date = new Date(startTime).toISOString().slice(0, 10)
+    eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), eventId)
+    eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), eventId)
   }
 
   // Collect all Kambi events that need DB event creation
@@ -174,49 +203,23 @@ export async function GET(req: NextRequest) {
       const leagueId = leagueIdBySlug.get(leagueSlug)
       if (!leagueId) continue
 
-      const date = new Date(result.event.start).toISOString().slice(0, 10)
-      const home = result.event.homeName.toLowerCase().trim()
-      const away = result.event.awayName.toLowerCase().trim()
+      const home = result.event.homeName
+      const away = result.event.awayName
 
-      // Check if event already exists
-      const existing = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-        ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-        ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      if (existing) continue
+      if (findEvent(leagueSlug, result.event.start, home, away)) continue
 
-      // Create the event
-      const title = `${result.event.awayName} vs ${result.event.homeName}`
+      const title = `${away} vs ${home}`
       const { data: newEvent, error: evErr } = await db
         .from('events')
-        .insert({
-          title,
-          start_time: result.event.start,
-          status: 'scheduled',
-          league_id: leagueId,
-          external_id: `kambi:${result.event.eventId}`,
-        })
-        .select('id')
-        .single()
+        .insert({ title, start_time: result.event.start, status: 'scheduled', league_id: leagueId, external_id: `kambi:${result.event.eventId}` })
+        .select('id').single()
 
       if (newEvent) {
         eventsCreated++
-        const newId = newEvent.id
-        eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, newId)
-        eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, newId)
-        eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, newId)
-        eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, newId)
+        registerEvent(leagueSlug, result.event.start, home, away, newEvent.id)
       } else if (evErr) {
-        // Likely duplicate external_id — try to fetch existing
-        const { data: existingEv } = await db
-          .from('events')
-          .select('id')
-          .eq('external_id', `kambi:${result.event.eventId}`)
-          .single()
-        if (existingEv) {
-          eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, existingEv.id)
-          eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, existingEv.id)
-        }
+        const { data: existingEv } = await db.from('events').select('id').eq('external_id', `kambi:${result.event.eventId}`).single()
+        if (existingEv) registerEvent(leagueSlug, result.event.start, home, away, existingEv.id)
       }
     }
   }
@@ -226,36 +229,17 @@ export async function GET(req: NextRequest) {
     const leagueSlug = result.event.leagueSlug
     const leagueId = leagueIdBySlug.get(leagueSlug)
     if (!leagueId) continue
-
-    const date = new Date(result.event.startTime).toISOString().slice(0, 10)
-    const home = result.event.homeName.toLowerCase().trim()
-    const away = result.event.awayName.toLowerCase().trim()
-
-    const existing = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-      ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-    if (existing) continue
+    if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
 
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({
-        title,
-        start_time: result.event.startTime,
-        status: 'scheduled',
-        league_id: leagueId,
-        external_id: `dk:${result.event.eventId}`,
-      })
-      .select('id')
-      .single()
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `dk:${result.event.eventId}` })
+      .select('id').single()
 
     if (newEvent) {
       eventsCreated++
-      eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, newEvent.id)
-      eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, newEvent.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, newEvent.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, newEvent.id)
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
     }
   }
 
@@ -305,16 +289,7 @@ export async function GET(req: NextRequest) {
 
     for (const result of kambiResults) {
       const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
-      const date = new Date(result.event.start).toISOString().slice(0, 10)
-      const home = result.event.homeName.toLowerCase().trim()
-      const away = result.event.awayName.toLowerCase().trim()
-
-      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      if (!eventId) {
-        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      }
+      const eventId = findEvent(leagueSlug, result.event.start, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
       for (const prop of result.props) {
@@ -327,16 +302,7 @@ export async function GET(req: NextRequest) {
   if (pinnacleSourceId) {
     for (const result of pinnacleResults) {
       const leagueSlug = PINNACLE_LEAGUE_TO_SLUG[result.parentEvent.leagueName] ?? ''
-      const date = new Date(result.parentEvent.startTime).toISOString().slice(0, 10)
-      const home = result.parentEvent.homeName.toLowerCase().trim()
-      const away = result.parentEvent.awayName.toLowerCase().trim()
-
-      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      if (!eventId) {
-        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      }
+      const eventId = findEvent(leagueSlug, result.parentEvent.startTime, result.parentEvent.homeName, result.parentEvent.awayName)
       if (!eventId) continue
 
       for (const prop of result.props) {
@@ -354,16 +320,7 @@ export async function GET(req: NextRequest) {
 
     for (const result of kambiResults) {
       const leagueSlug = KAMBI_PATH_TO_LEAGUE[result.event.leaguePath] ?? ''
-      const date = new Date(result.event.start).toISOString().slice(0, 10)
-      const home = result.event.homeName.toLowerCase().trim()
-      const away = result.event.awayName.toLowerCase().trim()
-
-      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      if (!eventId) {
-        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      }
+      const eventId = findEvent(leagueSlug, result.event.start, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
       for (const gm of result.gameMarkets) {
@@ -403,16 +360,7 @@ export async function GET(req: NextRequest) {
   if (dkSourceId) {
     for (const result of dkResults) {
       const leagueSlug = result.event.leagueSlug
-      const date = new Date(result.event.startTime).toISOString().slice(0, 10)
-      const home = result.event.homeName.toLowerCase().trim()
-      const away = result.event.awayName.toLowerCase().trim()
-
-      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      if (!eventId) {
-        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      }
+      const eventId = findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
       for (const gm of result.gameMarkets) {
@@ -462,16 +410,7 @@ export async function GET(req: NextRequest) {
     const leagueSlug = result.event.leagueSlug
     const leagueId = leagueIdBySlug.get(leagueSlug)
     if (!leagueId) continue
-
-    const date = new Date(result.event.startTime).toISOString().slice(0, 10)
-    const home = result.event.homeName.toLowerCase().trim()
-    const away = result.event.awayName.toLowerCase().trim()
-
-    const existing = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-      ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-      ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-    if (existing) continue
+    if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
 
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
@@ -481,10 +420,7 @@ export async function GET(req: NextRequest) {
 
     if (newEvent) {
       eventsCreated++
-      eventByKey.set(`${leagueSlug}:${date}:${home}:${away}`, newEvent.id)
-      eventByKey.set(`${leagueSlug}:${date}:${away}:${home}`, newEvent.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`, newEvent.id)
-      eventByTeams.set(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`, newEvent.id)
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
     }
   }
 
@@ -492,16 +428,7 @@ export async function GET(req: NextRequest) {
   if (fdSourceId) {
     for (const result of fdResults) {
       const leagueSlug = result.event.leagueSlug
-      const date = new Date(result.event.startTime).toISOString().slice(0, 10)
-      const home = result.event.homeName.toLowerCase().trim()
-      const away = result.event.awayName.toLowerCase().trim()
-
-      let eventId = eventByKey.get(`${leagueSlug}:${date}:${home}:${away}`)
-        ?? eventByKey.get(`${leagueSlug}:${date}:${away}:${home}`)
-      if (!eventId) {
-        eventId = eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(home)}:${normalizeTeamForMatch(away)}`)
-          ?? eventByTeams.get(`${leagueSlug}:${date}:${normalizeTeamForMatch(away)}:${normalizeTeamForMatch(home)}`)
-      }
+      const eventId = findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
       for (const gm of result.gameMarkets) {
