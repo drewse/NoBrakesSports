@@ -13,18 +13,18 @@ import { normalizePlayerName } from '../prop-normalizer'
 import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
-const GAME_LINES_SUBCATEGORY = '4511'
 
-// DraftKings league IDs
-export const DK_LEAGUES: { sport: string; leagueId: string; leagueSlug: string; name: string }[] = [
-  { sport: 'basketball', leagueId: '42648',  leagueSlug: 'nba',         name: 'NBA' },
-  { sport: 'baseball',   leagueId: '84240',  leagueSlug: 'mlb',         name: 'MLB' },
-  { sport: 'ice_hockey', leagueId: '42133',  leagueSlug: 'nhl',         name: 'NHL' },
-  { sport: 'soccer',     leagueId: '40253',  leagueSlug: 'epl',         name: 'EPL' },
-  { sport: 'soccer',     leagueId: '59974',  leagueSlug: 'laliga',      name: 'La Liga' },
-  { sport: 'soccer',     leagueId: '59979',  leagueSlug: 'bundesliga',  name: 'Bundesliga' },
-  { sport: 'soccer',     leagueId: '59977',  leagueSlug: 'seria_a',     name: 'Serie A' },
-  { sport: 'soccer',     leagueId: '59976',  leagueSlug: 'ligue_one',   name: 'Ligue 1' },
+// DraftKings league IDs + game lines subcategory per sport
+// Each sport uses a different subcategory ID for game lines (ML/spread/total)
+export const DK_LEAGUES: { sport: string; leagueId: string; leagueSlug: string; name: string; subcategoryId: string }[] = [
+  { sport: 'basketball', leagueId: '42648',  leagueSlug: 'nba',         name: 'NBA',        subcategoryId: '4511' },
+  { sport: 'baseball',   leagueId: '84240',  leagueSlug: 'mlb',         name: 'MLB',        subcategoryId: '4519' },
+  { sport: 'ice_hockey', leagueId: '42133',  leagueSlug: 'nhl',         name: 'NHL',        subcategoryId: '4515' },
+  { sport: 'soccer',     leagueId: '40253',  leagueSlug: 'epl',         name: 'EPL',        subcategoryId: '4516' },
+  { sport: 'soccer',     leagueId: '59974',  leagueSlug: 'laliga',      name: 'La Liga',    subcategoryId: '4516' },
+  { sport: 'soccer',     leagueId: '59979',  leagueSlug: 'bundesliga',  name: 'Bundesliga', subcategoryId: '4516' },
+  { sport: 'soccer',     leagueId: '59977',  leagueSlug: 'seria_a',     name: 'Serie A',    subcategoryId: '4516' },
+  { sport: 'soccer',     leagueId: '59976',  leagueSlug: 'ligue_one',   name: 'Ligue 1',    subcategoryId: '4516' },
 ]
 
 // DK team abbreviations → full names
@@ -98,9 +98,9 @@ function parseAmerican(odds: string | undefined | null): number | null {
 /**
  * Build the league subcategory URL that returns events + markets + selections in one call.
  */
-function buildLeagueUrl(leagueId: string): string {
-  const eventsQuery = `$filter=leagueId eq '${leagueId}' AND clientMetadata/Subcategories/any(s: s/Id eq '${GAME_LINES_SUBCATEGORY}')`
-  const marketsQuery = `$filter=clientMetadata/subCategoryId eq '${GAME_LINES_SUBCATEGORY}' AND tags/all(t: t ne 'SportcastBetBuilder')`
+function buildLeagueUrl(leagueId: string, subcategoryId: string): string {
+  const eventsQuery = `$filter=leagueId eq '${leagueId}' AND clientMetadata/Subcategories/any(s: s/Id eq '${subcategoryId}')`
+  const marketsQuery = `$filter=clientMetadata/subCategoryId eq '${subcategoryId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
   return `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(eventsQuery)}&marketsQuery=${encodeURIComponent(marketsQuery)}&include=Events&entity=events`
 }
 
@@ -110,7 +110,7 @@ function buildLeagueUrl(leagueId: string): string {
 async function fetchLeague(
   league: typeof DK_LEAGUES[number],
 ): Promise<DKResult[]> {
-  const url = buildLeagueUrl(league.leagueId)
+  const url = buildLeagueUrl(league.leagueId, league.subcategoryId)
   try {
     // Try direct fetch first, fall back to proxy if blocked
     let resp: Response
@@ -165,7 +165,7 @@ async function fetchLeague(
 
       let gm: DKGameMarket | null = null
 
-      if (typeName === 'moneyline') {
+      if (typeName === 'moneyline' || typeName === 'money line') {
         const home = selections.find((s: any) => s.outcomeType === 'Home')
         const away = selections.find((s: any) => s.outcomeType === 'Away')
         const draw = selections.find((s: any) => s.outcomeType === 'Draw')
@@ -176,7 +176,7 @@ async function fetchLeague(
           drawPrice: parseAmerican(draw?.displayOdds?.american),
           spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
         }
-      } else if (typeName === 'spread') {
+      } else if (typeName === 'spread' || typeName === 'run line' || typeName === 'puck line') {
         const home = selections.find((s: any) => s.outcomeType === 'Home')
         const away = selections.find((s: any) => s.outcomeType === 'Away')
         const spreadVal = home?.points != null ? Math.abs(home.points) : (away?.points != null ? Math.abs(away.points) : null)
