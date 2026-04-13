@@ -189,6 +189,8 @@ export async function upsertCurrentOdds(
       event_id:           row.event_id,
       source_id:          row.source_id,
       market_type:        row.market_type,
+      // line_value: pipeline adapters don't use alternate lines, so null for all
+      line_value:         null,
       odds_hash:          row.odds_hash!,
       home_price:         row.home_price,
       away_price:         row.away_price,
@@ -208,7 +210,7 @@ export async function upsertCurrentOdds(
       const { error } = await db
         .from('current_market_odds')
         .upsert(changedUpserts.slice(i, i + BATCH), {
-          onConflict: 'event_id,source_id,market_type',
+          onConflict: 'event_id,source_id,market_type,line_value',
           ignoreDuplicates: false,
         })
       if (error) errors.push(`current_market_odds (changed) upsert: ${error.message}`)
