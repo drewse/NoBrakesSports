@@ -158,10 +158,11 @@ async function fetchPage(page: typeof FD_PAGES[number]): Promise<FDResult[]> {
   }
 }
 
-// FanDuel team name normalization (they use full names already mostly)
+// FanDuel team name normalization
 function expandFDTeamName(name: string): string {
-  // FanDuel generally uses full team names already
-  return name.trim()
+  // Strip parenthetical content: "Houston Astros (TBD)" → "Houston Astros"
+  // Also handles pitcher names: "Houston Astros (J.Verlander)" → "Houston Astros"
+  return name.replace(/\s*\([^)]*\)/g, '').trim()
 }
 
 /**

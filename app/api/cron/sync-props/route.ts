@@ -79,12 +79,17 @@ export async function GET(req: NextRequest) {
   const now = new Date().toISOString()
   const errors: string[] = []
 
-  // One-time cleanup: delete bad Pinnacle prop data where line_value > 100
-  // (game totals that leaked through before the matchupId filter fix)
+  // Cleanup: delete events with parenthetical team names (FanDuel TBD/pitcher duplicates)
   await db
-    .from('prop_odds')
+    .from('events')
     .delete()
-    .gt('line_value', 100)
+    .like('title', '%(TBD)%')
+  await db
+    .from('events')
+    .delete()
+    .like('external_id', 'fd:%')
+    .filter('title', 'ilike', '%(%')
+
 
   let kambiOperatorResults: KambiOperatorResults[] = []
   let pinnacleResults: PinnaclePropResult[] = []
@@ -733,6 +738,9 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
 function normalizeTeamForMatch(name: string): string {
   let n = name
     .toLowerCase()
+    // Strip parenthetical content: "Houston Astros (TBD)" → "Houston Astros"
+    // Also handles pitcher names: "Houston Astros (J.Verlander)" → "Houston Astros"
+    .replace(/\s*\([^)]*\)/g, '')
     .replace(/\./g, '')
     .replace(/[^a-z0-9\s]/g, '')
     .replace(/\s+/g, ' ')
