@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useTransition } from 'react'
-import { Loader2, Pencil, Check, X, Play, CheckCircle2, AlertCircle, Zap, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { Loader2, Pencil, Check, X, Play, CheckCircle2, AlertCircle, Zap, ExternalLink, ArrowRight } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 export type Pipeline = {
@@ -474,7 +475,10 @@ export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { e
 
         {/* Book / Source */}
         <td className="px-4 py-3 min-w-[160px]">
-          <p className="text-xs font-semibold text-white">{pipeline.display_name}</p>
+          <Link href={`/admin/data-pipelines/${pipeline.slug}`} className="group inline-flex items-center gap-1.5">
+            <p className="text-xs font-semibold text-white group-hover:text-nb-300 transition-colors">{pipeline.display_name}</p>
+            <ArrowRight className="h-3 w-3 text-nb-700 group-hover:text-nb-400 transition-colors shrink-0" />
+          </Link>
           <p className="text-[10px] text-nb-600 font-mono">{pipeline.slug}</p>
           {/* Data source badges */}
           <div className="flex items-center gap-1 mt-1 flex-wrap">
