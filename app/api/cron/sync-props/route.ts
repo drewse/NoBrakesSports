@@ -329,14 +329,11 @@ export async function GET(req: NextRequest) {
         const homeProb = gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null
         const awayProb = gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null
         // line_value: the spread or total number, null for moneyline
-        const lineValue = gm.marketType === 'spread' ? gm.spreadValue
-          : gm.marketType === 'total' ? gm.totalValue
-          : null
         gameMarketRows.push({
           event_id: eventId,
           source_id: sourceId,
           market_type: gm.marketType,
-          line_value: lineValue,
+          line_value: null,
           odds_hash: oddsHash,
           home_price: gm.homePrice,
           away_price: gm.awayPrice,
@@ -366,13 +363,11 @@ export async function GET(req: NextRequest) {
       for (const gm of result.gameMarkets) {
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
-        const lineValue = gm.marketType === 'spread' ? gm.spreadValue
-          : gm.marketType === 'total' ? gm.totalValue : null
         gameMarketRows.push({
           event_id: eventId,
           source_id: dkSourceId,
           market_type: gm.marketType,
-          line_value: lineValue,
+          line_value: null,
           odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
@@ -434,11 +429,9 @@ export async function GET(req: NextRequest) {
       for (const gm of result.gameMarkets) {
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
-        const lineValue = gm.marketType === 'spread' ? gm.spreadValue
-          : gm.marketType === 'total' ? gm.totalValue : null
         gameMarketRows.push({
           event_id: eventId, source_id: fdSourceId, market_type: gm.marketType,
-          line_value: lineValue, odds_hash: oddsHash,
+          line_value: null, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,

@@ -291,11 +291,9 @@ function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[
     const outcomes = offer.outcomes ?? []
     if (outcomes.length === 0) continue
 
-    // For moneyline: one per event. For spread/total: allow alternate lines.
-    const lineVal = outcomes[0]?.line != null ? outcomes[0].line / 1000 : 0
-    const dedupKey = marketType === 'moneyline'
-      ? `${offer.eventId}|${marketType}`
-      : `${offer.eventId}|${marketType}|${lineVal}`
+    // One line per market type per event — no alternates.
+    // Alternates were creating 2000+ rows per event, burning Supabase Disk IO.
+    const dedupKey = `${offer.eventId}|${marketType}`
     if (seenGameMarket.has(dedupKey)) continue
     seenGameMarket.add(dedupKey)
 
