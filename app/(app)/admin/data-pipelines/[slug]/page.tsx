@@ -97,21 +97,13 @@ export default async function PipelineDetailPage({
 
   if (!profile?.is_admin) redirect('/dashboard')
 
-  // Fetch pipeline
-  const { data: pipeline } = await supabase
-    .from('data_pipelines')
-    .select('*')
-    .eq('slug', slug)
-    .single()
+  // Fetch pipeline + source in parallel
+  const [{ data: pipeline }, { data: source }] = await Promise.all([
+    supabase.from('data_pipelines').select('*').eq('slug', slug).single(),
+    supabase.from('market_sources').select('id, name, slug').eq('slug', slug).single(),
+  ])
 
   if (!pipeline) notFound()
-
-  // Fetch matching market source
-  const { data: source } = await supabase
-    .from('market_sources')
-    .select('id, name, slug')
-    .eq('slug', slug)
-    .single()
 
   const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
 
@@ -119,46 +111,25 @@ export default async function PipelineDetailPage({
   let propOdds: PropOddsRow[] = []
 
   if (source) {
-    // Fetch market odds in batches
-    let allMarkets: MarketOddsRow[] = []
-    let offset = 0
-    const batchSize = 5000
-    let hasMore = true
-    while (hasMore) {
-      const { data } = await supabase
+    // Fetch market odds + prop odds in PARALLEL (was sequential loops)
+    const [marketsRes, propsRes] = await Promise.all([
+      supabase
         .from('current_market_odds')
         .select('*')
         .eq('source_id', source.id)
         .gt('snapshot_time', cutoff)
         .order('snapshot_time', { ascending: false })
-        .range(offset, offset + batchSize - 1)
-
-      const rows = (data ?? []) as MarketOddsRow[]
-      allMarkets = allMarkets.concat(rows)
-      hasMore = rows.length === batchSize
-      offset += batchSize
-    }
-    marketOdds = allMarkets
-
-    // Fetch prop odds
-    let allProps: PropOddsRow[] = []
-    offset = 0
-    hasMore = true
-    while (hasMore) {
-      const { data } = await supabase
+        .limit(10000),
+      supabase
         .from('prop_odds')
         .select('*')
         .eq('source_id', source.id)
         .gt('snapshot_time', cutoff)
         .order('snapshot_time', { ascending: false })
-        .range(offset, offset + batchSize - 1)
-
-      const rows = (data ?? []) as PropOddsRow[]
-      allProps = allProps.concat(rows)
-      hasMore = rows.length === batchSize
-      offset += batchSize
-    }
-    propOdds = allProps
+        .limit(10000),
+    ])
+    marketOdds = (marketsRes.data ?? []) as MarketOddsRow[]
+    propOdds = (propsRes.data ?? []) as PropOddsRow[]
   }
 
   // Collect unique event IDs

@@ -60,41 +60,47 @@ export default async function MarketsPage({
     const eventIds = events.map((e: any) => e.id)
     const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
 
-    // Two lightweight queries per batch:
-    // 1. Moneyline rows (line_value IS NULL) → gives us source list per event
-    // 2. One row per market_type per event (using moneyline + first spread + first total)
+    // Fetch ML, spread, and total in PARALLEL per batch (was sequential)
     const BATCH = 100
     for (let i = 0; i < eventIds.length; i += BATCH) {
       const batch = eventIds.slice(i, i + BATCH)
 
-      // Query moneyline rows only — one per source per event, no alternates
-      const { data: mlData } = await supabase
-        .from('current_market_odds')
-        .select('event_id, source_id, market_type, snapshot_time')
-        .in('event_id', batch)
-        .eq('market_type', 'moneyline')
-        .gt('snapshot_time', snapshotCutoff)
-        .limit(5000)
-      if (mlData) snapshotMeta.push(...mlData)
-
-      // Query one spread + one total per event per source (just need to know they exist)
-      for (const mtype of ['spread', 'total'] as const) {
-        const { data: lineData } = await supabase
+      // All 3 market type queries run simultaneously
+      const [mlRes, spreadRes, totalRes] = await Promise.all([
+        supabase
           .from('current_market_odds')
           .select('event_id, source_id, market_type, snapshot_time')
           .in('event_id', batch)
-          .eq('market_type', mtype)
+          .eq('market_type', 'moneyline')
           .gt('snapshot_time', snapshotCutoff)
-          .limit(5000)
-        if (lineData) {
-          // Dedup: keep only first per (event_id, source_id, market_type)
-          const seen = new Set<string>()
-          for (const row of lineData) {
-            const key = `${row.event_id}|${row.source_id}|${row.market_type}`
-            if (seen.has(key)) continue
-            seen.add(key)
-            snapshotMeta.push(row)
-          }
+          .limit(5000),
+        supabase
+          .from('current_market_odds')
+          .select('event_id, source_id, market_type, snapshot_time')
+          .in('event_id', batch)
+          .eq('market_type', 'spread')
+          .gt('snapshot_time', snapshotCutoff)
+          .limit(5000),
+        supabase
+          .from('current_market_odds')
+          .select('event_id, source_id, market_type, snapshot_time')
+          .in('event_id', batch)
+          .eq('market_type', 'total')
+          .gt('snapshot_time', snapshotCutoff)
+          .limit(5000),
+      ])
+
+      if (mlRes.data) snapshotMeta.push(...mlRes.data)
+
+      // Dedup spread + total to one per (event, source, market_type)
+      for (const res of [spreadRes, totalRes]) {
+        if (!res.data) continue
+        const seen = new Set<string>()
+        for (const row of res.data) {
+          const key = `${row.event_id}|${row.source_id}|${row.market_type}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          snapshotMeta.push(row)
         }
       }
     }

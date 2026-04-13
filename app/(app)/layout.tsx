@@ -13,6 +13,7 @@ export default async function AppLayout({
 }) {
   const supabase = await createClient()
 
+  // Auth check must happen first (need user.id for profile query)
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -21,14 +22,14 @@ export default async function AppLayout({
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-
-  // Fetch sportsbook sources + pipeline slugs in parallel
-  const [{ data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
+  // ALL remaining queries in parallel — profile + sources + pipelines + cookies
+  const cookieStore = await cookies()
+  const [{ data: profile }, { data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single(),
     supabase
       .from('market_sources')
       .select('name, slug')
@@ -42,10 +43,8 @@ export default async function AppLayout({
   ])
 
   const sources = sourcesRaw ?? []
-  // All pipeline slugs = the Canadian book list (data_pipelines tracks Ontario/CA books)
   const canadianSlugs = (pipelinesRaw ?? []).map((p: any) => p.slug)
 
-  const cookieStore = await cookies()
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooksSet = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
   const initialEnabledBooks = enabledBooksSet ? [...enabledBooksSet] : null
