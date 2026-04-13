@@ -447,20 +447,13 @@ function ErrorModal({ pipeline, onClose }: { pipeline: Pipeline; onClose: () => 
 
 // ── Full pipeline row (manages its own local state) ───────────────────────────
 
-export function PipelineRow({ initial }: { initial: Pipeline }) {
+export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { events: number; markets: number } }) {
   const [pipeline, setPipeline] = useState<Pipeline>(initial)
   const [showErrorModal, setShowErrorModal] = useState(false)
 
   const isKambi = KAMBI_SLUGS.has(pipeline.slug)
   const directApi = DIRECT_API_SLUGS[pipeline.slug]
   const hasAdapter = pipeline.ingestion_method != null
-
-  const HEALTH_CLASSES: Record<string, string> = {
-    unknown:  'text-nb-600',
-    healthy:  'text-green-400',
-    degraded: 'text-amber-400',
-    down:     'text-red-400',
-  }
 
   const REGION_LABELS: Record<string, string> = {
     us: 'US', ca: 'CA', us_ca: 'US/CA', ontario: 'Ontario', global: 'Global',
@@ -518,11 +511,22 @@ export function PipelineRow({ initial }: { initial: Pipeline }) {
           <EnableToggle pipeline={pipeline} onUpdate={setPipeline} />
         </td>
 
-        {/* Health */}
-        <td className="px-4 py-3">
-          <span className={`text-[10px] font-semibold uppercase tracking-wider ${HEALTH_CLASSES[pipeline.health_status] ?? 'text-nb-600'}`}>
-            {pipeline.health_status}
-          </span>
+        {/* Events count */}
+        <td className="px-4 py-3 text-center">
+          {(stats?.events ?? 0) > 0 ? (
+            <span className="font-mono text-xs text-green-400 font-semibold">{stats?.events}</span>
+          ) : (
+            <span className="font-mono text-xs text-nb-700">0</span>
+          )}
+        </td>
+
+        {/* Markets count */}
+        <td className="px-4 py-3 text-center">
+          {(stats?.markets ?? 0) > 0 ? (
+            <span className="font-mono text-xs text-nb-300">{stats?.markets.toLocaleString()}</span>
+          ) : (
+            <span className="font-mono text-xs text-nb-700">0</span>
+          )}
         </td>
 
         {/* Priority */}

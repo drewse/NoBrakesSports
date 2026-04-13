@@ -27,7 +27,7 @@ export default async function DataPipelinesPage() {
   if (!profile?.is_admin) redirect('/dashboard')
 
   // ── Data ─────────────────────────────────────────────────────────────────
-  const [pipelinesRes, recentRunsRes] = await Promise.all([
+  const [pipelinesRes, recentRunsRes, sourcesRes] = await Promise.all([
     supabase
       .from('data_pipelines')
       .select('*')
@@ -37,10 +37,42 @@ export default async function DataPipelinesPage() {
       .select('pipeline_slug, status, is_no_op, snapshots_changed, snapshots_skipped, started_at, finished_at, timed_out')
       .order('started_at', { ascending: false })
       .limit(200),
+    // Get event and market counts per source from current_market_odds
+    supabase
+      .from('market_sources')
+      .select('id, slug'),
   ])
 
   const { data: pipelines }    = pipelinesRes
   const recentRuns             = (recentRunsRes.data ?? []) as any[]
+  const allSources             = (sourcesRes.data ?? []) as { id: string; slug: string }[]
+
+  // Build source slug → id map
+  const sourceIdBySlug = new Map<string, string>()
+  for (const s of allSources) sourceIdBySlug.set(s.slug, s.id)
+
+  // Fetch counts per source — distinct events + total market rows
+  const sourceStats = new Map<string, { events: number; markets: number }>()
+  const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+  for (const s of allSources) {
+    const { count: marketCount } = await supabase
+      .from('current_market_odds')
+      .select('*', { count: 'exact', head: true })
+      .eq('source_id', s.id)
+      .gt('snapshot_time', cutoff)
+
+    // Count distinct events for this source
+    const { data: eventRows } = await supabase
+      .from('current_market_odds')
+      .select('event_id')
+      .eq('source_id', s.id)
+      .eq('market_type', 'moneyline')
+      .gt('snapshot_time', cutoff)
+      .limit(5000)
+
+    const distinctEvents = new Set((eventRows ?? []).map((r: any) => r.event_id)).size
+    sourceStats.set(s.slug, { events: distinctEvents, markets: marketCount ?? 0 })
+  }
 
   const all = (pipelines ?? []) as Pipeline[]
 
@@ -145,7 +177,8 @@ export default async function DataPipelinesPage() {
                     'Region',
                     'Status',
                     'Enabled',
-                    'Health',
+                    'Events',
+                    'Markets',
                     'Priority',
                     'Ingestion Method',
                     'Last Checked',
@@ -166,13 +199,17 @@ export default async function DataPipelinesPage() {
               <tbody>
                 {all.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="px-4 py-12 text-center text-nb-500 text-xs">
+                    <td colSpan={14} className="px-4 py-12 text-center text-nb-500 text-xs">
                       No pipeline records found. Run migration 007 in Supabase SQL editor.
                     </td>
                   </tr>
                 ) : (
                   all.map(pipeline => (
-                    <PipelineRow key={pipeline.id} initial={pipeline} />
+                    <PipelineRow
+                      key={pipeline.id}
+                      initial={pipeline}
+                      stats={sourceStats.get(pipeline.slug) ?? { events: 0, markets: 0 }}
+                    />
                   ))
                 )}
               </tbody>
