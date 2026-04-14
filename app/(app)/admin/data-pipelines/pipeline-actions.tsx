@@ -580,27 +580,42 @@ export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { e
           </div>
         </td>
 
-        {/* Mini Health Bar */}
-        <td className="px-4 py-3 min-w-[100px]">
+        {/* Mini Health Bar — matches detail page calculation */}
+        <td className="px-4 py-3 min-w-[120px]">
           {(stats?.events ?? 0) > 0 ? (() => {
             const total = stats!.events
             const full = stats!.fullCoverage
             const missing = stats!.missingMarkets
             const stale = stats!.stale
-            const fullPct = Math.round((full / total) * 100)
-            const missingPct = Math.round((missing / total) * 100)
-            const stalePct = Math.round((stale / total) * 100)
+            const fullPct = (full / total) * 100
+            const missingPct = (missing / total) * 100
+            const stalePct = (stale / total) * 100
             return (
-              <div className="space-y-1">
-                <div className="flex h-1.5 rounded-full overflow-hidden bg-nb-800 w-full">
+              <div className="space-y-1.5">
+                {/* Bar */}
+                <div className="flex h-2 rounded-full overflow-hidden bg-nb-800 w-full min-w-[80px]">
                   <div className="bg-green-500 transition-all" style={{ width: `${fullPct}%` }} />
                   <div className="bg-amber-500 transition-all" style={{ width: `${missingPct}%` }} />
-                  <div className="bg-yellow-500 transition-all" style={{ width: `${stalePct}%` }} />
+                  {stalePct > 0 && <div className="bg-yellow-500 transition-all" style={{ width: `${stalePct}%` }} />}
                 </div>
-                <div className="flex gap-1.5 text-[8px]">
-                  {full > 0 && <span className="text-green-400">{full}</span>}
-                  {missing > 0 && <span className="text-amber-400">{missing}</span>}
-                  {stale > 0 && <span className="text-yellow-400">{stale}s</span>}
+                {/* Legend — same format as detail page */}
+                <div className="flex items-center gap-2 text-[8px]">
+                  <div className="flex items-center gap-0.5">
+                    <span className="h-1.5 w-1.5 rounded-full bg-green-500 inline-block" />
+                    <span className="text-green-400 font-mono">{full}</span>
+                  </div>
+                  {missing > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-500 inline-block" />
+                      <span className="text-amber-400 font-mono">{missing}</span>
+                    </div>
+                  )}
+                  {stale > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      <span className="h-1.5 w-1.5 rounded-full bg-yellow-500 inline-block" />
+                      <span className="text-yellow-400 font-mono">{stale}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )
