@@ -14,8 +14,7 @@ import {
 } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
-import { ArbTabs } from '@/components/arbitrage/arb-tabs'
-import { PropArbTable, type PropArb } from '@/components/arbitrage/prop-arb-table'
+import type { PropArb } from '@/components/arbitrage/prop-arb-table'
 
 export const metadata = { title: 'Arbitrage' }
 
@@ -278,7 +277,54 @@ export default async function ArbitragePage() {
     propArbs.sort((a, b) => b.profitPct - a.profitPct)
   }
 
-  const totalArbs = arbs.length + propArbs.length
+  // Merge game + prop arbs into one unified list sorted by profit %
+  type UnifiedArb = {
+    type: 'game' | 'prop'
+    eventTitle: string
+    league: string
+    description: string  // "Moneyline 3W" or "Player Points 22.5"
+    bestSideA: { label: string; price: number; source: string }
+    bestSideB: { label: string; price: number; source: string }
+    bestDraw?: { price: number; source: string } | null
+    combinedProb: number
+    profitPct: number
+    lastUpdated: string
+  }
+
+  const allArbs: UnifiedArb[] = []
+
+  for (const arb of arbs) {
+    allArbs.push({
+      type: 'game',
+      eventTitle: arb.eventTitle,
+      league: arb.league,
+      description: arb.shape === '3way' ? 'Moneyline 3W' : 'Moneyline',
+      bestSideA: { label: 'Home', price: arb.bestHomePrice, source: arb.bestHomeSource },
+      bestSideB: { label: 'Away', price: arb.bestAwayPrice, source: arb.bestAwaySource },
+      bestDraw: arb.bestDrawPrice != null ? { price: arb.bestDrawPrice, source: arb.bestDrawSource ?? '—' } : null,
+      combinedProb: arb.combinedProb,
+      profitPct: arb.profitPct,
+      lastUpdated: arb.lastUpdated,
+    })
+  }
+
+  for (const arb of propArbs) {
+    allArbs.push({
+      type: 'prop',
+      eventTitle: arb.eventTitle,
+      league: arb.league,
+      description: `${arb.playerName} ${formatPropCat(arb.propCategory)}${arb.lineValue != null ? ` ${arb.lineValue}` : ''}`,
+      bestSideA: { label: 'Over', price: arb.bestOverPrice, source: arb.bestOverSource },
+      bestSideB: { label: 'Under', price: arb.bestUnderPrice, source: arb.bestUnderSource },
+      bestDraw: null,
+      combinedProb: arb.combinedProb,
+      profitPct: arb.profitPct,
+      lastUpdated: arb.lastUpdated,
+    })
+  }
+
+  allArbs.sort((a, b) => b.profitPct - a.profitPct)
+  const totalArbs = allArbs.length
 
   function ProfitDisplay({ value }: { value: number }) {
     if (value > 1) {
@@ -325,6 +371,16 @@ export default async function ArbitragePage() {
     )
   }
 
+  function formatPropCat(cat: string): string {
+    const labels: Record<string, string> = {
+      player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
+      player_threes: '3PM', player_pts_reb_ast: 'PRA', player_steals: 'Stl',
+      player_blocks: 'Blk', player_hits: 'Hits', player_home_runs: 'HR',
+      player_strikeouts_p: 'K', player_goals: 'Goals', player_shots_on_goal: 'SOG',
+    }
+    return labels[cat] ?? cat.replace(/^player_/, '')
+  }
+
   return (
     <div className="p-6 space-y-5 max-w-[1400px]">
       <div>
@@ -333,31 +389,19 @@ export default async function ArbitragePage() {
           <Badge variant="pro">PRO</Badge>
         </div>
         <p className="text-xs text-nb-400">
-          {totalArbs} opportunities detected ({arbs.length} game, {propArbs.length} prop) across {uniqueBooks} books
+          {totalArbs} opportunities detected across {uniqueBooks} books
         </p>
       </div>
 
       <ProGate isPro={isPro} featureName="Arbitrage" blur={false}>
-        <ArbTabs
-          gameCount={arbs.length}
-          propCount={propArbs.length}
-          propContent={
-            <Card className="bg-nb-900 border-nb-800">
-              <CardContent className="p-0">
-                <PropArbTable arbs={propArbs} />
-              </CardContent>
-            </Card>
-          }
-          gameContent={
-        arbs.length === 0 ? (
+        {totalArbs === 0 ? (
           <Card className="bg-nb-900 border-nb-800">
             <CardContent className="px-6 py-12 flex flex-col items-center justify-center text-center gap-3">
               <p className="text-white text-sm font-medium">
                 No arbitrage opportunities detected
               </p>
               <p className="text-nb-400 text-xs max-w-sm">
-                No arbitrage opportunities detected in the last 2 hours.
-                Opportunities are rare and short-lived.
+                Opportunities are rare and short-lived. Data syncs every 2 minutes.
               </p>
             </CardContent>
           </Card>
@@ -368,37 +412,19 @@ export default async function ArbitragePage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-nb-800">
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Event
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        League
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Shape
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Best Home
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Draw
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Best Away
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Combined Prob
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Profit %
-                      </th>
-                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">
-                        Updated
-                      </th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Event</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">League</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Market</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Side A</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Draw</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Side B</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Combined</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Profit %</th>
+                      <th className="px-4 py-2 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider">Updated</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {arbs.map((arb, i) => (
+                    {allArbs.map((arb, i) => (
                       <tr
                         key={i}
                         className={`border-b border-border/50 hover:bg-nb-800/20 transition-colors ${
@@ -406,45 +432,32 @@ export default async function ArbitragePage() {
                         }`}
                       >
                         <td className="px-4 py-2.5">
-                          <span className="text-white text-xs font-medium">
-                            {arb.eventTitle}
-                          </span>
+                          <span className="text-white text-xs font-medium">{arb.eventTitle}</span>
                         </td>
                         <td className="px-4 py-2.5">
-                          <span className="text-nb-400 text-xs">
-                            {arb.league}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <span
-                            className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
-                              arb.shape === '3way'
-                                ? 'bg-nb-800 text-nb-300'
-                                : 'bg-nb-800 text-nb-500'
-                            }`}
-                          >
-                            {arb.shape === '3way' ? '3W' : '2W'}
-                          </span>
+                          <span className="text-nb-400 text-xs">{arb.league}</span>
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-mono text-xs text-white">
-                              {formatOdds(arb.bestHomePrice)}
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded inline-block w-fit ${
+                              arb.type === 'prop' ? 'bg-violet-500/10 text-violet-400' : 'bg-nb-800 text-nb-300'
+                            }`}>
+                              {arb.type === 'prop' ? 'PROP' : 'GAME'}
                             </span>
-                            <span className="text-[10px] text-nb-400">
-                              {arb.bestHomeSource}
-                            </span>
+                            <span className="text-[10px] text-nb-500">{arb.description}</span>
                           </div>
                         </td>
                         <td className="px-4 py-2.5">
-                          {arb.shape === '3way' && arb.bestDrawPrice != null ? (
+                          <div className="flex flex-col gap-0.5">
+                            <span className="font-mono text-xs text-white">{formatOdds(arb.bestSideA.price)}</span>
+                            <span className="text-[10px] text-nb-400">{arb.bestSideA.source}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {arb.bestDraw ? (
                             <div className="flex flex-col gap-0.5">
-                              <span className="font-mono text-xs text-white">
-                                {formatOdds(arb.bestDrawPrice)}
-                              </span>
-                              <span className="text-[10px] text-nb-400">
-                                {arb.bestDrawSource}
-                              </span>
+                              <span className="font-mono text-xs text-white">{formatOdds(arb.bestDraw.price)}</span>
+                              <span className="text-[10px] text-nb-400">{arb.bestDraw.source}</span>
                             </div>
                           ) : (
                             <span className="font-mono text-xs text-nb-600">—</span>
@@ -452,12 +465,8 @@ export default async function ArbitragePage() {
                         </td>
                         <td className="px-4 py-2.5">
                           <div className="flex flex-col gap-0.5">
-                            <span className="font-mono text-xs text-white">
-                              {formatOdds(arb.bestAwayPrice)}
-                            </span>
-                            <span className="text-[10px] text-nb-400">
-                              {arb.bestAwaySource}
-                            </span>
+                            <span className="font-mono text-xs text-white">{formatOdds(arb.bestSideB.price)}</span>
+                            <span className="text-[10px] text-nb-400">{arb.bestSideB.source}</span>
                           </div>
                         </td>
                         <td className="px-4 py-2.5">
@@ -467,9 +476,7 @@ export default async function ArbitragePage() {
                           <ProfitDisplay value={arb.profitPct} />
                         </td>
                         <td className="px-4 py-2.5">
-                          <span className="text-nb-400 text-xs">
-                            {formatRelativeTime(arb.lastUpdated)}
-                          </span>
+                          <span className="text-nb-400 text-xs">{formatRelativeTime(arb.lastUpdated)}</span>
                         </td>
                       </tr>
                     ))}
@@ -478,9 +485,7 @@ export default async function ArbitragePage() {
               </div>
             </CardContent>
           </Card>
-        )
-          }
-        />
+        )}
       </ProGate>
     </div>
   )
