@@ -20,7 +20,18 @@ const COMMON_BODY = {
   JurisdictionId: 20,
 }
 
-const MARKET_CNAMES = ['money-line', '-point-spread---0', '-total-points---0']
+// Market CNames vary by sport — include all known variants
+const MARKET_CNAMES = [
+  'money-line',
+  // Basketball/Football
+  '-point-spread---0', '-total-points---0',
+  // Baseball
+  '-run-line---0', '-total-runs---0',
+  // Hockey
+  '-puck-line---0', '-total-goals---0',
+  // Soccer
+  'win-draw-win', '-total-goals---0',
+]
 
 export const BW_LEAGUES: { category: string; subCategory: string; group: string; leagueSlug: string }[] = [
   { category: 'basketball', subCategory: 'usa', group: 'nba',  leagueSlug: 'nba' },
@@ -147,9 +158,10 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
         const underOutcome = outcomes.find((o: any) => o.CouponName === 'Under')
         const drawOutcome = outcomes.find((o: any) => o.CouponName === 'Draw')
 
-        const cname = market.MarketCName as string
+        const cname = (market.MarketCName as string).toLowerCase()
+        const title = (market.Title as string).toLowerCase()
 
-        if (cname === 'money-line') {
+        if (cname === 'money-line' || cname === 'win-draw-win') {
           gameMarkets.push({
             marketType: 'moneyline',
             homePrice: homeOutcome ? decimalToAmerican(homeOutcome.OddsDecimal) : null,
@@ -157,7 +169,7 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             drawPrice: drawOutcome ? decimalToAmerican(drawOutcome.OddsDecimal) : null,
             spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
           })
-        } else if (cname.includes('point-spread') || cname.includes('handicap')) {
+        } else if (cname.includes('point-spread') || cname.includes('run-line') || cname.includes('puck-line') || cname.includes('handicap')) {
           gameMarkets.push({
             marketType: 'spread',
             homePrice: homeOutcome ? decimalToAmerican(homeOutcome.OddsDecimal) : null,
@@ -166,7 +178,7 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             spreadValue: Math.abs(market.Handicap ?? 0),
             totalValue: null, overPrice: null, underPrice: null,
           })
-        } else if (cname.includes('total-points') || cname.includes('total-goals')) {
+        } else if (cname.includes('total-points') || cname.includes('total-runs') || cname.includes('total-goals')) {
           gameMarkets.push({
             marketType: 'total',
             homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
