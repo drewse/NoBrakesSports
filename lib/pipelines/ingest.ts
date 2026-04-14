@@ -43,7 +43,7 @@ import {
   type OddsRow,
 } from './change-detection'
 
-const MAX_EVENTS        = 200       // safety cap — prevents runaway ingestion
+const MAX_EVENTS        = 500       // safety cap — prevents runaway ingestion
 const TIMEOUT_MS        = 280_000   // 280s — under Vercel's 300s maxDuration
 const CIRCUIT_OPEN_MS   = 60 * 60 * 1000  // 1 hour before auto-reset
 const CIRCUIT_THRESHOLD = 5                // failures before circuit trips
