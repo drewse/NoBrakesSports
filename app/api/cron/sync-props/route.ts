@@ -15,6 +15,7 @@ import { scrapePinnacleProps, type PinnaclePropResult } from '@/lib/pipelines/ad
 import { scrapeDraftKings, type DKResult } from '@/lib/pipelines/adapters/draftkings-props'
 import { scrapeFanDuel, type FDResult } from '@/lib/pipelines/adapters/fanduel-props'
 import { scrapeBetway, type BWResult } from '@/lib/pipelines/adapters/betway-props'
+import { scrapeBetMGM, type MGMResult } from '@/lib/pipelines/adapters/betmgm-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
@@ -97,17 +98,19 @@ export async function GET(req: NextRequest) {
   let dkResults: DKResult[] = []
   let fdResults: FDResult[] = []
   let bwResults: BWResult[] = []
+  let mgmResults: MGMResult[] = []
 
   // 1. Scrape all sources in parallel
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 240_000) // 4 min safety
 
   try {
-    const [kambi, dk, fd, bw] = await Promise.allSettled([
+    const [kambi, dk, fd, bw, mgm] = await Promise.allSettled([
       scrapeAllKambiOperators(controller.signal),
       scrapeDraftKings(controller.signal),
       scrapeFanDuel(controller.signal),
       scrapeBetway(controller.signal),
+      scrapeBetMGM(controller.signal),
     ])
 
     if (kambi.status === 'fulfilled') {
@@ -137,6 +140,13 @@ export async function GET(req: NextRequest) {
       if (bwResults.length === 0) errors.push('Betway: scrape succeeded but returned 0 events')
     } else {
       errors.push(`Betway scrape failed: ${String(bw.reason)}`)
+    }
+
+    if (mgm.status === 'fulfilled') {
+      mgmResults = mgm.value
+      if (mgmResults.length === 0) errors.push('BetMGM: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`BetMGM scrape failed: ${String(mgm.reason)}`)
     }
   } finally {
     clearTimeout(timeout)
@@ -260,6 +270,7 @@ export async function GET(req: NextRequest) {
     'draftkings',
     'fanduel',
     'betway',
+    'betmgm',
   ]
   const { data: sources } = await db
     .from('market_sources')
@@ -518,6 +529,49 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Process BetMGM events + game markets
+  let mgmSourceId = sourceMap.get('betmgm')
+  if (!mgmSourceId && mgmResults.length > 0) {
+    const { data: newSource } = await db
+      .from('market_sources')
+      .insert({ name: 'BetMGM', slug: 'betmgm', source_type: 'sportsbook', is_active: true })
+      .select('id').single()
+    if (newSource) { mgmSourceId = newSource.id; sourceMap.set('betmgm', newSource.id) }
+  }
+
+  for (const result of mgmResults) {
+    const leagueSlug = result.event.leagueSlug
+    const leagueId = leagueIdBySlug.get(leagueSlug)
+    if (!leagueId) continue
+    if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
+    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const { data: newEvent } = await db
+      .from('events')
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `mgm:${result.event.fixtureId}` })
+      .select('id').single()
+    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
+  }
+
+  if (mgmSourceId) {
+    for (const result of mgmResults) {
+      const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
+      if (!eventId) continue
+      for (const gm of result.gameMarkets) {
+        const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
+        gameMarketRows.push({
+          event_id: eventId, source_id: mgmSourceId, market_type: gm.marketType,
+          line_value: null, odds_hash: oddsHash,
+          home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
+          spread_value: gm.spreadValue, total_value: gm.totalValue,
+          over_price: gm.overPrice, under_price: gm.underPrice,
+          home_implied_prob: gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null,
+          away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
+          movement_direction: 'flat', snapshot_time: now, changed_at: now,
+        })
+      }
+    }
+  }
+
   // Dedup game market rows before upsert
   const gmDedupMap = new Map<string, any>()
   for (const row of gameMarketRows) {
@@ -549,6 +603,7 @@ export async function GET(req: NextRequest) {
   if (dkResults.length > 0) syncedSlugs.add('draftkings')
   if (fdResults.length > 0) syncedSlugs.add('fanduel')
   if (bwResults.length > 0) syncedSlugs.add('betway')
+  if (mgmResults.length > 0) syncedSlugs.add('betmgm')
 
   if (syncedSlugs.size > 0) {
     await db
@@ -689,6 +744,7 @@ export async function GET(req: NextRequest) {
     draftkings: { events: dkResults.length, gameMarkets: dkResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
     fanduel: { events: fdResults.length, gameMarkets: fdResults.reduce((s, r) => s + r.gameMarkets.length, 0), props: fdResults.reduce((s, r) => s + r.props.length, 0) },
     betway: { events: bwResults.length, gameMarkets: bwResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
+    betmgm: { events: mgmResults.length, gameMarkets: mgmResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
     gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),

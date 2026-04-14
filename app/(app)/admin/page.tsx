@@ -45,7 +45,7 @@ const BOOK_TRACKER: BookEntry[] = [
   { name: 'bet365',        slug: 'bet365',       platform: 'Proprietary',   difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Complex proprietary API. Needs DevTools investigation' },
   { name: 'Betway',        slug: 'betway',       platform: 'Betway API',    difficulty: 'medium', status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Custom API at betway.ca/ca-on/services/api. NBA/MLB/NHL/Soccer.' },
   { name: 'Sports Interaction', slug: 'sports_interaction', platform: 'Entain CDS', difficulty: 'medium', status: 'planned', gameLevel: false, props: false, frequency: null, notes: 'Entain GraphQL API. Needs DevTools investigation' },
-  { name: 'BetMGM',        slug: 'betmgm',       platform: 'Roar Digital',  difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Roar Digital platform. Needs investigation' },
+  { name: 'BetMGM',        slug: 'betmgm',       platform: 'Entain CDS',    difficulty: 'medium', status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Entain CDS API at on.betmgm.ca. NBA/MLB/NHL/EPL.' },
   { name: 'Caesars',       slug: 'caesars',       platform: 'Caesars API',   difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'William Hill legacy. Needs investigation' },
   { name: 'NorthStar Bets', slug: 'northstarbets', platform: 'Proprietary', difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Ontario-focused. Needs investigation' },
   // ── Hard ───────────────────────────────────────────────────────────────
