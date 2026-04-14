@@ -23,9 +23,10 @@ const PAGE_SIZE = 2000
 
 // Kambi operators with confirmed public API access and distinct odds
 export const KAMBI_OPERATORS: { clientId: string; sourceSlug: string; displayName: string }[] = [
-  { clientId: 'rsicaon', sourceSlug: 'betrivers',  displayName: 'BetRivers (Ontario)' },
-  { clientId: 'ubca',    sourceSlug: 'unibet',     displayName: 'Unibet CA' },
-  { clientId: 'leose',   sourceSlug: 'leovegas',   displayName: 'LeoVegas' },
+  { clientId: 'rsicaon',      sourceSlug: 'betrivers',    displayName: 'BetRivers (Ontario)' },
+  { clientId: 'ubca',         sourceSlug: 'unibet',       displayName: 'Unibet CA' },
+  { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
+  { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 ]
 
 // Sports and their Kambi group paths

@@ -47,7 +47,7 @@ const BOOK_TRACKER: BookEntry[] = [
   { name: 'Sports Interaction', slug: 'sports_interaction', platform: 'Entain CDS', difficulty: 'medium', status: 'planned', gameLevel: false, props: false, frequency: null, notes: 'Entain GraphQL API. Needs DevTools investigation' },
   { name: 'BetMGM',        slug: 'betmgm',       platform: 'Entain CDS',    difficulty: 'medium', status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Entain CDS API at on.betmgm.ca. NBA/MLB/NHL/EPL.' },
   { name: 'Caesars',       slug: 'caesars',       platform: 'Caesars API',   difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'William Hill legacy. Needs investigation' },
-  { name: 'NorthStar Bets', slug: 'northstarbets', platform: 'Proprietary', difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Ontario-focused. Needs investigation' },
+  { name: 'NorthStar Bets', slug: 'northstarbets', platform: 'Kambi', difficulty: 'easy', status: 'live', gameLevel: true, props: true, frequency: '2 min', notes: 'Kambi operator (torstarcaon). Full props + game markets.' },
   // ── Hard ───────────────────────────────────────────────────────────────
   { name: 'theScore Bet',  slug: 'thescore',     platform: 'Penn',          difficulty: 'hard',   status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Penn proprietary platform. Complex' },
   { name: 'Proline (OLG)', slug: 'proline',      platform: 'OLG',           difficulty: 'hard',   status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Provincial lottery book. Likely scrape-only' },
