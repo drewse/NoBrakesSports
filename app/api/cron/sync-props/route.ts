@@ -311,6 +311,19 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Process FanDuel player props
+  const fdSourceIdForProps = sourceMap.get('fanduel')
+  if (fdSourceIdForProps) {
+    for (const result of fdResults) {
+      const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
+      if (!eventId) continue
+
+      for (const prop of result.props) {
+        propRows.push(buildPropRow(eventId, fdSourceIdForProps, prop, now))
+      }
+    }
+  }
+
   // 4b. Write Kambi game-level markets (ML, spread, total) into current_market_odds.
   // All Kambi operators write here so Markets page shows multiple sources.
   const gameMarketRows: any[] = []
@@ -611,7 +624,7 @@ export async function GET(req: NextRequest) {
       gameMarkets: o.results.reduce((s, r) => s + r.gameMarkets.length, 0),
     })),
     draftkings: { events: dkResults.length, gameMarkets: dkResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
-    fanduel: { events: fdResults.length, gameMarkets: fdResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
+    fanduel: { events: fdResults.length, gameMarkets: fdResults.reduce((s, r) => s + r.gameMarkets.length, 0), props: fdResults.reduce((s, r) => s + r.props.length, 0) },
     gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
