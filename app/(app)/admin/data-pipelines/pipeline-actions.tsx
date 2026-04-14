@@ -448,7 +448,7 @@ function ErrorModal({ pipeline, onClose }: { pipeline: Pipeline; onClose: () => 
 
 // ── Full pipeline row (manages its own local state) ───────────────────────────
 
-export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { events: number; markets: number } }) {
+export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { events: number; markets: number; fullCoverage: number; missingMarkets: number; stale: number } }) {
   const [pipeline, setPipeline] = useState<Pipeline>(initial)
   const [showErrorModal, setShowErrorModal] = useState(false)
 
@@ -578,6 +578,35 @@ export function PipelineRow({ initial, stats }: { initial: Pipeline; stats?: { e
             )}
             <CircuitBreakerBadge pipeline={pipeline} onUpdate={setPipeline} />
           </div>
+        </td>
+
+        {/* Mini Health Bar */}
+        <td className="px-4 py-3 min-w-[100px]">
+          {(stats?.events ?? 0) > 0 ? (() => {
+            const total = stats!.events
+            const full = stats!.fullCoverage
+            const missing = stats!.missingMarkets
+            const stale = stats!.stale
+            const fullPct = Math.round((full / total) * 100)
+            const missingPct = Math.round((missing / total) * 100)
+            const stalePct = Math.round((stale / total) * 100)
+            return (
+              <div className="space-y-1">
+                <div className="flex h-1.5 rounded-full overflow-hidden bg-nb-800 w-full">
+                  <div className="bg-green-500 transition-all" style={{ width: `${fullPct}%` }} />
+                  <div className="bg-amber-500 transition-all" style={{ width: `${missingPct}%` }} />
+                  <div className="bg-yellow-500 transition-all" style={{ width: `${stalePct}%` }} />
+                </div>
+                <div className="flex gap-1.5 text-[8px]">
+                  {full > 0 && <span className="text-green-400">{full}</span>}
+                  {missing > 0 && <span className="text-amber-400">{missing}</span>}
+                  {stale > 0 && <span className="text-yellow-400">{stale}s</span>}
+                </div>
+              </div>
+            )
+          })() : (
+            <span className="text-nb-700 text-[10px]">—</span>
+          )}
         </td>
 
         {/* Notes */}

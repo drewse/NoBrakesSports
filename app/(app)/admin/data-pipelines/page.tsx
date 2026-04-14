@@ -51,30 +51,47 @@ export default async function DataPipelinesPage() {
   const slugBySourceId = new Map<string, string>()
   for (const s of allSources) slugBySourceId.set(s.id, s.slug)
 
-  // Fetch ALL moneyline rows in ONE query to compute per-source stats.
-  // Much faster than 2 queries per source in a loop (was 40+ queries).
-  const sourceStats = new Map<string, { events: number; markets: number }>()
+  // Fetch ALL market rows in ONE query to compute per-source stats + health.
+  const sourceStats = new Map<string, { events: number; markets: number; fullCoverage: number; missingMarkets: number; stale: number }>()
   const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
-  const { data: mlRows } = await supabase
+  const staleCutoff = Date.now() - 30 * 60 * 1000 // 30 min
+
+  const { data: allMarketRows } = await supabase
     .from('current_market_odds')
-    .select('source_id, event_id')
-    .eq('market_type', 'moneyline')
+    .select('source_id, event_id, market_type, snapshot_time')
     .gt('snapshot_time', cutoff)
     .limit(10000)
 
-  // Aggregate: count distinct events per source
-  const eventsBySource = new Map<string, Set<string>>()
-  for (const row of mlRows ?? []) {
-    if (!eventsBySource.has(row.source_id)) eventsBySource.set(row.source_id, new Set())
-    eventsBySource.get(row.source_id)!.add(row.event_id)
+  // Aggregate per source
+  // Track: per (source, event) → which market types exist + latest snapshot
+  const sourceEventData = new Map<string, Map<string, { types: Set<string>; latest: string }>>()
+  for (const row of allMarketRows ?? []) {
+    if (!sourceEventData.has(row.source_id)) sourceEventData.set(row.source_id, new Map())
+    const eventMap = sourceEventData.get(row.source_id)!
+    if (!eventMap.has(row.event_id)) eventMap.set(row.event_id, { types: new Set(), latest: row.snapshot_time })
+    const ev = eventMap.get(row.event_id)!
+    ev.types.add(row.market_type)
+    if (row.snapshot_time > ev.latest) ev.latest = row.snapshot_time
   }
 
-  // Get total market counts per source (one count query with group — use the ML count × ~3 as estimate)
   for (const s of allSources) {
-    const events = eventsBySource.get(s.id)?.size ?? 0
-    // Estimate total markets as events × ~7 (ML + spread + total + alternates)
-    // More accurate than 40 individual COUNT queries
-    sourceStats.set(s.slug, { events, markets: events * 7 })
+    const eventMap = sourceEventData.get(s.id)
+    if (!eventMap) {
+      sourceStats.set(s.slug, { events: 0, markets: 0, fullCoverage: 0, missingMarkets: 0, stale: 0 })
+      continue
+    }
+    let totalMarkets = 0
+    let fullCoverage = 0
+    let missingMarkets = 0
+    let stale = 0
+    for (const [, data] of eventMap) {
+      totalMarkets += data.types.size
+      const hasFull = data.types.has('moneyline') && data.types.has('spread') && data.types.has('total')
+      if (hasFull) fullCoverage++
+      else missingMarkets++
+      if (new Date(data.latest).getTime() < staleCutoff) stale++
+    }
+    sourceStats.set(s.slug, { events: eventMap.size, markets: totalMarkets, fullCoverage, missingMarkets, stale })
   }
 
   const all = (pipelines ?? []) as Pipeline[]
@@ -187,6 +204,7 @@ export default async function DataPipelinesPage() {
                     'Last Checked',
                     'Last Success',
                     'Last Error',
+                    'Health',
                     'Notes',
                     'Run',
                   ].map(col => (
@@ -202,7 +220,7 @@ export default async function DataPipelinesPage() {
               <tbody>
                 {all.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="px-4 py-12 text-center text-nb-500 text-xs">
+                    <td colSpan={15} className="px-4 py-12 text-center text-nb-500 text-xs">
                       No pipeline records found. Run migration 007 in Supabase SQL editor.
                     </td>
                   </tr>
@@ -211,7 +229,7 @@ export default async function DataPipelinesPage() {
                     <PipelineRow
                       key={pipeline.id}
                       initial={pipeline}
-                      stats={sourceStats.get(pipeline.slug) ?? { events: 0, markets: 0 }}
+                      stats={sourceStats.get(pipeline.slug) ?? { events: 0, markets: 0, fullCoverage: 0, missingMarkets: 0, stale: 0 }}
                     />
                   ))
                 )}
