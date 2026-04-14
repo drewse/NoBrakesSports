@@ -56,11 +56,14 @@ export default async function DataPipelinesPage() {
   const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const staleCutoff = Date.now() - 30 * 60 * 1000 // 30 min
 
-  const { data: allMarketRows } = await supabase
-    .from('current_market_odds')
-    .select('source_id, event_id, market_type, snapshot_time')
-    .gt('snapshot_time', cutoff)
-    .limit(10000)
+  // Fetch in parallel: moneyline rows for events, all rows for health stats
+  const [{ data: allMarketRows }] = await Promise.all([
+    supabase
+      .from('current_market_odds')
+      .select('source_id, event_id, market_type, snapshot_time')
+      .gt('snapshot_time', cutoff)
+      .limit(20000),
+  ])
 
   // Aggregate per source
   // Track: per (source, event) → which market types exist + latest snapshot
