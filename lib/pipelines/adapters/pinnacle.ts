@@ -31,7 +31,7 @@ import type {
   CanonicalOutcome,
 } from '../types'
 import { normalizeEvent, americanToImplied, detectMarketShape } from '../normalize'
-import { withBrowser } from '../browser-fetch'
+import { pipeFetch } from '../proxy-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -135,8 +135,15 @@ function toLeagueSlug(leagueName: string): string | null {
 // so Cloudflare sees a real browser TLS fingerprint.
 type FetchJsonFn = (url: string, headers?: Record<string, string>) => Promise<any>
 
-async function apiGet(fetchJson: FetchJsonFn, path: string): Promise<any> {
-  return fetchJson(`${BASE}${path}`, API_HEADERS)
+async function apiGet(path: string): Promise<any> {
+  const resp = await pipeFetch(`${BASE}${path}`, {
+    headers: {
+      ...API_HEADERS,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    },
+  })
+  if (!resp.ok) throw new Error(`Pinnacle API ${resp.status} for ${path}`)
+  return resp.json()
 }
 
 // ── Types mirroring Pinnacle guest API response shapes ────────────────────────
@@ -233,10 +240,7 @@ export const pinnacleAdapter: SourceAdapter = {
   async fetchEvents(): Promise<FetchEventsResult> {
     const start = Date.now()
 
-    return withBrowser(async ({ visit, fetchJson }) => {
-      // Visit seed URL so Chromium gets CF cookies for pinnacle.com and its API subdomain
-      await visit(SEED_URL)
-
+    {
       const allEvents: CanonicalEvent[] = []
       const allMarkets: CanonicalMarket[] = []
       const rawPayloads: unknown[] = []
@@ -245,7 +249,7 @@ export const pinnacleAdapter: SourceAdapter = {
       // Step 1: fetch matchups for each sport in parallel
       const sportMatchups = await Promise.allSettled(
         SPORTS.map(async (sport) => {
-          const data: PinnMatchup[] = await apiGet(fetchJson, `/sports/${sport.id}/matchups?withSpecials=false&handicapStyle=american`)
+          const data: PinnMatchup[] = await apiGet(`/sports/${sport.id}/matchups?withSpecials=false&handicapStyle=american`)
           return { sport, matchups: data }
         })
       )
@@ -303,7 +307,7 @@ export const pinnacleAdapter: SourceAdapter = {
         await Promise.allSettled(
           chunk.map(async ({ matchup, leagueSlug }) => {
             try {
-              const raw: PinnMarket[] = await apiGet(fetchJson, `/matchups/${matchup.id}/markets/straight?primaryOnly=true`)
+              const raw: PinnMarket[] = await apiGet(`/matchups/${matchup.id}/markets/straight?primaryOnly=true`)
               rawPayloads.push(raw)
               allMarkets.push(...extractMarkets(raw, matchup.id, leagueSlug))
             } catch (e: any) {
@@ -317,27 +321,20 @@ export const pinnacleAdapter: SourceAdapter = {
       if (errors.length) console.error('[pinnacle] errors:', errors)
 
       return { raw: rawPayloads, events: allEvents, markets: allMarkets, errors } as any
-    })
+    }
   },
 
   async fetchMarkets(eventId: string): Promise<FetchMarketsResult> {
-    return withBrowser(async ({ visit, fetchJson }) => {
-      await visit(SEED_URL)
-      const raw: PinnMarket[] = await apiGet(fetchJson, `/matchups/${eventId}/markets/straight?primaryOnly=false`)
-      const markets = extractMarkets(raw, Number(eventId), '')
-      return { raw, markets }
-    })
+    const raw: PinnMarket[] = await apiGet(`/matchups/${eventId}/markets/straight?primaryOnly=false`)
+    const markets = extractMarkets(raw, Number(eventId), '')
+    return { raw, markets }
   },
 
   async healthCheck(): Promise<HealthCheckResult> {
     const start = Date.now()
     try {
-      await withBrowser(async ({ visit, fetchJson }) => {
-        await visit(SEED_URL)
-        const data = await apiGet(fetchJson, '/sports/4/matchups?withSpecials=false&handicapStyle=american')
-        if (!Array.isArray(data)) throw new Error('Unexpected response shape')
-        console.log(`[pinnacle] health: ${data.length} basketball matchups`)
-      })
+      const data = await apiGet('/sports/4/matchups?withSpecials=false&handicapStyle=american')
+      if (!Array.isArray(data)) throw new Error('Unexpected response shape')
       const latencyMs = Date.now() - start
       return { healthy: true, latencyMs, message: `ok (${latencyMs}ms)` }
     } catch (e: any) {
