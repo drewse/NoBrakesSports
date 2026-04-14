@@ -14,6 +14,7 @@ import { scrapeAllKambiOperators, type KambiPropResult, type KambiGameMarket, ty
 import { scrapePinnacleProps, type PinnaclePropResult } from '@/lib/pipelines/adapters/pinnacle-props'
 import { scrapeDraftKings, type DKResult } from '@/lib/pipelines/adapters/draftkings-props'
 import { scrapeFanDuel, type FDResult } from '@/lib/pipelines/adapters/fanduel-props'
+import { scrapeBetway, type BWResult } from '@/lib/pipelines/adapters/betway-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
@@ -95,16 +96,18 @@ export async function GET(req: NextRequest) {
   let pinnacleResults: PinnaclePropResult[] = []
   let dkResults: DKResult[] = []
   let fdResults: FDResult[] = []
+  let bwResults: BWResult[] = []
 
   // 1. Scrape all sources in parallel
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 240_000) // 4 min safety
 
   try {
-    const [kambi, dk, fd] = await Promise.allSettled([
+    const [kambi, dk, fd, bw] = await Promise.allSettled([
       scrapeAllKambiOperators(controller.signal),
       scrapeDraftKings(controller.signal),
       scrapeFanDuel(controller.signal),
+      scrapeBetway(controller.signal),
     ])
 
     if (kambi.status === 'fulfilled') {
@@ -127,6 +130,13 @@ export async function GET(req: NextRequest) {
       if (fdResults.length === 0) errors.push('FanDuel: scrape succeeded but returned 0 events')
     } else {
       errors.push(`FanDuel scrape failed: ${String(fd.reason)}`)
+    }
+
+    if (bw.status === 'fulfilled') {
+      bwResults = bw.value
+      if (bwResults.length === 0) errors.push('Betway: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`Betway scrape failed: ${String(bw.reason)}`)
     }
   } finally {
     clearTimeout(timeout)
@@ -249,6 +259,7 @@ export async function GET(req: NextRequest) {
     'pinnacle',
     'draftkings',
     'fanduel',
+    'betway',
   ]
   const { data: sources } = await db
     .from('market_sources')
@@ -456,6 +467,57 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Process Betway events + game markets
+  let bwSourceId = sourceMap.get('betway')
+  if (!bwSourceId && bwResults.length > 0) {
+    const { data: newSource } = await db
+      .from('market_sources')
+      .insert({ name: 'Betway', slug: 'betway', source_type: 'sportsbook', is_active: true })
+      .select('id').single()
+    if (newSource) { bwSourceId = newSource.id; sourceMap.set('betway', newSource.id) }
+  }
+
+  // Auto-create Betway events
+  for (const result of bwResults) {
+    const leagueSlug = result.event.leagueSlug
+    const leagueId = leagueIdBySlug.get(leagueSlug)
+    if (!leagueId) continue
+    if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
+
+    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const { data: newEvent } = await db
+      .from('events')
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `bw:${result.event.eventId}` })
+      .select('id').single()
+    if (newEvent) {
+      eventsCreated++
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
+    }
+  }
+
+  // Betway game markets
+  if (bwSourceId) {
+    for (const result of bwResults) {
+      const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
+      if (!eventId) continue
+
+      for (const gm of result.gameMarkets) {
+        const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
+          .map(v => v ?? '').join('|')
+        gameMarketRows.push({
+          event_id: eventId, source_id: bwSourceId, market_type: gm.marketType,
+          line_value: null, odds_hash: oddsHash,
+          home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
+          spread_value: gm.spreadValue, total_value: gm.totalValue,
+          over_price: gm.overPrice, under_price: gm.underPrice,
+          home_implied_prob: gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null,
+          away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
+          movement_direction: 'flat', snapshot_time: now, changed_at: now,
+        })
+      }
+    }
+  }
+
   // Dedup game market rows before upsert
   const gmDedupMap = new Map<string, any>()
   for (const row of gameMarketRows) {
@@ -486,6 +548,7 @@ export async function GET(req: NextRequest) {
   }
   if (dkResults.length > 0) syncedSlugs.add('draftkings')
   if (fdResults.length > 0) syncedSlugs.add('fanduel')
+  if (bwResults.length > 0) syncedSlugs.add('betway')
 
   if (syncedSlugs.size > 0) {
     await db
@@ -625,6 +688,7 @@ export async function GET(req: NextRequest) {
     })),
     draftkings: { events: dkResults.length, gameMarkets: dkResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
     fanduel: { events: fdResults.length, gameMarkets: fdResults.reduce((s, r) => s + r.gameMarkets.length, 0), props: fdResults.reduce((s, r) => s + r.props.length, 0) },
+    betway: { events: bwResults.length, gameMarkets: bwResults.reduce((s, r) => s + r.gameMarkets.length, 0) },
     gameMarketsUpserted,
     pinnacleEvents: pinnacleResults.length,
     pinnacleProps: pinnacleResults.reduce((s, r) => s + r.props.length, 0),
