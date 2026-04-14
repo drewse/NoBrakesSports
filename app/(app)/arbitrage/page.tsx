@@ -57,6 +57,7 @@ export default async function ArbitragePage() {
     )
     .eq('market_type', 'moneyline')
     .gt('snapshot_time', staleCutoff)
+    .limit(5000)
 
   // Filter out Polymarket and apply user's book selection
   const filteredSnapshots = (snapshots ?? []).filter(s => {

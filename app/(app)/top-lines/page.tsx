@@ -167,28 +167,25 @@ export default async function TopEvLinesPage({
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+  const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const { data: snapshots } = await supabase
-    .from('market_snapshots')
+    .from('current_market_odds')
     .select(`
       id, event_id, source_id, market_type,
       home_price, away_price, draw_price,
-      spread_value, total_value, snapshot_time,
+      spread_value, total_value, over_price, under_price, snapshot_time,
       event:events(id, title, start_time, league:leagues(name, abbreviation, slug)),
       source:market_sources(id, name, slug)
     `)
     .gt('snapshot_time', cutoff)
     .in('market_type', ['moneyline', 'spread', 'total'])
-    .order('snapshot_time', { ascending: false })
-    .limit(isPro ? 5000 : 800)
+    .limit(10000)
 
-  // ── Group by (event_id, market_type, lineValue) ──────────────────────────
-  // Deduplicate per source within each group — keep only the latest snapshot
-  // per source_id so multiple pipeline runs don't produce duplicate book entries.
+  // ── Group by (event_id, market_type) ────────────────────────────────────
+  // current_market_odds already has one row per (event, source, market_type).
 
   type Snap = NonNullable<typeof snapshots>[number]
-  // Intermediate: track latest snapshot per (group key, source_id)
-  const groupSourceLatest = new Map<string, Map<string, Snap>>()
+  const groupMap = new Map<string, Snap[]>()
 
   for (const snap of snapshots ?? []) {
     const sourceSlug: string = (snap as any).source?.slug ?? ''
@@ -198,25 +195,9 @@ export default async function TopEvLinesPage({
     if (!ev) continue
     if (!isUpcomingEvent(ev.start_time)) continue
 
-    const lineKey = snap.market_type === 'spread'
-      ? String(snap.spread_value ?? '')
-      : snap.market_type === 'total'
-      ? String(snap.total_value ?? '')
-      : ''
-
-    const key = `${snap.event_id}::${snap.market_type}::${lineKey}`
-    if (!groupSourceLatest.has(key)) groupSourceLatest.set(key, new Map())
-    const bySource = groupSourceLatest.get(key)!
-    const existing = bySource.get(snap.source_id)
-    if (!existing || snap.snapshot_time > existing.snapshot_time) {
-      bySource.set(snap.source_id, snap)
-    }
-  }
-
-  // Flatten to groupMap with deduplicated snaps
-  const groupMap = new Map<string, Snap[]>()
-  for (const [key, bySource] of groupSourceLatest) {
-    groupMap.set(key, Array.from(bySource.values()))
+    const key = `${snap.event_id}::${snap.market_type}`
+    if (!groupMap.has(key)) groupMap.set(key, [])
+    groupMap.get(key)!.push(snap)
   }
 
   // ── Compute EV lines from each group ─────────────────────────────────────
@@ -317,8 +298,8 @@ export default async function TopEvLinesPage({
       )
 
     } else if (marketType === 'total' && totalVal != null) {
-      // Over is stored in home_price per sync convention
-      buildLine('over', `Over ${totalVal}`, s => s.home_price, fair.home)
+      buildLine('over', `Over ${totalVal}`, s => (s as any).over_price ?? s.home_price, fair.home)
+      buildLine('away', `Under ${totalVal}`, s => (s as any).under_price ?? s.away_price, fair.away)
     }
   }
 
