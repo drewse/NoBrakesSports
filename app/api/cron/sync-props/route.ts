@@ -465,6 +465,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Update last_checked_at / last_success_at on data_pipelines for sources that synced.
+  // This keeps the Data Pipelines admin page timestamps accurate.
+  const syncedSlugs = new Set<string>()
+  for (const op of kambiOperatorResults) {
+    if (op.results.length > 0) syncedSlugs.add(op.operator.sourceSlug)
+  }
+  if (dkResults.length > 0) syncedSlugs.add('draftkings')
+  if (fdResults.length > 0) syncedSlugs.add('fanduel')
+
+  if (syncedSlugs.size > 0) {
+    await db
+      .from('data_pipelines')
+      .update({ last_checked_at: now, last_success_at: now, status: 'healthy', consecutive_failures: 0, circuit_open_at: null })
+      .in('slug', [...syncedSlugs])
+  }
+
   // Dedup propRows: if the same (event, source, category, player, line) appears
   // multiple times, keep only the last one. This prevents "ON CONFLICT DO UPDATE
   // command cannot affect row a second time" errors in batch upserts.
