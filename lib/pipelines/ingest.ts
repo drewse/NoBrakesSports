@@ -269,7 +269,14 @@ export async function ingestPipeline(
         canonicalKeyBySourceId[e.externalId] = canonicalEventKey(e)
       }
 
-      const eventsToUpsert = matchedEvents.map(e => ({
+      // Dedup by canonical key before upserting — prevents "cannot affect row a second time"
+      const seenCanonical = new Map<string, typeof matchedEvents[number]>()
+      for (const e of matchedEvents) {
+        const key = canonicalEventKey(e)
+        if (!seenCanonical.has(key)) seenCanonical.set(key, e)
+      }
+
+      const eventsToUpsert = [...seenCanonical.values()].map(e => ({
         external_id: canonicalEventKey(e),
         league_id:   leagueBySlug[e.leagueSlug],
         title:       e.title,
