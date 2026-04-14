@@ -56,7 +56,7 @@ const BOOK_TRACKER: BookEntry[] = [
   { name: 'TonyBet',       slug: 'tonybet',      platform: 'Proprietary',   difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Lithuanian-origin. Needs investigation' },
   { name: 'bwin',          slug: 'bwin',         platform: 'Entain CDS',    difficulty: 'easy',   status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Same Entain CDS as BetMGM. www.on.bwin.ca' },
   { name: 'Bally Bet',     slug: 'ballybet',     platform: 'Bally Corp',    difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Bally Corp. Needs investigation' },
-  { name: 'partypoker',    slug: 'partypoker',   platform: 'Entain CDS',    difficulty: 'medium', status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Entain platform. Clone of Betway adapter' },
+  { name: 'partypoker',    slug: 'partypoker',   platform: 'Entain CDS',    difficulty: 'easy',   status: 'live',        gameLevel: true,  props: false, frequency: '2 min',  notes: 'Same Entain CDS as BetMGM. www.on.partysports.ca' },
   { name: 'Jackpot.bet',   slug: 'jackpotbet',   platform: 'Proprietary',   difficulty: 'hard',   status: 'planned',     gameLevel: false, props: false, frequency: null,     notes: 'Newer entrant. Needs investigation' },
 ]
 
