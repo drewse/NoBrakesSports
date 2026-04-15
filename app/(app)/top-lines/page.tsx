@@ -316,9 +316,9 @@ export default async function TopEvLinesPage({
 
     if (marketType === 'moneyline') {
       buildLine('home', homeTeam, s => s.home_price, fair.home)
-      if (shape === '3way' && fair.draw != null) {
-        buildLine('draw', 'Draw', s => s.draw_price ?? null, fair.draw)
-      }
+      // Skip draw EV for now — different books may use different draw definitions
+      // (regulation vs including OT), creating false positives.
+      // TODO: re-enable once draw market definitions are verified per book.
       buildLine('away', awayTeam, s => s.away_price, fair.away)
 
     } else if (marketType === 'spread' && spreadVal != null) {
