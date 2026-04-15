@@ -193,13 +193,26 @@ export default async function TopEvLinesPage({
     .in('market_type', ['moneyline', 'spread', 'total'])
     .limit(10000)
 
-  // ── Group by (event_id, market_type) ────────────────────────────────────
-  // current_market_odds already has one row per (event, source, market_type).
+  // ── Dedup + Group by (event_id, market_type) ────────────────────────────
+  // Keep only the LATEST row per (event_id, source_id, market_type) to prevent
+  // duplicate Pinnacle/book entries from stale or alternate-line rows.
 
   type Snap = NonNullable<typeof snapshots>[number]
-  const groupMap = new Map<string, Snap[]>()
 
+  // Step 1: Dedup — keep latest per (event, source, market_type)
+  const dedupKey = (s: Snap) => `${s.event_id}|${s.source_id}|${s.market_type}`
+  const latestByKey = new Map<string, Snap>()
   for (const snap of snapshots ?? []) {
+    const key = dedupKey(snap)
+    const existing = latestByKey.get(key)
+    if (!existing || snap.snapshot_time > existing.snapshot_time) {
+      latestByKey.set(key, snap)
+    }
+  }
+
+  // Step 2: Group deduped snaps by (event_id, market_type)
+  const groupMap = new Map<string, Snap[]>()
+  for (const snap of latestByKey.values()) {
     const sourceSlug: string = (snap as any).source?.slug ?? ''
     if (sourceSlug === 'polymarket') continue
     if (enabledBooks && !enabledBooks.has(sourceSlug)) continue
@@ -269,7 +282,10 @@ export default async function TopEvLinesPage({
       })
       allSources.sort((a, b) => b.evPct - a.evPct)
 
-      const best = allSources[0]
+      // Best available = highest EV from a NON-sharp book (Pinnacle is the reference, not a bet)
+      const bettableSources = allSources.filter(s => s.name !== 'Pinnacle')
+      if (bettableSources.length === 0) return
+      const best = bettableSources[0]
       evLines.push({
         eventId: snaps[0].event_id,
         eventTitle: event?.title ?? '—',
