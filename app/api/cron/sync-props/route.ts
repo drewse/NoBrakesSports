@@ -843,47 +843,102 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Discord Alerts: detect arbs and +EV from freshly upserted data ──────
-  // Quick scan of game-level moneyline arbs across books
   let alertsSent = 0
   try {
-    // Simple arb check: for each event, compare ML across sources
-    const mlByEvent = new Map<string, { source: string; home: number; away: number }[]>()
+    // Build event title lookup
+    const eventTitles = new Map<string, string>()
+    const { data: eventRows } = await db
+      .from('events')
+      .select('id, title')
+      .gt('start_time', new Date().toISOString())
+      .limit(500)
+    for (const e of eventRows ?? []) eventTitles.set(e.id, e.title)
+
+    // Pinnacle source ID for +EV detection
+    const pinSourceId = sourceMap.get('pinnacle')
+
+    // Group ML rows by event
+    const mlByEvent = new Map<string, { source: string; sourceId: string; home: number; away: number }[]>()
     for (const row of dedupedGameRows) {
       if (row.market_type !== 'moneyline' || !row.home_price || !row.away_price) continue
-      // Look up source name
       const slug = [...sourceMap.entries()].find(([, id]) => id === row.source_id)?.[0] ?? '?'
       if (!mlByEvent.has(row.event_id)) mlByEvent.set(row.event_id, [])
-      mlByEvent.get(row.event_id)!.push({ source: slug, home: row.home_price, away: row.away_price })
+      mlByEvent.get(row.event_id)!.push({ source: slug, sourceId: row.source_id, home: row.home_price, away: row.away_price })
     }
+
+    const toImplied = (odds: number) => odds > 0 ? 100 / (odds + 100) : -odds / (-odds + 100)
 
     for (const [eventId, sources] of mlByEvent) {
       if (sources.length < 2) continue
+      const title = eventTitles.get(eventId) ?? eventId.slice(0, 12)
+
+      // ── Arb check ──
       const bestHome = sources.reduce((best, s) => s.home > best.home ? s : best)
       const bestAway = sources.reduce((best, s) => s.away > best.away ? s : best)
-      if (bestHome.source === bestAway.source) continue
-
-      const homeProb = bestHome.home > 0 ? 100 / (bestHome.home + 100) : -bestHome.home / (-bestHome.home + 100)
-      const awayProb = bestAway.away > 0 ? 100 / (bestAway.away + 100) : -bestAway.away / (-bestAway.away + 100)
-      const combined = homeProb + awayProb
-
-      if (combined < 1.0) {
-        const profitPct = (1 / combined - 1) * 100
-        if (profitPct >= 0.5) {
-          await sendArbAlert({
-            type: 'arb',
-            eventTitle: eventId.slice(0, 8), // Will be replaced with actual title if available
-            league: '—',
-            market: 'Moneyline',
-            sideA: { label: 'Home', price: bestHome.home, source: bestHome.source },
-            sideB: { label: 'Away', price: bestAway.away, source: bestAway.source },
-            profitPct,
-          })
-          alertsSent++
+      if (bestHome.source !== bestAway.source) {
+        const combined = toImplied(bestHome.home) + toImplied(bestAway.away)
+        if (combined < 1.0) {
+          const profitPct = (1 / combined - 1) * 100
+          if (profitPct >= 0.5) {
+            await sendArbAlert({
+              type: 'arb', eventTitle: title, league: '—', market: 'Moneyline',
+              sideA: { label: 'Home', price: bestHome.home, source: bestHome.source },
+              sideB: { label: 'Away', price: bestAway.away, source: bestAway.source },
+              profitPct,
+            })
+            alertsSent++
+          }
         }
       }
+
+      // ── +EV check (Pinnacle reference) ──
+      if (pinSourceId) {
+        const pin = sources.find(s => s.sourceId === pinSourceId)
+        if (pin) {
+          const pinHomeProb = toImplied(pin.home)
+          const pinAwayProb = toImplied(pin.away)
+          const overround = pinHomeProb + pinAwayProb
+          // Power devig (simple multiplicative for speed)
+          const fairHome = pinHomeProb / overround
+          const fairAway = pinAwayProb / overround
+
+          for (const s of sources) {
+            if (s.sourceId === pinSourceId) continue // don't compare Pinnacle to itself
+
+            // Check home side
+            const homeDecimal = s.home > 0 ? s.home / 100 + 1 : 100 / Math.abs(s.home) + 1
+            const homeEv = (fairHome * homeDecimal - 1) * 100
+            if (homeEv >= 3) {
+              await sendEvAlert({
+                type: 'ev', eventTitle: title, league: '—',
+                outcomeLabel: `Home ML`,
+                bestPrice: s.home, bestSource: s.source,
+                evPct: homeEv, fairProb: fairHome,
+                kellyPct: Math.max(0, ((homeDecimal - 1) * fairHome - fairAway) / (homeDecimal - 1)) * 25,
+              })
+              alertsSent++
+            }
+
+            // Check away side
+            const awayDecimal = s.away > 0 ? s.away / 100 + 1 : 100 / Math.abs(s.away) + 1
+            const awayEv = (fairAway * awayDecimal - 1) * 100
+            if (awayEv >= 3) {
+              await sendEvAlert({
+                type: 'ev', eventTitle: title, league: '—',
+                outcomeLabel: `Away ML`,
+                bestPrice: s.away, bestSource: s.source,
+                evPct: awayEv, fairProb: fairAway,
+                kellyPct: Math.max(0, ((awayDecimal - 1) * fairAway - fairHome) / (awayDecimal - 1)) * 25,
+              })
+              alertsSent++
+            }
+          }
+        }
+      }
+
+      if (alertsSent >= 5) break // rate limit
     }
   } catch (e) {
-    // Don't let alert errors break the sync
     console.error('Alert detection error:', e)
   }
 
