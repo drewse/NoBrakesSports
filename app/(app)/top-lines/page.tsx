@@ -75,9 +75,10 @@ function computeFairProbs(
   snaps: SnapForFair[]
 ): { home: number; away: number; draw: number | null } | null {
   const valid = snaps.filter(s => s.home_price != null && s.away_price != null)
-  if (valid.length < 2) return null
+  if (valid.length === 0) return null
 
   // ── Pinnacle-first ────────────────────────────────────────────────────────
+  // Pinnacle alone is sufficient — it IS the fair reference.
   const pin = valid.find(s => s.source?.slug === PINNACLE_SLUG)
   if (pin) {
     const h = americanToImpliedProb(pin.home_price!)
@@ -123,6 +124,16 @@ function computeEv(fairProb: number, americanOdds: number): number {
   return (fairProb * americanToDecimal(americanOdds) - 1) * 100
 }
 
+/** Kelly criterion: optimal fraction of bankroll to bet */
+function kellyFraction(fairProb: number, americanOdds: number): number {
+  const decOdds = americanToDecimal(americanOdds)
+  const b = decOdds - 1 // net odds (profit per $1 bet)
+  const q = 1 - fairProb
+  const kelly = (b * fairProb - q) / b
+  // Quarter Kelly for safety (full Kelly is too aggressive)
+  return Math.max(0, kelly * 0.25)
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface SourceOdds { name: string; price: number; evPct: number }
@@ -133,12 +144,13 @@ interface EvLine {
   leagueAbbrev: string
   marketType: string
   outcomeSide: 'home' | 'away' | 'draw' | 'over'
-  outcomeLabel: string       // e.g. "Golden State Warriors", "Wizards +9.5", "Over 228.5"
-  lineValue: number | null   // spread or total value
+  outcomeLabel: string
+  lineValue: number | null
   bestPrice: number
   bestSource: string
   evPct: number
   fairProb: number
+  kellyPct: number            // quarter-Kelly recommended stake %
   allSources: SourceOdds[]
   lastUpdated: string
   shape: MarketShape
@@ -211,15 +223,17 @@ export default async function TopEvLinesPage({
     const marketType = snaps[0].market_type as string
     const shape = getMarketShape(leagueSlug || null, null, marketType)
 
+    // For totals, map over_price→home_price and under_price→away_price
+    // so the fair prob computation works (it expects home/away)
     const fair = computeFairProbs(
       snaps.map(s => ({
-        home_price: s.home_price,
-        away_price: s.away_price,
+        home_price: marketType === 'total' ? ((s as any).over_price ?? s.home_price) : s.home_price,
+        away_price: marketType === 'total' ? ((s as any).under_price ?? s.away_price) : s.away_price,
         draw_price: s.draw_price,
         source: (s as any).source,
       }))
     )
-    if (!fair) continue  // need ≥ 2 sources with paired prices
+    if (!fair) continue
 
     // Parse team names from "Home vs Away" title
     const titleParts = (event?.title ?? '').split(' vs ')
@@ -269,6 +283,7 @@ export default async function TopEvLinesPage({
         bestSource: best.name,
         evPct: best.evPct,
         fairProb,
+        kellyPct: kellyFraction(fairProb, best.price) * 100,
         allSources,
         lastUpdated,
         shape,
@@ -300,6 +315,109 @@ export default async function TopEvLinesPage({
     } else if (marketType === 'total' && totalVal != null) {
       buildLine('over', `Over ${totalVal}`, s => (s as any).over_price ?? s.home_price, fair.home)
       buildLine('away', `Under ${totalVal}`, s => (s as any).under_price ?? s.away_price, fair.away)
+    }
+  }
+
+  // ── Prop +EV Detection ──────────────────────────────────────────────────
+  // Query prop_odds, group by (event, category, player, line), compute fair prob
+  // from sharpest book (most balanced O/U), then find +EV across all books.
+  const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const { data: propOddsRaw } = await supabase
+    .from('prop_odds')
+    .select(`
+      event_id, source_id, prop_category, player_name, line_value,
+      over_price, under_price, snapshot_time,
+      event:events(id, title, start_time, league:leagues(abbreviation)),
+      source:market_sources(id, name, slug)
+    `)
+    .gt('snapshot_time', propCutoff)
+    .not('over_price', 'is', null)
+    .not('under_price', 'is', null)
+    .limit(5000)
+
+  if (propOddsRaw && propOddsRaw.length > 0) {
+    // Filter by enabled books + upcoming events
+    const filteredProps = (propOddsRaw as any[]).filter(p => {
+      const slug = p.source?.slug ?? ''
+      if (enabledBooks && !enabledBooks.has(slug)) return false
+      if (!p.event || !isUpcomingEvent(p.event.start_time)) return false
+      return true
+    })
+
+    // Group by (event_id, prop_category, player_name, line_value)
+    const propGroups = new Map<string, any[]>()
+    for (const p of filteredProps) {
+      const key = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}`
+      if (!propGroups.has(key)) propGroups.set(key, [])
+      propGroups.get(key)!.push(p)
+    }
+
+    for (const group of propGroups.values()) {
+      if (group.length < 2) continue // need 2+ books to compute fair
+
+      // Compute fair prob: power-devig the most balanced book (closest to -110/-110)
+      let bestBalance = Infinity
+      let fairOver = 0.5
+      let fairUnder = 0.5
+
+      for (const p of group) {
+        const overProb = americanToImpliedProb(p.over_price)
+        const underProb = americanToImpliedProb(p.under_price)
+        const balance = Math.abs(overProb - underProb)
+        if (balance < bestBalance) {
+          bestBalance = balance
+          const devigged = powerDevig([overProb, underProb])
+          fairOver = devigged[0]
+          fairUnder = devigged[1]
+        }
+      }
+
+      const ev = group[0].event
+      const leagueAbbrev = ev?.league?.abbreviation ?? '—'
+      const propCat = group[0].prop_category as string
+      const playerName = group[0].player_name as string
+      const lineVal = group[0].line_value
+
+      const PROP_LABELS: Record<string, string> = {
+        player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
+        player_threes: '3PM', player_pts_reb_ast: 'PRA',
+      }
+      const catLabel = PROP_LABELS[propCat] ?? propCat.replace('player_', '')
+
+      // Check each book's over and under for +EV
+      for (const side of ['over', 'under'] as const) {
+        const fairProb = side === 'over' ? fairOver : fairUnder
+        const getPrice = (p: any) => side === 'over' ? p.over_price : p.under_price
+
+        const allSources: SourceOdds[] = group.map(p => ({
+          name: p.source?.name ?? '?',
+          price: getPrice(p),
+          evPct: computeEv(fairProb, getPrice(p)),
+        }))
+        allSources.sort((a, b) => b.evPct - a.evPct)
+
+        const best = allSources[0]
+        if (best.evPct > 0) {
+          evLines.push({
+            eventId: group[0].event_id,
+            eventTitle: ev?.title ?? '—',
+            eventStart: ev?.start_time ?? '',
+            leagueAbbrev,
+            marketType: 'prop',
+            outcomeSide: side === 'over' ? 'home' : 'away',
+            outcomeLabel: `${playerName} ${catLabel} ${side === 'over' ? 'O' : 'U'} ${lineVal ?? ''}`,
+            lineValue: lineVal,
+            bestPrice: best.price,
+            bestSource: best.name,
+            evPct: best.evPct,
+            fairProb,
+            kellyPct: kellyFraction(fairProb, best.price) * 100,
+            allSources,
+            lastUpdated: group.reduce((max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max, group[0].snapshot_time),
+            shape: '2way' as MarketShape,
+          })
+        }
+      }
     }
   }
 
@@ -350,6 +468,7 @@ export default async function TopEvLinesPage({
     if (type === 'moneyline') return 'Moneyline'
     if (type === 'spread') return 'Spread'
     if (type === 'total') return 'Total'
+    if (type === 'prop') return 'Prop'
     return type
   }
 
@@ -388,7 +507,7 @@ export default async function TopEvLinesPage({
         {/* Market type tabs */}
         <form method="GET" className="flex items-center gap-1.5">
           <input type="hidden" name="league" value={leagueFilter} />
-          {(['all', 'moneyline', 'spread', 'total'] as const).map(m => (
+          {(['all', 'moneyline', 'spread', 'total', 'prop'] as const).map(m => (
             <button
               key={m}
               name="market"
@@ -498,6 +617,9 @@ export default async function TopEvLinesPage({
                       Probability
                     </th>
                     <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider w-20">
+                      Kelly
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider w-20">
                       Updated
                     </th>
                   </tr>
@@ -505,7 +627,7 @@ export default async function TopEvLinesPage({
                 <tbody>
                   {visibleLines.length <= 3 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-nb-400 text-xs">
+                      <td colSpan={8} className="px-4 py-12 text-center text-nb-400 text-xs">
                         No additional lines found. Data syncs hourly — check back soon.
                       </td>
                     </tr>
@@ -585,6 +707,20 @@ export default async function TopEvLinesPage({
                             {(line.fairProb * 100).toFixed(1)}%
                           </span>
                           <p className="text-[9px] text-nb-600 mt-0.5">fair</p>
+                        </td>
+
+                        {/* Kelly % */}
+                        <td className="px-4 py-3">
+                          {line.kellyPct > 0 ? (
+                            <span className={`font-mono text-xs tabular-nums ${
+                              line.kellyPct >= 2 ? 'text-green-400 font-semibold' :
+                              line.kellyPct >= 0.5 ? 'text-nb-300' : 'text-nb-500'
+                            }`}>
+                              {line.kellyPct.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span className="text-nb-700 text-xs">—</span>
+                          )}
                         </td>
 
                         {/* Updated */}
