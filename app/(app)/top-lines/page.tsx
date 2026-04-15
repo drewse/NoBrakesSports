@@ -306,8 +306,14 @@ export default async function TopEvLinesPage({
       })
     }
 
+    // Require Pinnacle in the group for reliable fair probs.
+    // Without Pinnacle, consensus of soft books (many are Kambi copies) is unreliable.
+    const hasPinnacle = snaps.some(s => (s as any).source?.slug === PINNACLE_SLUG)
+    if (!hasPinnacle) continue
+
     if (marketType === 'moneyline') {
       buildLine('home', homeTeam, s => s.home_price, fair.home)
+      // Only show draw EV when Pinnacle has a draw price (reliable 3-way fair prob)
       if (shape === '3way' && fair.draw != null) {
         buildLine('draw', 'Draw', s => s.draw_price ?? null, fair.draw)
       }
