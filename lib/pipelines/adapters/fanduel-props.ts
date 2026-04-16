@@ -22,6 +22,11 @@ export const FD_PAGES: { pageId: string; sport: string; leagueSlug: string; comp
   { pageId: 'nba',  sport: 'basketball', leagueSlug: 'nba' },
   { pageId: 'mlb',  sport: 'baseball',   leagueSlug: 'mlb' },
   { pageId: 'nhl',  sport: 'ice_hockey', leagueSlug: 'nhl' },
+  { pageId: 'soccer/epl', sport: 'soccer', leagueSlug: 'epl' },
+  { pageId: 'soccer/laliga', sport: 'soccer', leagueSlug: 'laliga' },
+  { pageId: 'soccer/bundesliga', sport: 'soccer', leagueSlug: 'bundesliga' },
+  { pageId: 'soccer/serie-a', sport: 'soccer', leagueSlug: 'seria_a' },
+  { pageId: 'soccer/ligue-1', sport: 'soccer', leagueSlug: 'ligue_one' },
 ]
 
 // Market type mapping
@@ -61,6 +66,7 @@ export interface FDResult {
 // FanDuel stat type extraction from market name
 // Market names: "Player Name - Points", "Player Name - Rebounds", etc.
 const FD_STAT_MAP: Record<string, string> = {
+  // Basketball
   'points': 'player_points',
   'rebounds': 'player_rebounds',
   'assists': 'player_assists',
@@ -72,12 +78,42 @@ const FD_STAT_MAP: Record<string, string> = {
   'turnovers': 'player_turnovers',
   'pts + reb + ast': 'player_pts_reb_ast',
   'pts + rebs + asts': 'player_pts_reb_ast',
+  'points + rebounds + assists': 'player_pts_reb_ast',
   'points + rebounds': 'player_pts_reb',
   'pts + rebs': 'player_pts_reb',
   'points + assists': 'player_pts_ast',
   'pts + asts': 'player_pts_ast',
   'rebounds + assists': 'player_ast_reb',
   'rebs + asts': 'player_ast_reb',
+  // Baseball
+  'hits': 'player_hits',
+  'hits allowed': 'player_hits_allowed',
+  'home runs': 'player_home_runs',
+  'rbis': 'player_rbis',
+  'runs batted in': 'player_rbis',
+  'strikeouts': 'player_strikeouts_p',
+  'pitcher strikeouts': 'player_strikeouts_p',
+  'earned runs': 'player_earned_runs',
+  'earned runs allowed': 'player_earned_runs',
+  'total bases': 'player_total_bases',
+  'runs': 'player_runs',
+  'runs scored': 'player_runs',
+  'stolen bases': 'player_stolen_bases',
+  'walks': 'player_walks',
+  'walks allowed': 'player_walks',
+  'outs': 'pitcher_outs',
+  'outs recorded': 'pitcher_outs',
+  // Hockey
+  'goals': 'player_goals',
+  'hockey assists': 'player_hockey_assists',
+  'hockey points': 'player_hockey_points',
+  'shots on goal': 'player_shots_on_goal',
+  'shots': 'player_shots_on_goal',
+  'saves': 'player_saves',
+  'power play points': 'player_power_play_pts',
+  // Soccer
+  'goals scored': 'player_soccer_goals',
+  'shots on target': 'player_shots_target',
 }
 
 /**

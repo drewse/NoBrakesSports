@@ -312,10 +312,23 @@ export default async function ArbitragePage() {
 
   function formatPropCat(cat: string): string {
     const labels: Record<string, string> = {
+      // Basketball
       player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
       player_threes: '3PM', player_pts_reb_ast: 'PRA', player_steals: 'Stl',
-      player_blocks: 'Blk', player_hits: 'Hits', player_home_runs: 'HR',
-      player_strikeouts_p: 'K', player_goals: 'Goals', player_shots_on_goal: 'SOG',
+      player_blocks: 'Blk', player_turnovers: 'TO',
+      player_pts_reb: 'P+R', player_pts_ast: 'P+A', player_ast_reb: 'R+A',
+      player_double_double: 'DD', player_triple_double: 'TD',
+      // Baseball
+      player_hits: 'Hits', player_home_runs: 'HR', player_rbis: 'RBI',
+      player_strikeouts_p: 'K', player_earned_runs: 'ER', player_total_bases: 'TB',
+      player_runs: 'Runs', player_stolen_bases: 'SB', player_walks: 'BB',
+      player_hits_allowed: 'HA', pitcher_outs: 'Outs',
+      // Hockey
+      player_goals: 'Goals', player_hockey_assists: 'Ast', player_hockey_points: 'Pts',
+      player_shots_on_goal: 'SOG', player_saves: 'Saves', player_power_play_pts: 'PPP',
+      // Soccer
+      player_soccer_goals: 'Goals', player_shots_target: 'SOT',
+      anytime_scorer: 'AGS', anytime_goal_scorer: 'AGS',
     }
     return labels[cat] ?? cat.replace(/^player_/, '')
   }

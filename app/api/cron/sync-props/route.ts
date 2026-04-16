@@ -416,7 +416,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Process DraftKings game markets
+  // Process DraftKings game markets + player props
   const dkSourceId = sourceMap.get('draftkings')
   if (dkSourceId) {
     for (const result of dkResults) {
@@ -440,6 +440,10 @@ export async function GET(req: NextRequest) {
           away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
           movement_direction: 'flat', snapshot_time: now, changed_at: now,
         })
+      }
+      // DraftKings player props
+      for (const prop of result.props ?? []) {
+        propRows.push(buildPropRow(eventId, dkSourceId, prop, now))
       }
     }
   }

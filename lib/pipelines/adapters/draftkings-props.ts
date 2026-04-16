@@ -9,7 +9,7 @@
  * Site: CA-ON-SB (Ontario)
  */
 
-import { normalizePlayerName } from '../prop-normalizer'
+import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
 import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
@@ -82,6 +82,72 @@ export interface DKGameMarket {
 export interface DKResult {
   event: DKEvent
   gameMarkets: DKGameMarket[]
+  props: NormalizedProp[]
+}
+
+// DK market type name → canonical prop category
+const DK_PROP_MAP: Record<string, string> = {
+  // Basketball
+  'points': 'player_points',
+  'total points': 'player_points',
+  'rebounds': 'player_rebounds',
+  'total rebounds': 'player_rebounds',
+  'assists': 'player_assists',
+  'total assists': 'player_assists',
+  'made threes': 'player_threes',
+  '3-pt field goals': 'player_threes',
+  '3-point field goals made': 'player_threes',
+  'threes': 'player_threes',
+  'blocks': 'player_blocks',
+  'total blocks': 'player_blocks',
+  'steals': 'player_steals',
+  'total steals': 'player_steals',
+  'turnovers': 'player_turnovers',
+  'total turnovers': 'player_turnovers',
+  'pts + reb + ast': 'player_pts_reb_ast',
+  'total pts + reb + ast': 'player_pts_reb_ast',
+  'points + rebounds + assists': 'player_pts_reb_ast',
+  'pts + rebs + asts': 'player_pts_reb_ast',
+  'points + rebounds': 'player_pts_reb',
+  'pts + rebs': 'player_pts_reb',
+  'points + assists': 'player_pts_ast',
+  'pts + asts': 'player_pts_ast',
+  'rebounds + assists': 'player_ast_reb',
+  'rebs + asts': 'player_ast_reb',
+  // Baseball
+  'hits': 'player_hits',
+  'total hits': 'player_hits',
+  'hits allowed': 'player_hits_allowed',
+  'home runs': 'player_home_runs',
+  'total home runs': 'player_home_runs',
+  'rbis': 'player_rbis',
+  'total rbis': 'player_rbis',
+  'runs batted in': 'player_rbis',
+  'total bases': 'player_total_bases',
+  'runs': 'player_runs',
+  'total runs scored': 'player_runs',
+  'runs scored': 'player_runs',
+  'stolen bases': 'player_stolen_bases',
+  'total stolen bases': 'player_stolen_bases',
+  'strikeouts': 'player_strikeouts_p',
+  'total strikeouts': 'player_strikeouts_p',
+  'pitcher strikeouts': 'player_strikeouts_p',
+  'earned runs': 'player_earned_runs',
+  'earned runs allowed': 'player_earned_runs',
+  'walks allowed': 'player_walks',
+  'outs': 'pitcher_outs',
+  'outs recorded': 'pitcher_outs',
+  // Hockey
+  'goals': 'player_goals',
+  'total goals': 'player_goals',
+  'shots on goal': 'player_shots_on_goal',
+  'total shots on goal': 'player_shots_on_goal',
+  'saves': 'player_saves',
+  'total saves': 'player_saves',
+  'power play points': 'player_power_play_pts',
+  // Soccer
+  'shots on target': 'player_shots_target',
+  'total shots on target': 'player_shots_target',
 }
 
 /**
@@ -96,124 +162,208 @@ function parseAmerican(odds: string | undefined | null): number | null {
 }
 
 /**
- * Build the league subcategory URL that returns events + markets + selections in one call.
+ * Build the URL for game-level markets (subcategory filtered — fast, reliable).
  */
-function buildLeagueUrl(leagueId: string, subcategoryId: string): string {
+function buildGameUrl(leagueId: string, subcategoryId: string): string {
   const eventsQuery = `$filter=leagueId eq '${leagueId}' AND clientMetadata/Subcategories/any(s: s/Id eq '${subcategoryId}')`
   const marketsQuery = `$filter=clientMetadata/subCategoryId eq '${subcategoryId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
   return `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(eventsQuery)}&marketsQuery=${encodeURIComponent(marketsQuery)}&include=Events&entity=events`
 }
 
 /**
- * Fetch all events + game-level markets for a DK league in a single request.
+ * Build the URL for ALL markets (no subcategory filter — returns props + game lines).
+ */
+function buildAllMarketsUrl(leagueId: string, subcategoryId: string): string {
+  const eventsQuery = `$filter=leagueId eq '${leagueId}' AND clientMetadata/Subcategories/any(s: s/Id eq '${subcategoryId}')`
+  const marketsQuery = `$filter=tags/all(t: t ne 'SportcastBetBuilder')`
+  return `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(eventsQuery)}&marketsQuery=${encodeURIComponent(marketsQuery)}&include=Events&entity=events`
+}
+
+/** Helper: fetch a DK URL with direct + proxy fallback */
+async function dkFetch(url: string): Promise<Response> {
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(12000) })
+    if (!resp.ok && resp.status === 403) throw new Error('blocked')
+    return resp
+  } catch {
+    return pipeFetch(url)
+  }
+}
+
+/** Parse events, game markets, and player props from a DK API response */
+function parseLeagueData(data: any, league: typeof DK_LEAGUES[number]): DKResult[] {
+  // Build event map
+  const eventMap = new Map<string, DKEvent>()
+  for (const ev of data.events ?? []) {
+    if (ev.status !== 'NOT_STARTED') continue
+    const home = ev.participants?.find((p: any) => p.venueRole === 'Home')
+    const away = ev.participants?.find((p: any) => p.venueRole === 'Away')
+    if (!home || !away) continue
+
+    eventMap.set(ev.id, {
+      eventId: ev.id,
+      name: ev.name,
+      homeName: expandTeamName(home.name),
+      awayName: expandTeamName(away.name),
+      startTime: ev.startEventDate,
+      sport: league.sport,
+      leagueSlug: league.leagueSlug,
+    })
+  }
+
+  // Group selections by market
+  const selectionsByMarket = new Map<string, any[]>()
+  for (const s of data.selections ?? []) {
+    const list = selectionsByMarket.get(s.marketId) ?? []
+    list.push(s)
+    selectionsByMarket.set(s.marketId, list)
+  }
+
+  // Parse markets: game-level + player props
+  const marketsByEvent = new Map<string, DKGameMarket[]>()
+  const propsByEvent = new Map<string, NormalizedProp[]>()
+
+  for (const market of data.markets ?? []) {
+    const eventId = market.eventId
+    if (!eventMap.has(eventId)) continue
+
+    const typeName = (market.marketType?.name ?? '').toLowerCase()
+    const selections = selectionsByMarket.get(market.id) ?? []
+
+    // ── Game-level markets ──
+    let gm: DKGameMarket | null = null
+
+    if (typeName === 'moneyline' || typeName === 'money line') {
+      const home = selections.find((s: any) => s.outcomeType === 'Home')
+      const away = selections.find((s: any) => s.outcomeType === 'Away')
+      const draw = selections.find((s: any) => s.outcomeType === 'Draw')
+      gm = {
+        marketType: 'moneyline',
+        homePrice: parseAmerican(home?.displayOdds?.american),
+        awayPrice: parseAmerican(away?.displayOdds?.american),
+        drawPrice: parseAmerican(draw?.displayOdds?.american),
+        spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+      }
+    } else if (typeName === 'spread' || typeName === 'run line' || typeName === 'puck line') {
+      const home = selections.find((s: any) => s.outcomeType === 'Home')
+      const away = selections.find((s: any) => s.outcomeType === 'Away')
+      const spreadVal = home?.points != null ? Math.abs(home.points) : (away?.points != null ? Math.abs(away.points) : null)
+      gm = {
+        marketType: 'spread',
+        homePrice: parseAmerican(home?.displayOdds?.american),
+        awayPrice: parseAmerican(away?.displayOdds?.american),
+        drawPrice: null,
+        spreadValue: spreadVal,
+        totalValue: null, overPrice: null, underPrice: null,
+      }
+    } else if (typeName === 'total') {
+      const over = selections.find((s: any) => s.outcomeType === 'Over')
+      const under = selections.find((s: any) => s.outcomeType === 'Under')
+      gm = {
+        marketType: 'total',
+        homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
+        totalValue: over?.points ?? under?.points ?? null,
+        overPrice: parseAmerican(over?.displayOdds?.american),
+        underPrice: parseAmerican(under?.displayOdds?.american),
+      }
+    }
+
+    if (gm) {
+      if (!marketsByEvent.has(eventId)) marketsByEvent.set(eventId, [])
+      marketsByEvent.get(eventId)!.push(gm)
+      continue
+    }
+
+    // ── Player props (O/U markets with 2 selections) ──
+    const propCategory = DK_PROP_MAP[typeName]
+    if (propCategory && selections.length === 2) {
+      const overSel = selections.find((s: any) => s.outcomeType === 'Over')
+      const underSel = selections.find((s: any) => s.outcomeType === 'Under')
+      if (!overSel && !underSel) continue
+
+      // market.name contains the player name (e.g., "LeBron James")
+      const playerRaw = (market.name ?? '').trim()
+      if (!playerRaw) continue
+
+      const lineValue = overSel?.points ?? underSel?.points ?? null
+      if (lineValue == null) continue
+
+      if (!propsByEvent.has(eventId)) propsByEvent.set(eventId, [])
+      propsByEvent.get(eventId)!.push({
+        propCategory,
+        playerName: normalizePlayerName(playerRaw),
+        lineValue,
+        overPrice: parseAmerican(overSel?.displayOdds?.american),
+        underPrice: parseAmerican(underSel?.displayOdds?.american),
+        yesPrice: null,
+        noPrice: null,
+        isBinary: false,
+      })
+    }
+  }
+
+  // Combine
+  const results: DKResult[] = []
+  eventMap.forEach((event, eventId) => {
+    results.push({
+      event,
+      gameMarkets: marketsByEvent.get(eventId) ?? [],
+      props: propsByEvent.get(eventId) ?? [],
+    })
+  })
+  return results
+}
+
+/**
+ * Fetch all events + markets for a DK league.
+ * Two-phase: 1) game-level via subcategory filter, 2) all markets for props.
+ * If the all-markets call fails, game-level results still work.
  */
 async function fetchLeague(
   league: typeof DK_LEAGUES[number],
 ): Promise<DKResult[]> {
-  const url = buildLeagueUrl(league.leagueId, league.subcategoryId)
   try {
-    // Try direct fetch first, fall back to proxy if blocked
-    let resp: Response
-    try {
-      resp = await fetch(url, { signal: AbortSignal.timeout(10000) })
-      if (!resp.ok && resp.status === 403) throw new Error('blocked')
-    } catch {
-      resp = await pipeFetch(url)
-    }
-    if (!resp.ok) {
-      const body = await resp.text().catch(() => '')
-      console.error(`DK league ${league.name}: HTTP ${resp.status} ${body.slice(0, 200)}`)
+    // Phase 1: Game-level markets (fast, reliable — subcategory-filtered)
+    const gameUrl = buildGameUrl(league.leagueId, league.subcategoryId)
+    const gameResp = await dkFetch(gameUrl)
+    if (!gameResp.ok) {
+      const body = await gameResp.text().catch(() => '')
+      console.error(`DK league ${league.name}: HTTP ${gameResp.status} ${body.slice(0, 200)}`)
       return []
     }
-    const data = await resp.json()
+    const gameData = await gameResp.json()
+    const results = parseLeagueData(gameData, league)
 
-    // Build event map
-    const eventMap = new Map<string, DKEvent>()
-    for (const ev of data.events ?? []) {
-      if (ev.status !== 'NOT_STARTED') continue
-      const home = ev.participants?.find((p: any) => p.venueRole === 'Home')
-      const away = ev.participants?.find((p: any) => p.venueRole === 'Away')
-      if (!home || !away) continue
+    // Phase 2: All markets (for player props — unfiltered)
+    try {
+      const allUrl = buildAllMarketsUrl(league.leagueId, league.subcategoryId)
+      const allResp = await dkFetch(allUrl)
+      if (allResp.ok) {
+        const allData = await allResp.json()
+        const allResults = parseLeagueData(allData, league)
 
-      eventMap.set(ev.id, {
-        eventId: ev.id,
-        name: ev.name,
-        homeName: expandTeamName(home.name),
-        awayName: expandTeamName(away.name),
-        startTime: ev.startEventDate,
-        sport: league.sport,
-        leagueSlug: league.leagueSlug,
-      })
-    }
-
-    // Group selections by market
-    const selectionsByMarket = new Map<string, any[]>()
-    for (const s of data.selections ?? []) {
-      const list = selectionsByMarket.get(s.marketId) ?? []
-      list.push(s)
-      selectionsByMarket.set(s.marketId, list)
-    }
-
-    // Parse markets and attach to events
-    const marketsByEvent = new Map<string, DKGameMarket[]>()
-    for (const market of data.markets ?? []) {
-      const eventId = market.eventId
-      if (!eventMap.has(eventId)) continue
-
-      const typeName = (market.marketType?.name ?? '').toLowerCase()
-      const selections = selectionsByMarket.get(market.id) ?? []
-
-      let gm: DKGameMarket | null = null
-
-      if (typeName === 'moneyline' || typeName === 'money line') {
-        const home = selections.find((s: any) => s.outcomeType === 'Home')
-        const away = selections.find((s: any) => s.outcomeType === 'Away')
-        const draw = selections.find((s: any) => s.outcomeType === 'Draw')
-        gm = {
-          marketType: 'moneyline',
-          homePrice: parseAmerican(home?.displayOdds?.american),
-          awayPrice: parseAmerican(away?.displayOdds?.american),
-          drawPrice: parseAmerican(draw?.displayOdds?.american),
-          spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+        // Merge props from allResults into game results
+        const propsMap = new Map<string, NormalizedProp[]>()
+        for (const r of allResults) {
+          if (r.props.length > 0) propsMap.set(r.event.eventId, r.props)
         }
-      } else if (typeName === 'spread' || typeName === 'run line' || typeName === 'puck line') {
-        const home = selections.find((s: any) => s.outcomeType === 'Home')
-        const away = selections.find((s: any) => s.outcomeType === 'Away')
-        const spreadVal = home?.points != null ? Math.abs(home.points) : (away?.points != null ? Math.abs(away.points) : null)
-        gm = {
-          marketType: 'spread',
-          homePrice: parseAmerican(home?.displayOdds?.american),
-          awayPrice: parseAmerican(away?.displayOdds?.american),
-          drawPrice: null,
-          spreadValue: spreadVal,
-          totalValue: null, overPrice: null, underPrice: null,
+        for (const r of results) {
+          const moreProps = propsMap.get(r.event.eventId)
+          if (moreProps && moreProps.length > r.props.length) {
+            r.props = moreProps
+          }
         }
-      } else if (typeName === 'total') {
-        const over = selections.find((s: any) => s.outcomeType === 'Over')
-        const under = selections.find((s: any) => s.outcomeType === 'Under')
-        gm = {
-          marketType: 'total',
-          homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
-          totalValue: over?.points ?? under?.points ?? null,
-          overPrice: parseAmerican(over?.displayOdds?.american),
-          underPrice: parseAmerican(under?.displayOdds?.american),
+
+        const propCount = results.reduce((s, r) => s + r.props.length, 0)
+        if (propCount > 0) {
+          console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
         }
       }
-
-      if (gm) {
-        if (!marketsByEvent.has(eventId)) marketsByEvent.set(eventId, [])
-        marketsByEvent.get(eventId)!.push(gm)
-      }
+    } catch (e) {
+      // Props fetch failed — game results still valid
+      console.warn(`[DK] ${league.name} props fetch failed:`, e)
     }
 
-    // Combine
-    const results: DKResult[] = []
-    for (const [eventId, event] of eventMap) {
-      results.push({
-        event,
-        gameMarkets: marketsByEvent.get(eventId) ?? [],
-      })
-    }
     return results
   } catch (e) {
     console.error(`DK league ${league.name} error:`, e)

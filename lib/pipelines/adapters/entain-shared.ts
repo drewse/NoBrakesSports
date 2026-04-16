@@ -57,24 +57,51 @@ export const ENTAIN_LEAGUES: { sportId: number; competitionId: number; leagueSlu
 ]
 
 const PROP_MAP: Record<string, string> = {
-  // Simple stat types (from "Other" category: "Player Name - StatType")
+  // Basketball — simple stats
   'points': 'player_points',
   'rebounds': 'player_rebounds',
   'assists': 'player_assists',
   'three pointers': 'player_threes',
+  '3-point field goals': 'player_threes',
   'blocks': 'player_blocks',
   'steals': 'player_steals',
   'turnovers': 'player_turnovers',
-  // Combo stats (from "Player specials": "Player Name (TEAM) : StatType")
+  // Basketball — combos
   'total points, rebounds and assists': 'player_pts_reb_ast',
   'total points and rebounds': 'player_pts_reb',
   'total points and assists': 'player_pts_ast',
   'total assists and rebounds': 'player_ast_reb',
-  // Alternative label formats
   'pts + rebs + asts': 'player_pts_reb_ast',
   'pts + rebs': 'player_pts_reb',
   'pts + asts': 'player_pts_ast',
   'rebs + asts': 'player_ast_reb',
+  // Baseball
+  'hits': 'player_hits',
+  'hits allowed': 'player_hits_allowed',
+  'home runs': 'player_home_runs',
+  'rbis': 'player_rbis',
+  'runs batted in': 'player_rbis',
+  'strikeouts': 'player_strikeouts_p',
+  'pitcher strikeouts': 'player_strikeouts_p',
+  'earned runs': 'player_earned_runs',
+  'earned runs allowed': 'player_earned_runs',
+  'total bases': 'player_total_bases',
+  'runs': 'player_runs',
+  'runs scored': 'player_runs',
+  'stolen bases': 'player_stolen_bases',
+  'walks': 'player_walks',
+  'outs': 'pitcher_outs',
+  'outs recorded': 'pitcher_outs',
+  // Hockey
+  'goals': 'player_goals',
+  'goals scored': 'player_goals',
+  'hockey assists': 'player_hockey_assists',
+  'hockey points': 'player_hockey_points',
+  'shots on goal': 'player_shots_on_goal',
+  'saves': 'player_saves',
+  'power play points': 'player_power_play_pts',
+  // Soccer
+  'shots on target': 'player_shots_target',
 }
 
 function parsePlayerName(marketName: string): { playerName: string; statType: string } | null {

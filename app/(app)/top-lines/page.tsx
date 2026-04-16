@@ -404,7 +404,16 @@ export default async function TopEvLinesPage({
 
       const PROP_LABELS: Record<string, string> = {
         player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
-        player_threes: '3PM', player_pts_reb_ast: 'PRA',
+        player_threes: '3PM', player_pts_reb_ast: 'PRA', player_steals: 'Stl',
+        player_blocks: 'Blk', player_turnovers: 'TO',
+        player_pts_reb: 'P+R', player_pts_ast: 'P+A', player_ast_reb: 'R+A',
+        player_hits: 'Hits', player_home_runs: 'HR', player_rbis: 'RBI',
+        player_strikeouts_p: 'K', player_earned_runs: 'ER', player_total_bases: 'TB',
+        player_runs: 'Runs', player_stolen_bases: 'SB', player_walks: 'BB',
+        player_hits_allowed: 'HA', pitcher_outs: 'Outs',
+        player_goals: 'Goals', player_hockey_assists: 'Ast', player_hockey_points: 'Pts',
+        player_shots_on_goal: 'SOG', player_saves: 'Saves', player_power_play_pts: 'PPP',
+        player_soccer_goals: 'Goals', player_shots_target: 'SOT',
       }
       const catLabel = PROP_LABELS[propCat] ?? propCat.replace('player_', '')
 
