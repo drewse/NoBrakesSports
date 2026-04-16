@@ -97,78 +97,71 @@ const BW_PROP_GROUPS: Record<string, string> = {
   'shots-on-target': 'player_shots_target',
 }
 
-// For "combos" and "defense" groups, detect from Title
-const BW_COMBO_KEYWORDS: Record<string, string> = {
-  'pts + reb + ast': 'player_pts_reb_ast',
-  'points + rebounds + assists': 'player_pts_reb_ast',
-  'points, rebounds and assists': 'player_pts_reb_ast',
-  'pts + rebs + asts': 'player_pts_reb_ast',
-  'pts + reb': 'player_pts_reb',
-  'points + rebounds': 'player_pts_reb',
-  'pts + ast': 'player_pts_ast',
-  'points + assists': 'player_pts_ast',
-  'reb + ast': 'player_ast_reb',
-  'rebounds + assists': 'player_ast_reb',
-}
-
-const BW_DEFENSE_KEYWORDS: Record<string, string> = {
-  'steals': 'player_steals',
-  'blocks': 'player_blocks',
-  'steals + blocks': 'player_steals',
-  'turnovers': 'player_turnovers',
-}
 
 /** Extract player name from a Betway prop market Title.
- *  Formats: "LaMelo Ball - Points Over/Under", "LaMelo Ball Points", "LaMelo Ball" */
-function extractPlayerName(title: string, groupCName: string): string | null {
-  // Strip common suffixes
-  let cleaned = title
-    .replace(/\s*over\s*\/?\s*under\s*/gi, '')
-    .replace(/\s*o\s*\/?\s*u\s*/gi, '')
-    .trim()
-
-  // Try "Player Name - Stat" pattern
-  const dashMatch = cleaned.match(/^(.+?)\s*-\s*(.+)$/)
-  if (dashMatch) return dashMatch[1].trim()
-
-  // For known single-stat groups, strip the stat name from the end
-  const statSuffixes = ['points', 'rebounds', 'assists', '3-pointers', 'threes',
-    'steals', 'blocks', 'hits', 'home runs', 'strikeouts', 'goals',
-    'shots on goal', 'saves', 'total bases', 'runs', 'stolen bases', 'rbis']
-  for (const suffix of statSuffixes) {
-    if (cleaned.toLowerCase().endsWith(suffix)) {
-      const name = cleaned.slice(0, -suffix.length).trim()
-      if (name.length > 2) return name
-    }
+ *  Actual formats from API:
+ *    "Total Points - Brandon Miller (CHA)"
+ *    "Points and Rebounds - Anthony Black (ORL)"
+ *    "Total Blocks - Coby White (CHA)"
+ *  Pattern: "Stat Description - Player Name (TEAM)" */
+function extractPlayerName(title: string): string | null {
+  // Primary format: "Stat - Player Name (TEAM)"
+  const dashMatch = title.match(/^.+?\s*-\s*(.+?)(?:\s*\([A-Z]{2,5}\))?\s*$/)
+  if (dashMatch) {
+    const name = dashMatch[1].trim()
+    if (name.length > 2) return name
   }
-
-  // If the group tells us the stat type, the Title might just be the player name
-  if (BW_PROP_GROUPS[groupCName] && cleaned.length > 2 && cleaned.includes(' ')) {
-    return cleaned
-  }
-
   return null
 }
 
-/** Detect prop category for combo/defense groups from Title */
-function detectComboOrDefense(title: string, groupCName: string): string | null {
+/** Detect the prop category from a Betway market Title + group */
+function detectPropCategory(title: string, groupCName: string): string | null {
   const lower = title.toLowerCase()
-  if (groupCName === 'combos') {
-    for (const [keyword, category] of Object.entries(BW_COMBO_KEYWORDS)) {
-      if (lower.includes(keyword)) return category
-    }
-    // Default combos to PRA if we can't determine
-    return 'player_pts_reb_ast'
-  }
+
+  // Simple stat groups
+  if (groupCName === 'points' && lower.includes('total points')) return 'player_points'
+  if (groupCName === 'rebounds' && lower.includes('total rebounds')) return 'player_rebounds'
+  if (groupCName === 'assists' && lower.includes('total assists')) return 'player_assists'
+  if (groupCName === '3-pointers' && lower.includes('3-pointers')) return 'player_threes'
+
+  // Defense group
   if (groupCName === 'defense') {
-    for (const [keyword, category] of Object.entries(BW_DEFENSE_KEYWORDS)) {
-      if (lower.includes(keyword)) return category
-    }
-    // Default defense to steals
+    if (lower.includes('block')) return 'player_blocks'
+    if (lower.includes('steal')) return 'player_steals'
+    if (lower.includes('turnover')) return 'player_turnovers'
     return 'player_steals'
   }
-  return null
+
+  // Combos group
+  if (groupCName === 'combos') {
+    if (lower.includes('points') && lower.includes('rebounds') && lower.includes('assists')) return 'player_pts_reb_ast'
+    if (lower.includes('points') && lower.includes('rebounds')) return 'player_pts_reb'
+    if (lower.includes('points') && lower.includes('assists')) return 'player_pts_ast'
+    if (lower.includes('rebounds') && lower.includes('assists')) return 'player_ast_reb'
+    return 'player_pts_reb_ast'
+  }
+
+  // Baseball
+  if (lower.includes('total hits')) return 'player_hits'
+  if (lower.includes('home run')) return 'player_home_runs'
+  if (lower.includes('rbi')) return 'player_rbis'
+  if (lower.includes('strikeout')) return 'player_strikeouts_p'
+  if (lower.includes('total bases')) return 'player_total_bases'
+  if (lower.includes('earned run')) return 'player_earned_runs'
+  if (lower.includes('stolen base')) return 'player_stolen_bases'
+
+  // Hockey
+  if (lower.includes('total goals') || lower.includes('goals scored')) return 'player_goals'
+  if (lower.includes('shots on goal')) return 'player_shots_on_goal'
+  if (lower.includes('total saves') || lower.includes('saves')) return 'player_saves'
+
+  // Soccer
+  if (lower.includes('shots on target')) return 'player_shots_target'
+
+  // Fallback: try group name
+  return BW_PROP_GROUPS[groupCName] ?? null
 }
+
 
 /** Convert decimal odds to American integer */
 function decimalToAmerican(decimal: number): number {
@@ -307,11 +300,12 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
       await Promise.all(
         batch.map(async (eventId: number) => {
           try {
-            const evData = await postApi('GetEvent', {
+            const evData = await postApi('GetEventDetails', {
               ...COMMON_BODY,
               EventId: eventId,
+              ScoreboardRequest: { IncidentRequest: {}, ScoreboardType: 3 },
             })
-            if (!evData || !evData.Markets) return
+            if (!evData?.Success || !evData.Markets) return
 
             // Build outcome map for this event
             const evOutcomeMap = new Map<number, any>()
@@ -319,21 +313,38 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               evOutcomeMap.set(o.Id, o)
             }
 
+            // Build set of prop market IDs from MarketGroups
+            const propGroups = ['points', 'rebounds', 'assists', '3-pointers', 'combos', 'defense',
+              'hits', 'home-runs', 'rbis', 'strikeouts', 'pitcher-strikeouts', 'total-bases',
+              'runs', 'stolen-bases', 'goals', 'shots-on-goal', 'saves', 'shots-on-target']
+            const propMarketIds = new Set<number>()
+            const marketGroupMap = new Map<number, string>()
+            const groups = evData.Event?.MarketGroups ?? {}
+            for (const gName of propGroups) {
+              const ids: number[] = groups[gName]?.MarketIds ?? []
+              for (const id of ids) {
+                propMarketIds.add(id)
+                marketGroupMap.set(id, gName)
+              }
+            }
+
             const result = resultsByEventId.get(eventId)
             if (!result) return
 
             for (const market of evData.Markets) {
-              const groupCName: string = (market.MarketGroupCName ?? '').toLowerCase()
+              // Only process prop markets (skip game-level)
+              if (!propMarketIds.has(market.Id)) continue
+              // Only O/U markets (must have Over/Under headers)
+              if (!market.Headers || !market.Headers.includes('Over')) continue
 
-              // Determine prop category
-              let propCategory = BW_PROP_GROUPS[groupCName]
-              if (!propCategory && (groupCName === 'combos' || groupCName === 'defense')) {
-                propCategory = detectComboOrDefense(market.Title ?? '', groupCName) ?? ''
-              }
+              const groupCName = marketGroupMap.get(market.Id) ?? ''
+
+              // Determine prop category from title + group
+              const propCategory = detectPropCategory(market.Title ?? '', groupCName)
               if (!propCategory) continue
 
-              // Extract player name
-              const playerRaw = extractPlayerName(market.Title ?? '', groupCName)
+              // Extract player name: "Total Points - Brandon Miller (CHA)"
+              const playerRaw = extractPlayerName(market.Title ?? '')
               if (!playerRaw) continue
 
               // Get O/U outcomes
