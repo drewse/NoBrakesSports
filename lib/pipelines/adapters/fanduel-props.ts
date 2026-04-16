@@ -58,24 +58,19 @@ export interface FDResult {
   props: NormalizedProp[]
 }
 
-// FanDuel player prop market type patterns → canonical category
-const FD_PROP_MAP: Record<string, string> = {
-  'PLAYER_A_TOTAL_POINTS': 'player_points',
-  'PLAYER_B_TOTAL_POINTS': 'player_points',
-  'PLAYER_C_TOTAL_POINTS': 'player_points',
-  'PLAYER_D_TOTAL_POINTS': 'player_points',
-  'PLAYER_E_TOTAL_POINTS': 'player_points',
-  'PLAYER_F_TOTAL_POINTS': 'player_points',
-  'PLAYER_G_TOTAL_POINTS': 'player_points',
-  'PLAYER_H_TOTAL_POINTS': 'player_points',
-  'PLAYER_I_TOTAL_POINTS': 'player_points',
-  'PLAYER_J_TOTAL_POINTS': 'player_points',
-  'PLAYER_K_TOTAL_POINTS': 'player_points',
-  'PLAYER_L_TOTAL_POINTS': 'player_points',
-  'PLAYER_M_TOTAL_POINTS': 'player_points',
-  'PLAYER_N_TOTAL_POINTS': 'player_points',
-  'PLAYER_O_TOTAL_POINTS': 'player_points',
-  'PLAYER_P_TOTAL_POINTS': 'player_points',
+// FanDuel stat type extraction from market name
+// Market names: "Player Name - Points", "Player Name - Rebounds", etc.
+const FD_STAT_MAP: Record<string, string> = {
+  'points': 'player_points',
+  'rebounds': 'player_rebounds',
+  'assists': 'player_assists',
+  'made threes': 'player_threes',
+  '3-point field goals': 'player_threes',
+  'three pointers': 'player_threes',
+  'blocks': 'player_blocks',
+  'steals': 'player_steals',
+  'turnovers': 'player_turnovers',
+  'pts + reb + ast': 'player_pts_reb_ast',
 }
 
 /**
@@ -92,23 +87,28 @@ async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
     const props: NormalizedProp[] = []
 
     for (const [, market] of Object.entries(markets) as [string, any][]) {
-      const marketType = market.marketType ?? ''
+      const marketType = (market.marketType ?? '') as string
+      const runners = market.runners ?? []
 
-      // Player O/U props: PLAYER_X_TOTAL_POINTS pattern
-      if (marketType.startsWith('PLAYER_') && marketType.includes('TOTAL_POINTS')) {
-        const runners = market.runners ?? []
+      // Match PLAYER_X_TOTAL_* pattern (Points, Rebounds, Assists, etc.)
+      if (marketType.startsWith('PLAYER_') && marketType.includes('TOTAL_') && runners.length === 2) {
         const overRunner = runners.find((r: any) => r.runnerName?.includes('Over'))
         const underRunner = runners.find((r: any) => r.runnerName?.includes('Under'))
-
         if (!overRunner && !underRunner) continue
 
-        // Extract player name from market name: "Jrue Holiday - Points" → "Jrue Holiday"
+        // Extract player name and stat type from market name
+        // "Jrue Holiday - Points" → player="Jrue Holiday", stat="points"
         const marketName: string = market.marketName ?? ''
-        const playerName = normalizePlayerName(marketName.replace(/\s*-\s*Points.*$/, '').trim())
-        if (!playerName) continue
+        const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
+        if (!dashMatch) continue
+
+        const playerName = normalizePlayerName(dashMatch[1].trim())
+        const statRaw = dashMatch[2].trim().toLowerCase()
+        const category = FD_STAT_MAP[statRaw]
+        if (!playerName || !category) continue
 
         props.push({
-          propCategory: 'player_points',
+          propCategory: category,
           playerName,
           lineValue: overRunner?.handicap ?? underRunner?.handicap ?? null,
           overPrice: overRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
@@ -118,10 +118,6 @@ async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
           isBinary: false,
         })
       }
-
-      // Player rebounds: TO_RECORD_X+_REBOUNDS with O/U (if it has Over/Under runners)
-      // Player assists: TO_RECORD_X+_ASSISTS with O/U
-      // These are binary on FD — skip for now, not comparable as O/U
     }
 
     return props
