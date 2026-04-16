@@ -293,99 +293,96 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
       results.push({ event: bwEvent, gameMarkets, props: [] })
     }
 
-    // ── Phase 2: Fetch ALL markets (no CNames filter) for player props ──
-    try {
-      const allData = await postApi('GetEventsWithMultipleMarkets', {
-        ...COMMON_BODY,
-        EventMarketSets: [{ EventIds: gameIds }],  // no MarketCNames → all markets
-        ScoreboardRequest: { IncidentRequest: {}, ScoreboardType: 3 },
-      })
+    // ── Phase 2: Per-event fetch for ALL markets (props) ──
+    // GetEventsWithMultipleMarkets without MarketCNames returns nothing,
+    // so we fetch each event individually to get all markets + props.
+    const resultsByEventId = new Map<number, BWResult>()
+    for (const r of results) {
+      resultsByEventId.set(r.event.eventId, r)
+    }
 
-      if (allData.Success && allData.Markets) {
-        // Build outcome map for the all-markets response
-        const allOutcomeMap = new Map<number, any>()
-        for (const o of allData.Outcomes ?? []) {
-          allOutcomeMap.set(o.Id, o)
-        }
+    const PROP_BATCH = 5
+    for (let i = 0; i < gameIds.length; i += PROP_BATCH) {
+      const batch = gameIds.slice(i, i + PROP_BATCH)
+      await Promise.all(
+        batch.map(async (eventId: number) => {
+          try {
+            const evData = await postApi('GetEvent', {
+              ...COMMON_BODY,
+              EventId: eventId,
+            })
+            if (!evData || !evData.Markets) return
 
-        // Index results by eventId for prop attachment
-        const resultsByEventId = new Map<number, BWResult>()
-        for (const r of results) {
-          resultsByEventId.set(r.event.eventId, r)
-        }
-
-        // Parse player prop markets
-        for (const market of allData.Markets) {
-          const groupCName: string = (market.MarketGroupCName ?? '').toLowerCase()
-          const result = resultsByEventId.get(market.EventId)
-          if (!result) continue
-
-          // Determine prop category from group or title
-          let propCategory = BW_PROP_GROUPS[groupCName]
-          if (!propCategory && (groupCName === 'combos' || groupCName === 'defense')) {
-            propCategory = detectComboOrDefense(market.Title ?? '', groupCName) ?? ''
-          }
-          if (!propCategory) continue  // not a prop market we track
-
-          // Extract player name from Title
-          const playerRaw = extractPlayerName(market.Title ?? '', groupCName)
-          if (!playerRaw) continue
-
-          // Get O/U outcomes
-          const allOutcomeIds = (market.Outcomes ?? []).flat() as number[]
-          const outcomes = allOutcomeIds.map((id: number) => allOutcomeMap.get(id)).filter(Boolean)
-
-          // Betway uses OutcomeGroups.yes=Over, .no=Under for O/U markets
-          const yesIds = new Set(
-            (market.OutcomeGroups?.yes?.outcomes ?? []) as number[]
-          )
-          const noIds = new Set(
-            (market.OutcomeGroups?.no?.outcomes ?? []) as number[]
-          )
-
-          let overOdds: number | null = null
-          let underOdds: number | null = null
-          for (const o of outcomes) {
-            if (yesIds.has(o.Id) && o.OddsDecimal > 1) {
-              overOdds = decimalToAmerican(o.OddsDecimal)
-            } else if (noIds.has(o.Id) && o.OddsDecimal > 1) {
-              underOdds = decimalToAmerican(o.OddsDecimal)
+            // Build outcome map for this event
+            const evOutcomeMap = new Map<number, any>()
+            for (const o of evData.Outcomes ?? []) {
+              evOutcomeMap.set(o.Id, o)
             }
-          }
 
-          // Also try CouponName fallback (Over/Under)
-          if (overOdds == null || underOdds == null) {
-            for (const o of outcomes) {
-              if (o.CouponName === 'Over' && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
-              if (o.CouponName === 'Under' && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+            const result = resultsByEventId.get(eventId)
+            if (!result) return
+
+            for (const market of evData.Markets) {
+              const groupCName: string = (market.MarketGroupCName ?? '').toLowerCase()
+
+              // Determine prop category
+              let propCategory = BW_PROP_GROUPS[groupCName]
+              if (!propCategory && (groupCName === 'combos' || groupCName === 'defense')) {
+                propCategory = detectComboOrDefense(market.Title ?? '', groupCName) ?? ''
+              }
+              if (!propCategory) continue
+
+              // Extract player name
+              const playerRaw = extractPlayerName(market.Title ?? '', groupCName)
+              if (!playerRaw) continue
+
+              // Get O/U outcomes
+              const allOutcomeIds = (market.Outcomes ?? []).flat() as number[]
+              const outcomes = allOutcomeIds.map((id: number) => evOutcomeMap.get(id)).filter(Boolean)
+
+              const yesIds = new Set((market.OutcomeGroups?.yes?.outcomes ?? []) as number[])
+              const noIds = new Set((market.OutcomeGroups?.no?.outcomes ?? []) as number[])
+
+              let overOdds: number | null = null
+              let underOdds: number | null = null
+
+              for (const o of outcomes) {
+                if (yesIds.has(o.Id) && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
+                else if (noIds.has(o.Id) && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+              }
+              // CouponName fallback
+              if (overOdds == null || underOdds == null) {
+                for (const o of outcomes) {
+                  if (o.CouponName === 'Over' && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
+                  if (o.CouponName === 'Under' && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+                }
+              }
+
+              if (overOdds == null && underOdds == null) continue
+              const lineValue = market.Handicap ?? null
+              if (lineValue == null) continue
+
+              result.props.push({
+                propCategory,
+                playerName: normalizePlayerName(playerRaw),
+                lineValue,
+                overPrice: overOdds,
+                underPrice: underOdds,
+                yesPrice: null,
+                noPrice: null,
+                isBinary: false,
+              })
             }
+          } catch (e) {
+            // Per-event fetch failed — skip this event's props
           }
+        })
+      )
+    }
 
-          if (overOdds == null && underOdds == null) continue
-
-          const lineValue = market.Handicap ?? null
-          if (lineValue == null) continue
-
-          result.props.push({
-            propCategory,
-            playerName: normalizePlayerName(playerRaw),
-            lineValue,
-            overPrice: overOdds,
-            underPrice: underOdds,
-            yesPrice: null,
-            noPrice: null,
-            isBinary: false,
-          })
-        }
-
-        const propCount = results.reduce((s, r) => s + r.props.length, 0)
-        if (propCount > 0) {
-          console.log(`[Betway] ${league.group}: ${propCount} player props from ${results.length} events`)
-        }
-      }
-    } catch (e) {
-      // Props fetch failed — game results still valid
-      console.warn(`[Betway] ${league.group} props fetch failed:`, e)
+    const propCount = results.reduce((s, r) => s + r.props.length, 0)
+    if (propCount > 0) {
+      console.log(`[Betway] ${league.group}: ${propCount} player props from ${results.length} events`)
     }
 
     return results

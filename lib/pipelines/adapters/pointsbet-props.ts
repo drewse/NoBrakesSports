@@ -109,19 +109,26 @@ function mapPBPropCategory(eventClass: string): string | null {
   return null
 }
 
-/** Try fetching PointsBet with proxy, then direct */
+/** Try fetching PointsBet — proxy first, direct second, multiple User-Agent variants */
 async function pbFetch(url: string): Promise<any | null> {
-  try {
-    // Try proxy first (residential IPs bypass Cloudflare)
-    const resp = await pipeFetch(url, { headers: HEADERS })
-    if (resp.ok) return resp.json()
-    // If proxy fails, try direct
-    const directResp = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(10000) })
-    if (directResp.ok) return directResp.json()
-    return null
-  } catch {
-    return null
+  const UA_VARIANTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+  ]
+  for (const ua of UA_VARIANTS) {
+    const h = { ...HEADERS, 'User-Agent': ua }
+    try {
+      // Try proxy (residential IP)
+      const resp = await pipeFetch(url, { headers: h })
+      if (resp.ok) return resp.json()
+    } catch { /* continue */ }
+    try {
+      // Try direct
+      const resp = await fetch(url, { headers: h, signal: AbortSignal.timeout(10000) })
+      if (resp.ok) return resp.json()
+    } catch { /* continue */ }
   }
+  return null
 }
 
 async function fetchCompetition(league: typeof PB_LEAGUES[number]): Promise<PBResult[]> {
