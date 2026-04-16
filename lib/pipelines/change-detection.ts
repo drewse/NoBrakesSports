@@ -189,8 +189,8 @@ export async function upsertCurrentOdds(
       event_id:           row.event_id,
       source_id:          row.source_id,
       market_type:        row.market_type,
-      // line_value: pipeline adapters don't use alternate lines, so null for all
-      line_value:         null,
+      // line_value: 0 for main lines (NULL doesn't work in unique constraints)
+      line_value:         0,
       odds_hash:          row.odds_hash!,
       home_price:         row.home_price,
       away_price:         row.away_price,

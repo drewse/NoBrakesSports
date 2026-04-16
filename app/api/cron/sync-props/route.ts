@@ -397,7 +397,7 @@ export async function GET(req: NextRequest) {
           event_id: eventId,
           source_id: sourceId,
           market_type: gm.marketType,
-          line_value: null,
+          line_value: 0,
           odds_hash: oddsHash,
           home_price: gm.homePrice,
           away_price: gm.awayPrice,
@@ -431,7 +431,7 @@ export async function GET(req: NextRequest) {
           event_id: eventId,
           source_id: dkSourceId,
           market_type: gm.marketType,
-          line_value: null,
+          line_value: 0,
           odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
@@ -495,7 +495,7 @@ export async function GET(req: NextRequest) {
           .map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: fdSourceId, market_type: gm.marketType,
-          line_value: null, odds_hash: oddsHash,
+          line_value: 0, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,
@@ -546,7 +546,7 @@ export async function GET(req: NextRequest) {
           .map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: bwSourceId, market_type: gm.marketType,
-          line_value: null, odds_hash: oddsHash,
+          line_value: 0, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,
@@ -589,7 +589,7 @@ export async function GET(req: NextRequest) {
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: mgmSourceId, market_type: gm.marketType,
-          line_value: null, odds_hash: oddsHash,
+          line_value: 0, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,
@@ -636,7 +636,7 @@ export async function GET(req: NextRequest) {
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: bwinSourceId, market_type: gm.marketType,
-          line_value: null, odds_hash: oddsHash,
+          line_value: 0, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,
@@ -682,7 +682,7 @@ export async function GET(req: NextRequest) {
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: ppSourceId, market_type: gm.marketType,
-          line_value: null, odds_hash: oddsHash,
+          line_value: 0, odds_hash: oddsHash,
           home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
           spread_value: gm.spreadValue, total_value: gm.totalValue,
           over_price: gm.overPrice, under_price: gm.underPrice,
