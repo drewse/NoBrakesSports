@@ -71,6 +71,13 @@ const FD_STAT_MAP: Record<string, string> = {
   'steals': 'player_steals',
   'turnovers': 'player_turnovers',
   'pts + reb + ast': 'player_pts_reb_ast',
+  'pts + rebs + asts': 'player_pts_reb_ast',
+  'points + rebounds': 'player_pts_reb',
+  'pts + rebs': 'player_pts_reb',
+  'points + assists': 'player_pts_ast',
+  'pts + asts': 'player_pts_ast',
+  'rebounds + assists': 'player_ast_reb',
+  'rebs + asts': 'player_ast_reb',
 }
 
 /**

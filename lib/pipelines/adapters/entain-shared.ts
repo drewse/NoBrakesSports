@@ -57,6 +57,7 @@ export const ENTAIN_LEAGUES: { sportId: number; competitionId: number; leagueSlu
 ]
 
 const PROP_MAP: Record<string, string> = {
+  // Simple stat types (from "Other" category: "Player Name - StatType")
   'points': 'player_points',
   'rebounds': 'player_rebounds',
   'assists': 'player_assists',
@@ -64,13 +65,25 @@ const PROP_MAP: Record<string, string> = {
   'blocks': 'player_blocks',
   'steals': 'player_steals',
   'turnovers': 'player_turnovers',
+  // Combo stats (from "Player specials": "Player Name (TEAM) : StatType")
   'total points, rebounds and assists': 'player_pts_reb_ast',
+  'total points and rebounds': 'player_pts_reb',
+  'total points and assists': 'player_pts_ast',
+  'total assists and rebounds': 'player_ast_reb',
+  // Alternative label formats
+  'pts + rebs + asts': 'player_pts_reb_ast',
+  'pts + rebs': 'player_pts_reb',
+  'pts + asts': 'player_pts_ast',
+  'rebs + asts': 'player_ast_reb',
 }
 
 function parsePlayerName(marketName: string): { playerName: string; statType: string } | null {
+  // "Other" format: "De'Aaron Fox - Points"
   const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
   if (dashMatch) return { playerName: dashMatch[1].trim(), statType: dashMatch[2].trim().toLowerCase() }
-  const colonMatch = marketName.match(/^(.+?)\s*\([A-Z]+\)\s*:?\s*(.+)$/)
+  // "Player specials" format: "Victor Wembanyama (SAS) : Blocks"
+  // Also handles: "Victor Wembanyama (SAS): Total points and rebounds"
+  const colonMatch = marketName.match(/^(.+?)\s*\([A-Za-z]+\)\s*:?\s*(.+)$/)
   if (colonMatch) return { playerName: colonMatch[1].trim(), statType: colonMatch[2].trim().toLowerCase() }
   return null
 }
