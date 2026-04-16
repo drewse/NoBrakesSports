@@ -3,11 +3,13 @@
  *
  * Two-step API:
  *   1. GetGroup → event IDs (filtered by sport/league)
- *   2. GetEventsWithMultipleMarkets → full events + markets + outcomes with odds
+ *   2. GetEventsWithMultipleMarkets → game lines (filtered) + all markets (unfiltered for props)
  *
  * POST endpoints at betway.ca/ca-on/services/api/events/v2/
  * Odds returned as decimal (1.40 = -250 american)
  */
+
+import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
 
 const BASE = 'https://betway.ca/ca-on/services/api/events/v2'
 const COMMON_BODY = {
@@ -67,6 +69,105 @@ export interface BWGameMarket {
 export interface BWResult {
   event: BWEvent
   gameMarkets: BWGameMarket[]
+  props: NormalizedProp[]
+}
+
+// Betway MarketGroupCName → canonical prop category
+// Groups from the API: points, rebounds, assists, 3-pointers, combos, defense
+const BW_PROP_GROUPS: Record<string, string> = {
+  'points': 'player_points',
+  'rebounds': 'player_rebounds',
+  'assists': 'player_assists',
+  '3-pointers': 'player_threes',
+  'threes': 'player_threes',
+  // Baseball
+  'hits': 'player_hits',
+  'home-runs': 'player_home_runs',
+  'rbis': 'player_rbis',
+  'strikeouts': 'player_strikeouts_p',
+  'pitcher-strikeouts': 'player_strikeouts_p',
+  'total-bases': 'player_total_bases',
+  'runs': 'player_runs',
+  'stolen-bases': 'player_stolen_bases',
+  // Hockey
+  'goals': 'player_goals',
+  'shots-on-goal': 'player_shots_on_goal',
+  'saves': 'player_saves',
+  // Soccer
+  'shots-on-target': 'player_shots_target',
+}
+
+// For "combos" and "defense" groups, detect from Title
+const BW_COMBO_KEYWORDS: Record<string, string> = {
+  'pts + reb + ast': 'player_pts_reb_ast',
+  'points + rebounds + assists': 'player_pts_reb_ast',
+  'points, rebounds and assists': 'player_pts_reb_ast',
+  'pts + rebs + asts': 'player_pts_reb_ast',
+  'pts + reb': 'player_pts_reb',
+  'points + rebounds': 'player_pts_reb',
+  'pts + ast': 'player_pts_ast',
+  'points + assists': 'player_pts_ast',
+  'reb + ast': 'player_ast_reb',
+  'rebounds + assists': 'player_ast_reb',
+}
+
+const BW_DEFENSE_KEYWORDS: Record<string, string> = {
+  'steals': 'player_steals',
+  'blocks': 'player_blocks',
+  'steals + blocks': 'player_steals',
+  'turnovers': 'player_turnovers',
+}
+
+/** Extract player name from a Betway prop market Title.
+ *  Formats: "LaMelo Ball - Points Over/Under", "LaMelo Ball Points", "LaMelo Ball" */
+function extractPlayerName(title: string, groupCName: string): string | null {
+  // Strip common suffixes
+  let cleaned = title
+    .replace(/\s*over\s*\/?\s*under\s*/gi, '')
+    .replace(/\s*o\s*\/?\s*u\s*/gi, '')
+    .trim()
+
+  // Try "Player Name - Stat" pattern
+  const dashMatch = cleaned.match(/^(.+?)\s*-\s*(.+)$/)
+  if (dashMatch) return dashMatch[1].trim()
+
+  // For known single-stat groups, strip the stat name from the end
+  const statSuffixes = ['points', 'rebounds', 'assists', '3-pointers', 'threes',
+    'steals', 'blocks', 'hits', 'home runs', 'strikeouts', 'goals',
+    'shots on goal', 'saves', 'total bases', 'runs', 'stolen bases', 'rbis']
+  for (const suffix of statSuffixes) {
+    if (cleaned.toLowerCase().endsWith(suffix)) {
+      const name = cleaned.slice(0, -suffix.length).trim()
+      if (name.length > 2) return name
+    }
+  }
+
+  // If the group tells us the stat type, the Title might just be the player name
+  if (BW_PROP_GROUPS[groupCName] && cleaned.length > 2 && cleaned.includes(' ')) {
+    return cleaned
+  }
+
+  return null
+}
+
+/** Detect prop category for combo/defense groups from Title */
+function detectComboOrDefense(title: string, groupCName: string): string | null {
+  const lower = title.toLowerCase()
+  if (groupCName === 'combos') {
+    for (const [keyword, category] of Object.entries(BW_COMBO_KEYWORDS)) {
+      if (lower.includes(keyword)) return category
+    }
+    // Default combos to PRA if we can't determine
+    return 'player_pts_reb_ast'
+  }
+  if (groupCName === 'defense') {
+    for (const [keyword, category] of Object.entries(BW_DEFENSE_KEYWORDS)) {
+      if (lower.includes(keyword)) return category
+    }
+    // Default defense to steals
+    return 'player_steals'
+  }
+  return null
 }
 
 /** Convert decimal odds to American integer */
@@ -189,9 +290,102 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
         }
       }
 
-      if (gameMarkets.length > 0) {
-        results.push({ event: bwEvent, gameMarkets })
+      results.push({ event: bwEvent, gameMarkets, props: [] })
+    }
+
+    // ── Phase 2: Fetch ALL markets (no CNames filter) for player props ──
+    try {
+      const allData = await postApi('GetEventsWithMultipleMarkets', {
+        ...COMMON_BODY,
+        EventMarketSets: [{ EventIds: gameIds }],  // no MarketCNames → all markets
+        ScoreboardRequest: { IncidentRequest: {}, ScoreboardType: 3 },
+      })
+
+      if (allData.Success && allData.Markets) {
+        // Build outcome map for the all-markets response
+        const allOutcomeMap = new Map<number, any>()
+        for (const o of allData.Outcomes ?? []) {
+          allOutcomeMap.set(o.Id, o)
+        }
+
+        // Index results by eventId for prop attachment
+        const resultsByEventId = new Map<number, BWResult>()
+        for (const r of results) {
+          resultsByEventId.set(r.event.eventId, r)
+        }
+
+        // Parse player prop markets
+        for (const market of allData.Markets) {
+          const groupCName: string = (market.MarketGroupCName ?? '').toLowerCase()
+          const result = resultsByEventId.get(market.EventId)
+          if (!result) continue
+
+          // Determine prop category from group or title
+          let propCategory = BW_PROP_GROUPS[groupCName]
+          if (!propCategory && (groupCName === 'combos' || groupCName === 'defense')) {
+            propCategory = detectComboOrDefense(market.Title ?? '', groupCName) ?? ''
+          }
+          if (!propCategory) continue  // not a prop market we track
+
+          // Extract player name from Title
+          const playerRaw = extractPlayerName(market.Title ?? '', groupCName)
+          if (!playerRaw) continue
+
+          // Get O/U outcomes
+          const allOutcomeIds = (market.Outcomes ?? []).flat() as number[]
+          const outcomes = allOutcomeIds.map((id: number) => allOutcomeMap.get(id)).filter(Boolean)
+
+          // Betway uses OutcomeGroups.yes=Over, .no=Under for O/U markets
+          const yesIds = new Set(
+            (market.OutcomeGroups?.yes?.outcomes ?? []) as number[]
+          )
+          const noIds = new Set(
+            (market.OutcomeGroups?.no?.outcomes ?? []) as number[]
+          )
+
+          let overOdds: number | null = null
+          let underOdds: number | null = null
+          for (const o of outcomes) {
+            if (yesIds.has(o.Id) && o.OddsDecimal > 1) {
+              overOdds = decimalToAmerican(o.OddsDecimal)
+            } else if (noIds.has(o.Id) && o.OddsDecimal > 1) {
+              underOdds = decimalToAmerican(o.OddsDecimal)
+            }
+          }
+
+          // Also try CouponName fallback (Over/Under)
+          if (overOdds == null || underOdds == null) {
+            for (const o of outcomes) {
+              if (o.CouponName === 'Over' && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
+              if (o.CouponName === 'Under' && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+            }
+          }
+
+          if (overOdds == null && underOdds == null) continue
+
+          const lineValue = market.Handicap ?? null
+          if (lineValue == null) continue
+
+          result.props.push({
+            propCategory,
+            playerName: normalizePlayerName(playerRaw),
+            lineValue,
+            overPrice: overOdds,
+            underPrice: underOdds,
+            yesPrice: null,
+            noPrice: null,
+            isBinary: false,
+          })
+        }
+
+        const propCount = results.reduce((s, r) => s + r.props.length, 0)
+        if (propCount > 0) {
+          console.log(`[Betway] ${league.group}: ${propCount} player props from ${results.length} events`)
+        }
       }
+    } catch (e) {
+      // Props fetch failed — game results still valid
+      console.warn(`[Betway] ${league.group} props fetch failed:`, e)
     }
 
     return results
