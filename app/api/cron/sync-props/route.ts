@@ -592,6 +592,10 @@ export async function GET(req: NextRequest) {
           movement_direction: 'flat', snapshot_time: now, changed_at: now,
         })
       }
+      // BetMGM player props
+      for (const prop of result.props ?? []) {
+        propRows.push(buildPropRow(eventId, mgmSourceId, prop, now))
+      }
     }
   }
 
@@ -635,6 +639,9 @@ export async function GET(req: NextRequest) {
           movement_direction: 'flat', snapshot_time: now, changed_at: now,
         })
       }
+      for (const prop of result.props ?? []) {
+        propRows.push(buildPropRow(eventId, bwinSourceId, prop, now))
+      }
     }
   }
 
@@ -677,6 +684,9 @@ export async function GET(req: NextRequest) {
           away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
           movement_direction: 'flat', snapshot_time: now, changed_at: now,
         })
+      }
+      for (const prop of result.props ?? []) {
+        propRows.push(buildPropRow(eventId, ppSourceId, prop, now))
       }
     }
   }

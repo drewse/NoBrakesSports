@@ -1,0 +1,230 @@
+/**
+ * Shared Entain CDS adapter logic for BetMGM, bwin, partypoker.
+ *
+ * All three use the same API structure, access ID, and fixture IDs.
+ * Only the domain and Referer/Origin headers differ.
+ */
+
+import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
+
+const ACCESS_ID = 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy'
+
+export interface EntainConfig {
+  domain: string  // e.g. 'www.on.betmgm.ca'
+  slug: string    // e.g. 'betmgm'
+}
+
+export interface EntainEvent {
+  fixtureId: string
+  homeName: string
+  awayName: string
+  startTime: string
+  leagueSlug: string
+}
+
+export interface EntainGameMarket {
+  marketType: 'moneyline' | 'spread' | 'total'
+  homePrice: number | null
+  awayPrice: number | null
+  drawPrice: number | null
+  spreadValue: number | null
+  totalValue: number | null
+  overPrice: number | null
+  underPrice: number | null
+}
+
+export interface EntainResult {
+  event: EntainEvent
+  gameMarkets: EntainGameMarket[]
+  props: NormalizedProp[]
+}
+
+export const ENTAIN_LEAGUES: { sportId: number; competitionId: number; leagueSlug: string; name: string }[] = [
+  { sportId: 7,  competitionId: 6004,  leagueSlug: 'nba',  name: 'NBA' },
+  { sportId: 23, competitionId: 9325,  leagueSlug: 'mlb',  name: 'MLB' },
+  { sportId: 12, competitionId: 265,   leagueSlug: 'nhl',  name: 'NHL' },
+  { sportId: 4,  competitionId: 46,    leagueSlug: 'epl',  name: 'EPL' },
+]
+
+const PROP_MAP: Record<string, string> = {
+  'points': 'player_points',
+  'rebounds': 'player_rebounds',
+  'assists': 'player_assists',
+  'three pointers': 'player_threes',
+  'blocks': 'player_blocks',
+  'steals': 'player_steals',
+  'turnovers': 'player_turnovers',
+  'total points, rebounds and assists': 'player_pts_reb_ast',
+}
+
+function parsePlayerName(marketName: string): { playerName: string; statType: string } | null {
+  const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
+  if (dashMatch) return { playerName: dashMatch[1].trim(), statType: dashMatch[2].trim().toLowerCase() }
+  const colonMatch = marketName.match(/^(.+?)\s*\([A-Z]+\)\s*:?\s*(.+)$/)
+  if (colonMatch) return { playerName: colonMatch[1].trim(), statType: colonMatch[2].trim().toLowerCase() }
+  return null
+}
+
+function makeHeaders(config: EntainConfig): Record<string, string> {
+  return {
+    'Accept': 'application/json, text/plain, */*',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+    'Referer': `https://${config.domain}/`,
+    'Origin': `https://${config.domain}`,
+  }
+}
+
+export async function scrapeEntain(config: EntainConfig, signal?: AbortSignal): Promise<EntainResult[]> {
+  const BASE = `https://${config.domain}/cds-api/bettingoffer`
+  const COMMON = `x-bwin-accessid=${ACCESS_ID}&lang=en-us&country=CA&userCountry=CA&subdivision=CA-Ontario`
+  const HEADERS = makeHeaders(config)
+  const results: EntainResult[] = []
+
+  // Fetch fixture lists in parallel
+  const leagueFixtures = await Promise.all(
+    ENTAIN_LEAGUES.map(async (league) => {
+      try {
+        const resp = await fetch(`${BASE}/fixtures?${COMMON}&state=Latest&sportIds=${league.sportId}&take=200`, {
+          headers: HEADERS, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
+        })
+        if (!resp.ok) return { league, fixtures: [] }
+        const data = await resp.json()
+        const fixtures = (data.fixtures ?? []).filter((f: any) =>
+          f.competition?.id === league.competitionId && !f.isOutright && !f.isLive
+        )
+        return { league, fixtures }
+      } catch {
+        return { league, fixtures: [] }
+      }
+    })
+  )
+
+  // Fetch fixture details with concurrency limit
+  const MAX_CONCURRENT = 5
+  for (const { league, fixtures } of leagueFixtures) {
+    for (let i = 0; i < fixtures.length; i += MAX_CONCURRENT) {
+      if (signal?.aborted) break
+      const batch = fixtures.slice(i, i + MAX_CONCURRENT)
+      const batchResults = await Promise.all(
+        batch.map(async (fixture: any) => {
+          try {
+            const resp = await fetch(
+              `${BASE}/fixture-view?${COMMON}&offerMapping=All&fixtureIds=${fixture.id}&state=Latest&firstMarketGroupOnly=false`,
+              { headers: HEADERS, signal: AbortSignal.timeout(10000) }
+            )
+            if (!resp.ok) return null
+            const data = await resp.json()
+            return parseFixture(data, league.leagueSlug)
+          } catch {
+            return null
+          }
+        })
+      )
+      for (const r of batchResults) {
+        if (r) results.push(r)
+      }
+    }
+  }
+
+  return results
+}
+
+function parseFixture(data: any, leagueSlug: string): EntainResult | null {
+  const fixture = data?.fixture
+  if (!fixture) return null
+
+  const participants = fixture.participants ?? []
+  const homeTeam = participants.find((p: any) => p.properties?.type === 'HomeTeam')
+  const awayTeam = participants.find((p: any) => p.properties?.type === 'AwayTeam')
+  const homeName = homeTeam?.name?.value ?? participants[1]?.name?.value ?? ''
+  const awayName = awayTeam?.name?.value ?? participants[0]?.name?.value ?? ''
+  if (!homeName || !awayName) return null
+
+  const event: EntainEvent = {
+    fixtureId: String(fixture.id), homeName, awayName,
+    startTime: fixture.startDate ?? '', leagueSlug,
+  }
+
+  const optionMarkets = fixture.optionMarkets ?? []
+  const gameMarkets: EntainGameMarket[] = []
+  const props: NormalizedProp[] = []
+
+  for (const market of optionMarkets) {
+    if (market.status !== 'Visible') continue
+    const catName = market.templateCategory?.name?.value ?? market.name?.value ?? ''
+    const options = market.options ?? []
+
+    // ── Game-level markets ──
+    if (catName === 'Moneyline' && market.isMain !== false) {
+      const homeOpt = options.find((o: any) => o.sourceName?.value === '2' || o.name?.value?.includes(homeName.split(' ').pop()))
+      const awayOpt = options.find((o: any) => o.sourceName?.value === '1' || o.name?.value?.includes(awayName.split(' ').pop()))
+      const drawOpt = options.find((o: any) => o.name?.value === 'Draw')
+      gameMarkets.push({
+        marketType: 'moneyline',
+        homePrice: homeOpt?.price?.americanOdds ?? null,
+        awayPrice: awayOpt?.price?.americanOdds ?? null,
+        drawPrice: drawOpt?.price?.americanOdds ?? null,
+        spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+      })
+    } else if (catName === 'Spread' && market.isMain !== false && !gameMarkets.some(gm => gm.marketType === 'spread')) {
+      if (options.length >= 2) {
+        const opt1 = options[0], opt2 = options[1]
+        const spreadVal = Math.abs(parseFloat(opt1.attr ?? '0'))
+        const homeOpt = opt1.name?.value?.includes(homeName.split(' ').pop()) ? opt1 : opt2
+        const awayOpt = homeOpt === opt1 ? opt2 : opt1
+        gameMarkets.push({
+          marketType: 'spread',
+          homePrice: homeOpt?.price?.americanOdds ?? null,
+          awayPrice: awayOpt?.price?.americanOdds ?? null,
+          drawPrice: null, spreadValue: spreadVal,
+          totalValue: null, overPrice: null, underPrice: null,
+        })
+      }
+    } else if (catName === 'Totals' && !gameMarkets.some(gm => gm.marketType === 'total')) {
+      const overOpt = options.find((o: any) => o.totalsPrefix === 'Over')
+      const underOpt = options.find((o: any) => o.totalsPrefix === 'Under')
+      const totalVal = parseFloat(market.attr ?? '0')
+      if (totalVal > 0) {
+        gameMarkets.push({
+          marketType: 'total',
+          homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
+          totalValue: totalVal,
+          overPrice: overOpt?.price?.americanOdds ?? null,
+          underPrice: underOpt?.price?.americanOdds ?? null,
+        })
+      }
+    }
+
+    // ── Player props ──
+    if (options.length === 2 && market.attr != null) {
+      const marketName = market.name?.value ?? ''
+      const parsed = parsePlayerName(marketName)
+      if (parsed) {
+        const category = PROP_MAP[parsed.statType]
+        if (category) {
+          const lineValue = parseFloat(market.attr)
+          if (!isNaN(lineValue)) {
+            let overPrice: number | null = null
+            let underPrice: number | null = null
+            for (const o of options) {
+              const name = (o.name?.value ?? '').toLowerCase()
+              if (o.totalsPrefix === 'Over' || name.startsWith('over')) overPrice = o.price?.americanOdds ?? null
+              else if (o.totalsPrefix === 'Under' || name.startsWith('under')) underPrice = o.price?.americanOdds ?? null
+            }
+            if (overPrice != null || underPrice != null) {
+              props.push({
+                propCategory: category,
+                playerName: normalizePlayerName(parsed.playerName),
+                lineValue, overPrice, underPrice,
+                yesPrice: null, noPrice: null, isBinary: false,
+              })
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (gameMarkets.length === 0 && props.length === 0) return null
+  return { event, gameMarkets, props }
+}
