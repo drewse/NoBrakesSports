@@ -163,30 +163,30 @@ export default async function ArbitragePage() {
 
     const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
 
-    if (combinedProb < 1.0) {
-      const profitPct = (1 / combinedProb - 1) * 100
-      arbs.push({
-        eventTitle: event?.title ?? '—',
-        league: leagueAbbrev || '—',
-        shape,
-        bestHomePrice: bestHome.home_price!,
-        bestHomeSource: (bestHome as any).source?.name ?? '—',
-        bestDrawPrice: bestDrawSnap?.draw_price ?? null,
-        bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
-        bestAwayPrice: bestAway.away_price!,
-        bestAwaySource: (bestAway as any).source?.name ?? '—',
-        homeProb,
-        drawProb,
-        awayProb,
-        combinedProb,
-        profitPct,
-        lastUpdated: snaps.reduce(
-          (max: string, s: any) =>
-            s.snapshot_time > max ? s.snapshot_time : max,
-          snaps[0].snapshot_time
-        ),
-      })
-    }
+    // Always include — even negative arbs are useful for the feed
+    // (shows closest-to-arb opportunities when no true arbs exist)
+    const profitPct = (1 / combinedProb - 1) * 100
+    arbs.push({
+      eventTitle: event?.title ?? '—',
+      league: leagueAbbrev || '—',
+      shape,
+      bestHomePrice: bestHome.home_price!,
+      bestHomeSource: (bestHome as any).source?.name ?? '—',
+      bestDrawPrice: bestDrawSnap?.draw_price ?? null,
+      bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
+      bestAwayPrice: bestAway.away_price!,
+      bestAwaySource: (bestAway as any).source?.name ?? '—',
+      homeProb,
+      drawProb,
+      awayProb,
+      combinedProb,
+      profitPct,
+      lastUpdated: snaps.reduce(
+        (max: string, s: any) =>
+          s.snapshot_time > max ? s.snapshot_time : max,
+        snaps[0].snapshot_time
+      ),
+    })
   }
 
   arbs.sort((a, b) => b.profitPct - a.profitPct)
@@ -248,29 +248,27 @@ export default async function ArbitragePage() {
       const underProb = americanToImpliedProb(bestUnder.under_price)
       const combinedProb = overProb + underProb
 
-      if (combinedProb < 1.0) {
-        const profitPct = (1 / combinedProb - 1) * 100
-        const ev = (bestOver as any).event
-        propArbs.push({
-          eventTitle: ev?.title ?? '—',
-          league: ev?.league?.abbreviation ?? '—',
-          propCategory: bestOver.prop_category,
-          playerName: bestOver.player_name,
-          lineValue: bestOver.line_value,
-          bestOverPrice: bestOver.over_price,
-          bestOverSource: (bestOver as any).source?.name ?? '—',
-          bestUnderPrice: bestUnder.under_price,
-          bestUnderSource: (bestUnder as any).source?.name ?? '—',
-          overProb,
-          underProb,
-          combinedProb,
-          profitPct,
-          lastUpdated: group.reduce(
-            (max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max,
-            group[0].snapshot_time,
-          ),
-        })
-      }
+      const profitPct = (1 / combinedProb - 1) * 100
+      const ev = (bestOver as any).event
+      propArbs.push({
+        eventTitle: ev?.title ?? '—',
+        league: ev?.league?.abbreviation ?? '—',
+        propCategory: bestOver.prop_category,
+        playerName: bestOver.player_name,
+        lineValue: bestOver.line_value,
+        bestOverPrice: bestOver.over_price,
+        bestOverSource: (bestOver as any).source?.name ?? '—',
+        bestUnderPrice: bestUnder.under_price,
+        bestUnderSource: (bestUnder as any).source?.name ?? '—',
+        overProb,
+        underProb,
+        combinedProb,
+        profitPct,
+        lastUpdated: group.reduce(
+          (max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max,
+          group[0].snapshot_time,
+        ),
+      })
     }
 
     propArbs.sort((a, b) => b.profitPct - a.profitPct)
