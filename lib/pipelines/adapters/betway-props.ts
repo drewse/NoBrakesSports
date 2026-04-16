@@ -103,14 +103,17 @@ const BW_PROP_GROUPS: Record<string, string> = {
  *    "Total Points - Brandon Miller (CHA)"
  *    "Points and Rebounds - Anthony Black (ORL)"
  *    "Total Blocks - Coby White (CHA)"
+ *    "Total 3-Pointers Made - Wendell Carter Jr (ORL)"
  *  Pattern: "Stat Description - Player Name (TEAM)" */
 function extractPlayerName(title: string): string | null {
-  // Primary format: "Stat - Player Name (TEAM)"
-  const dashMatch = title.match(/^.+?\s*-\s*(.+?)(?:\s*\([A-Z]{2,5}\))?\s*$/)
-  if (dashMatch) {
-    const name = dashMatch[1].trim()
-    if (name.length > 2) return name
-  }
+  // Find the LAST " - " to handle stat names that contain dashes (e.g., "3-Pointers")
+  const lastDashIdx = title.lastIndexOf(' - ')
+  if (lastDashIdx === -1) return null
+
+  const after = title.slice(lastDashIdx + 3).trim()
+  // Strip team abbreviation: "(CHA)", "(ORL)", etc.
+  const name = after.replace(/\s*\([A-Z]{2,5}\)\s*$/, '').trim()
+  if (name.length > 2) return name
   return null
 }
 
