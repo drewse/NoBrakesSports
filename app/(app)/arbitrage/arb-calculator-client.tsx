@@ -286,8 +286,8 @@ export function ArbCalculatorClient({
       </div>
 
       {/* ── Right Panel: Opportunity Feed (40%) ──────────────── */}
-      <div className="lg:w-[40%] w-full flex flex-col min-h-0 order-1 lg:order-2">
-        <div className="flex items-center justify-between mb-4">
+      <div className="lg:w-[40%] w-full flex flex-col min-h-0 order-1 lg:order-2 lg:-mt-[4.25rem]">
+        <div className="flex items-center justify-between mb-3">
           <div>
             <h2 className="text-white text-base font-bold">Opportunities</h2>
             <p className="text-nb-500 text-xs mt-0.5">
