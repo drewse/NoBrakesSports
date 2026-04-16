@@ -201,7 +201,7 @@ export default async function ArbitragePage() {
   // ── Prop Arb Detection ────────────────────────────────────────────────────
   const propArbs: PropArb[] = []
 
-  const propStaleCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString() // 30 min for props
+  const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() // 4 hours, same as game-level
   const { data: propOddsRaw } = await supabase
     .from('prop_odds')
     .select(`
@@ -213,6 +213,7 @@ export default async function ArbitragePage() {
     .gt('snapshot_time', propStaleCutoff)
     .not('over_price', 'is', null)
     .not('under_price', 'is', null)
+    .limit(5000)
 
   if (propOddsRaw && propOddsRaw.length > 0) {
     // Filter by enabled books
