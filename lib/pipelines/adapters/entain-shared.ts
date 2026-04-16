@@ -40,10 +40,20 @@ export interface EntainResult {
 }
 
 export const ENTAIN_LEAGUES: { sportId: number; competitionId: number; leagueSlug: string; name: string }[] = [
-  { sportId: 7,  competitionId: 6004,  leagueSlug: 'nba',  name: 'NBA' },
-  { sportId: 23, competitionId: 9325,  leagueSlug: 'mlb',  name: 'MLB' },
-  { sportId: 12, competitionId: 265,   leagueSlug: 'nhl',  name: 'NHL' },
-  { sportId: 4,  competitionId: 46,    leagueSlug: 'epl',  name: 'EPL' },
+  // Basketball
+  { sportId: 7,  competitionId: 6004,   leagueSlug: 'nba',            name: 'NBA' },
+  // Baseball
+  { sportId: 23, competitionId: 75,     leagueSlug: 'mlb',            name: 'MLB' },
+  // Hockey
+  { sportId: 12, competitionId: 34,     leagueSlug: 'nhl',            name: 'NHL' },
+  // Soccer
+  { sportId: 4,  competitionId: 101409, leagueSlug: 'epl',            name: 'EPL' },
+  { sportId: 4,  competitionId: 102829, leagueSlug: 'laliga',         name: 'La Liga' },
+  { sportId: 4,  competitionId: 102842, leagueSlug: 'bundesliga',     name: 'Bundesliga' },
+  { sportId: 4,  competitionId: 102846, leagueSlug: 'seria_a',        name: 'Serie A' },
+  { sportId: 4,  competitionId: 102843, leagueSlug: 'ligue_one',      name: 'Ligue 1' },
+  { sportId: 4,  competitionId: 104417, leagueSlug: 'mls',            name: 'MLS' },
+  { sportId: 4,  competitionId: 102375, leagueSlug: 'liga_mx',        name: 'Liga MX' },
 ]
 
 const PROP_MAP: Record<string, string> = {
