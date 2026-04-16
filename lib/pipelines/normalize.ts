@@ -188,7 +188,9 @@ export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'ho
     return n
   }
   const date = new Date(event.startTime).toISOString().slice(0, 10) // YYYY-MM-DD UTC
-  return `${event.leagueSlug}:${date}:${normalizeTeam(event.homeTeam)}:${normalizeTeam(event.awayTeam)}`
+  // Sort alphabetically so "Away vs Home" and "Home vs Away" produce the same key
+  const teams = [normalizeTeam(event.homeTeam), normalizeTeam(event.awayTeam)].sort()
+  return `${event.leagueSlug}:${date}:${teams[0]}:${teams[1]}`
 }
 
 function mapEventStatus(raw: string): CanonicalEventStatus {
