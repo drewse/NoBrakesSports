@@ -20,6 +20,12 @@ import { scrapeBetMGM, type MGMResult } from '@/lib/pipelines/adapters/betmgm-pr
 import { scrapeBwin, type BWINResult } from '@/lib/pipelines/adapters/bwin-props'
 import { scrapePartypoker, type PPResult } from '@/lib/pipelines/adapters/partypoker-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
+import { canonicalEventKey } from '@/lib/pipelines/normalize'
+
+/** Generate the same external_id as the Pinnacle pipeline adapter uses */
+function makeExternalId(leagueSlug: string, startTime: string, homeTeam: string, awayTeam: string): string {
+  return canonicalEventKey({ leagueSlug, startTime, homeTeam, awayTeam })
+}
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
 export const maxDuration = 300
@@ -252,14 +258,14 @@ export async function GET(req: NextRequest) {
       const title = `${away} vs ${home}`
       const { data: newEvent, error: evErr } = await db
         .from('events')
-        .insert({ title, start_time: result.event.start, status: 'scheduled', league_id: leagueId, external_id: `kambi:${result.event.eventId}` })
+        .insert({ title, start_time: result.event.start, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(leagueSlug, result.event.start, home, away) })
         .select('id').single()
 
       if (newEvent) {
         eventsCreated++
         registerEvent(leagueSlug, result.event.start, home, away, newEvent.id)
       } else if (evErr) {
-        const { data: existingEv } = await db.from('events').select('id').eq('external_id', `kambi:${result.event.eventId}`).single()
+        const { data: existingEv } = await db.from('events').select('id').eq('external_id', makeExternalId(leagueSlug, result.event.start, home, away)).single()
         if (existingEv) registerEvent(leagueSlug, result.event.start, home, away, existingEv.id)
       }
     }
@@ -275,7 +281,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `dk:${result.event.eventId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
 
     if (newEvent) {
@@ -468,7 +474,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `fd:${result.event.eventId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
 
     if (newEvent) {
@@ -521,7 +527,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `bw:${result.event.eventId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
     if (newEvent) {
       eventsCreated++
@@ -570,7 +576,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `mgm:${result.event.fixtureId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
     if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
   }
@@ -617,7 +623,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `bwin:${result.event.fixtureId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
     if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
   }
@@ -663,7 +669,7 @@ export async function GET(req: NextRequest) {
     const title = `${result.event.awayName} vs ${result.event.homeName}`
     const { data: newEvent } = await db
       .from('events')
-      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: `pp:${result.event.fixtureId}` })
+      .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
     if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
   }
