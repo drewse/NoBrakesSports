@@ -163,9 +163,9 @@ export default async function ArbitragePage() {
 
     const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
 
-    // Always include — even negative arbs are useful for the feed
-    // (shows closest-to-arb opportunities when no true arbs exist)
     const profitPct = (1 / combinedProb - 1) * 100
+    // Only include positive arbs
+    if (profitPct <= 0) continue
     arbs.push({
       eventTitle: event?.title ?? '—',
       league: leagueAbbrev || '—',
@@ -265,6 +265,8 @@ export default async function ArbitragePage() {
 
       const profitPct = (1 / combinedProb - 1) * 100
       if (!isFinite(profitPct)) continue
+      // Only include positive arbs
+      if (profitPct <= 0) continue
       const ev = (bestOver as any).event
       propArbs.push({
         eventTitle: ev?.title ?? '—',
