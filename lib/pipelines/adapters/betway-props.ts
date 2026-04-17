@@ -122,10 +122,15 @@ function detectPropCategory(title: string, groupCName: string): string | null {
   const lower = title.toLowerCase()
 
   // Simple stat groups
-  if (groupCName === 'points' && lower.includes('total points')) return 'player_points'
-  if (groupCName === 'rebounds' && lower.includes('total rebounds')) return 'player_rebounds'
-  if (groupCName === 'assists' && lower.includes('total assists')) return 'player_assists'
-  if (groupCName === '3-pointers' && lower.includes('3-pointers')) return 'player_threes'
+  // Reject 1st quarter / 1st half / halftime markets — only full-game totals
+  if (lower.includes('1st quarter') || lower.includes('1st half') || lower.includes('halftime') || lower.includes('2nd half') || lower.includes('3rd quarter') || lower.includes('4th quarter')) {
+    return null
+  }
+
+  if (groupCName === 'points' && lower.startsWith('total points')) return 'player_points'
+  if (groupCName === 'rebounds' && lower.startsWith('total rebounds')) return 'player_rebounds'
+  if (groupCName === 'assists' && lower.startsWith('total assists')) return 'player_assists'
+  if (groupCName === '3-pointers' && lower.startsWith('total 3-pointers')) return 'player_threes'
 
   // Defense group
   if (groupCName === 'defense') {
