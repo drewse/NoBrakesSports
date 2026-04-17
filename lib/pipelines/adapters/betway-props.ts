@@ -129,10 +129,12 @@ function detectPropCategory(title: string, groupCName: string): string | null {
 
   // Defense group
   if (groupCName === 'defense') {
-    if (lower.includes('block')) return 'player_blocks'
-    if (lower.includes('steal')) return 'player_steals'
+    // "Steals and Blocks" is a combo — must check before individual stats
+    if (lower.includes('steals') && lower.includes('blocks')) return 'player_steals_blocks'
+    if (lower.includes('total blocks')) return 'player_blocks'
+    if (lower.includes('total steals')) return 'player_steals'
     if (lower.includes('turnover')) return 'player_turnovers'
-    return 'player_steals'
+    return null // unknown defense market — skip rather than guess
   }
 
   // Combos group
