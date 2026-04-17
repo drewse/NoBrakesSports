@@ -81,10 +81,13 @@ const FD_STAT_MAP: Record<string, string> = {
   'points + rebounds + assists': 'player_pts_reb_ast',
   'points + rebounds': 'player_pts_reb',
   'pts + rebs': 'player_pts_reb',
+  'pts + reb': 'player_pts_reb',
   'points + assists': 'player_pts_ast',
   'pts + asts': 'player_pts_ast',
+  'pts + ast': 'player_pts_ast',
   'rebounds + assists': 'player_ast_reb',
   'rebs + asts': 'player_ast_reb',
+  'reb + ast': 'player_ast_reb',
   // Baseball
   'hits': 'player_hits',
   'hits allowed': 'player_hits_allowed',
@@ -116,57 +119,85 @@ const FD_STAT_MAP: Record<string, string> = {
   'shots on target': 'player_shots_target',
 }
 
+// Tabs to fetch for player props — each returns different stat types
+const FD_PROP_TABS = [
+  'popular',          // points (and sometimes featured props)
+  'player-points',    // points O/U
+  'player-rebounds',  // rebounds O/U
+  'player-assists',   // assists O/U
+  'player-threes',    // 3PM O/U
+  'player-combos',    // PRA, P+R, P+A, R+A combos
+]
+
 /**
- * Fetch player props for a specific FanDuel event via the event-page endpoint.
+ * Fetch player props for a specific FanDuel event.
+ * Fetches multiple tabs since each tab returns different stat types.
  */
 async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
-  const url = `${BASE}/event-page?tab=popular&eventId=${eventId}&_ak=${API_KEY}&timezone=America%2FToronto`
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) })
-    if (!resp.ok) return []
-    const data = await resp.json()
+  const allProps: NormalizedProp[] = []
+  const seen = new Set<string>() // dedup by "player|category|line"
 
-    const markets = data.attachments?.markets ?? {}
-    const props: NormalizedProp[] = []
+  // Fetch all tabs in parallel
+  const tabResults = await Promise.allSettled(
+    FD_PROP_TABS.map(async (tab) => {
+      const url = `${BASE}/event-page?tab=${tab}&eventId=${eventId}&_ak=${API_KEY}&timezone=America%2FToronto`
+      const resp = await fetch(url, { signal: AbortSignal.timeout(8000) })
+      if (!resp.ok) return []
+      const data = await resp.json()
+      return parsePropsFromMarkets(data.attachments?.markets ?? {})
+    })
+  )
 
-    for (const [, market] of Object.entries(markets) as [string, any][]) {
-      const marketType = (market.marketType ?? '') as string
-      const runners = market.runners ?? []
-
-      // Match PLAYER_X_TOTAL_* pattern (Points, Rebounds, Assists, etc.)
-      if (marketType.startsWith('PLAYER_') && marketType.includes('TOTAL_') && runners.length === 2) {
-        const overRunner = runners.find((r: any) => r.runnerName?.includes('Over'))
-        const underRunner = runners.find((r: any) => r.runnerName?.includes('Under'))
-        if (!overRunner && !underRunner) continue
-
-        // Extract player name and stat type from market name
-        // "Jrue Holiday - Points" → player="Jrue Holiday", stat="points"
-        const marketName: string = market.marketName ?? ''
-        const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
-        if (!dashMatch) continue
-
-        const playerName = normalizePlayerName(dashMatch[1].trim())
-        const statRaw = dashMatch[2].trim().toLowerCase()
-        const category = FD_STAT_MAP[statRaw]
-        if (!playerName || !category) continue
-
-        props.push({
-          propCategory: category,
-          playerName,
-          lineValue: overRunner?.handicap ?? underRunner?.handicap ?? null,
-          overPrice: overRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
-          underPrice: underRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
-          yesPrice: null,
-          noPrice: null,
-          isBinary: false,
-        })
-      }
+  for (const result of tabResults) {
+    if (result.status !== 'fulfilled') continue
+    for (const prop of result.value) {
+      const key = `${prop.playerName}|${prop.propCategory}|${prop.lineValue}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      allProps.push(prop)
     }
-
-    return props
-  } catch {
-    return []
   }
+
+  return allProps
+}
+
+/** Parse player O/U props from a FanDuel markets object */
+function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
+  const props: NormalizedProp[] = []
+
+  for (const [, market] of Object.entries(markets) as [string, any][]) {
+    const marketType = (market.marketType ?? '') as string
+    const runners = market.runners ?? []
+
+    // Match PLAYER_X_TOTAL_* pattern (Points, Rebounds, Assists, etc.)
+    if (marketType.startsWith('PLAYER_') && marketType.includes('TOTAL_') && runners.length === 2) {
+      const overRunner = runners.find((r: any) => r.runnerName?.includes('Over'))
+      const underRunner = runners.find((r: any) => r.runnerName?.includes('Under'))
+      if (!overRunner && !underRunner) continue
+
+      const marketName: string = market.marketName ?? ''
+      const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
+      if (!dashMatch) continue
+
+      const playerName = normalizePlayerName(dashMatch[1].trim())
+      const statRaw = dashMatch[2].trim().toLowerCase()
+      const category = FD_STAT_MAP[statRaw]
+      if (!playerName || !category) continue
+
+      props.push({
+        propCategory: category,
+        playerName,
+        lineValue: overRunner?.handicap ?? underRunner?.handicap ?? null,
+        overPrice: overRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
+        underPrice: underRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
+        yesPrice: null,
+        noPrice: null,
+        isBinary: false,
+      })
+    }
+  }
+
+  return props
 }
 
 /**
