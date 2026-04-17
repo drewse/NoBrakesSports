@@ -239,6 +239,21 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
           totalValue: null, overPrice: null, underPrice: null,
         })
       }
+    } else if ((catName === 'Total Hits' || catName === 'Total Game Hits' || (market.name?.value ?? '').toLowerCase().startsWith('total hits')) && options.length === 2) {
+      // Game-level Total Hits — store as prop with player='Game'
+      const overOpt = options.find((o: any) => o.totalsPrefix === 'Over' || (o.name?.value ?? '').toLowerCase().startsWith('over'))
+      const underOpt = options.find((o: any) => o.totalsPrefix === 'Under' || (o.name?.value ?? '').toLowerCase().startsWith('under'))
+      const totalVal = parseFloat(market.attr ?? '0')
+      if (totalVal > 0 && (overOpt || underOpt)) {
+        props.push({
+          propCategory: 'game_total_hits',
+          playerName: 'Game',
+          lineValue: totalVal,
+          overPrice: overOpt?.price?.americanOdds ?? null,
+          underPrice: underOpt?.price?.americanOdds ?? null,
+          yesPrice: null, noPrice: null, isBinary: false,
+        })
+      }
     } else if (catName === 'Totals' && !gameMarkets.some(gm => gm.marketType === 'total')) {
       const overOpt = options.find((o: any) => o.totalsPrefix === 'Over')
       const underOpt = options.find((o: any) => o.totalsPrefix === 'Under')

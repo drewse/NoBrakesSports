@@ -219,6 +219,32 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
       })
     }
 
+    // ── Game-level "Total Hits" — emit as prop with player='Game' ──
+    // FanDuel market types: TOTAL_HITS, TOTAL_GAME_HITS. Market name may be
+    // "Total Hits" or "Total Game Hits" with Over/Under runners.
+    const mtUpper = marketType.toUpperCase()
+    const marketNameLower = (market.marketName ?? '').toLowerCase()
+    if (
+      (mtUpper === 'TOTAL_HITS' || mtUpper === 'TOTAL_GAME_HITS' ||
+       marketNameLower === 'total hits' || marketNameLower === 'total game hits') &&
+      runners.length === 2
+    ) {
+      const overR = runners.find((r: any) => r.runnerName?.includes('Over'))
+      const underR = runners.find((r: any) => r.runnerName?.includes('Under'))
+      const line = overR?.handicap ?? underR?.handicap ?? null
+      if (line != null) {
+        props.push({
+          propCategory: 'game_total_hits',
+          playerName: 'Game',
+          lineValue: line,
+          overPrice: overR?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
+          underPrice: underR?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
+          yesPrice: null, noPrice: null, isBinary: false,
+        })
+        continue
+      }
+    }
+
     // ── Threshold markets: "To Record N+ Hits", "To Hit N+ Home Runs", etc. ──
     // Convert to Over (N-0.5) with only the over_price.
     const thresholdMatch =

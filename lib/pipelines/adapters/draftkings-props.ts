@@ -267,6 +267,23 @@ function parseLeagueData(data: any, league: typeof DK_LEAGUES[number]): DKResult
         overPrice: parseAmerican(over?.displayOdds?.american),
         underPrice: parseAmerican(under?.displayOdds?.american),
       }
+    } else if (typeName === 'total hits' || typeName === 'total game hits') {
+      // Game-level "Total Hits" — emit as prop with player='Game'
+      const over = selections.find((s: any) => s.outcomeType === 'Over')
+      const under = selections.find((s: any) => s.outcomeType === 'Under')
+      const lineValue = over?.points ?? under?.points ?? null
+      if (lineValue != null && lineValue > 0) {
+        if (!propsByEvent.has(eventId)) propsByEvent.set(eventId, [])
+        propsByEvent.get(eventId)!.push({
+          propCategory: 'game_total_hits',
+          playerName: 'Game',
+          lineValue,
+          overPrice: parseAmerican(over?.displayOdds?.american),
+          underPrice: parseAmerican(under?.displayOdds?.american),
+          yesPrice: null, noPrice: null, isBinary: false,
+        })
+      }
+      continue
     }
 
     if (gm) {

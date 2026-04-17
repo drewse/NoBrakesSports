@@ -163,9 +163,43 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
   const byEvent = new Map<number, NormalizedProp[]>()
   // Track seen (event, category, player) to skip alternates
   const seenMainLine = new Set<string>()
+  const seenTotalHits = new Set<number>()
 
   for (const offer of offers) {
     const label = offer.criterion?.englishLabel || offer.criterion?.label || ''
+
+    // ── Game-level "Total Hits" — store as a prop (player='Game') ──
+    const labelLower = label.toLowerCase().trim()
+    if (labelLower === 'total hits' || labelLower === 'total hits - including extra innings') {
+      if (seenTotalHits.has(offer.eventId)) continue // first/main only
+      const outcomes = offer.outcomes ?? []
+      let over: number | null = null
+      let under: number | null = null
+      let line: number | null = null
+      for (const o of outcomes) {
+        const am = o.oddsAmerican ? parseInt(o.oddsAmerican, 10) : null
+        if (am == null || isNaN(am)) continue
+        if (o.line != null && line == null) line = o.line / 1000
+        const t = (o.type || '').toUpperCase()
+        const lbl = (o.englishLabel || o.label || '').toLowerCase()
+        if (t.includes('OVER') || lbl === 'over') over = am
+        else if (t.includes('UNDER') || lbl === 'under') under = am
+      }
+      if (line != null && (over != null || under != null)) {
+        seenTotalHits.add(offer.eventId)
+        if (!byEvent.has(offer.eventId)) byEvent.set(offer.eventId, [])
+        byEvent.get(offer.eventId)!.push({
+          propCategory: 'game_total_hits',
+          playerName: 'Game',
+          lineValue: line,
+          overPrice: over,
+          underPrice: under,
+          yesPrice: null, noPrice: null, isBinary: false,
+        })
+      }
+      continue
+    }
+
     const mapped = mapKambiCategory(label)
     if (!mapped) continue
 

@@ -337,6 +337,7 @@ export default async function ArbitragePage() {
       player_pts_reb: 'P+R', player_pts_ast: 'P+A', player_ast_reb: 'R+A',
       player_double_double: 'DD', player_triple_double: 'TD',
       // Baseball
+      game_total_hits: 'Game Hits',
       player_hits: 'Hits', player_home_runs: 'HR', player_rbis: 'RBI',
       player_strikeouts_p: 'K', player_earned_runs: 'ER', player_total_bases: 'TB',
       player_runs: 'Runs', player_stolen_bases: 'SB', player_walks: 'BB',

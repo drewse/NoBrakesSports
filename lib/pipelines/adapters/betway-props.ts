@@ -342,6 +342,45 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             if (!result) return
 
             for (const market of evData.Markets) {
+              const titleFull = (market.Title ?? '') as string
+              const titleLower = titleFull.toLowerCase()
+
+              // ── Game-level "Total Hits" — emit as prop with player='Game' ──
+              // Only applies to full-game total hits (no 1st inning, etc.), and title
+              // has no player name (no dash).
+              if (
+                /^total (?:game )?hits\b/i.test(titleFull) &&
+                !titleFull.includes(' - ') &&
+                !titleLower.includes('inning') &&
+                market.Headers?.includes('Over')
+              ) {
+                const lineValue = market.Handicap ?? null
+                if (lineValue != null && lineValue > 0) {
+                  const flatIds = (market.Outcomes ?? []).flat() as number[]
+                  const outs = flatIds.map((id: number) => evOutcomeMap.get(id)).filter(Boolean)
+                  let over: number | null = null
+                  let under: number | null = null
+                  for (const o of outs) {
+                    if (o.CouponName === 'Over' && o.OddsDecimal > 1) over = decimalToAmerican(o.OddsDecimal)
+                    else if (o.CouponName === 'Under' && o.OddsDecimal > 1) under = decimalToAmerican(o.OddsDecimal)
+                  }
+                  if (over != null || under != null) {
+                    const result = resultsByEventId.get(market.EventId)
+                    if (result) {
+                      result.props.push({
+                        propCategory: 'game_total_hits',
+                        playerName: 'Game',
+                        lineValue,
+                        overPrice: over,
+                        underPrice: under,
+                        yesPrice: null, noPrice: null, isBinary: false,
+                      })
+                    }
+                  }
+                }
+                continue
+              }
+
               // Only process prop markets (skip game-level)
               if (!propMarketIds.has(market.Id)) continue
 
