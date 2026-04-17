@@ -196,6 +196,59 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
         isBinary: false,
       })
     }
+
+    // ── Threshold markets: "To Record N+ Steals", "To Score N+ Points", etc. ──
+    // Convert to Over (N-0.5) with only the over_price.
+    // e.g., "To Record 1+ Steals" at -400 → Over 0.5 Steals at -400
+    //        "To Record 2+ Steals" at +126 → Over 1.5 Steals at +126
+    const thresholdMatch = marketType.match(/^(?:TO_RECORD_|TO_SCORE_|)(\d+)\+_(.+)$/i)
+      ?? market.marketName?.match(/^To (?:Record|Score) (\d+)\+\s+(.+)$/i)
+      ?? marketType.match(/^(\d+)\+_MADE_(.+)$/i)
+    if (thresholdMatch && runners.length >= 1) {
+      const threshold = parseInt(thresholdMatch[1], 10)
+      const statRaw = thresholdMatch[2]
+        .replace(/_/g, ' ')
+        .replace(/\s*\(.*\)/, '')
+        .trim()
+        .toLowerCase()
+
+      // Map stat to category
+      const FD_THRESHOLD_MAP: Record<string, string> = {
+        'steals': 'player_steals',
+        'points': 'player_points',
+        'rebounds': 'player_rebounds',
+        'assists': 'player_assists',
+        'blocks': 'player_blocks',
+        'threes': 'player_threes',
+        'made threes': 'player_threes',
+        'three pointers': 'player_threes',
+      }
+      const category = FD_THRESHOLD_MAP[statRaw]
+      if (!category) continue
+
+      const lineValue = threshold - 0.5 // "1+" → 0.5, "2+" → 1.5
+
+      // Extract player name from market name: "To Record 2+ Steals" is per-market
+      // but FanDuel groups all players in one market with multiple runners
+      for (const runner of runners) {
+        const runnerName = runner.runnerName ?? ''
+        if (!runnerName || runnerName === 'Yes' || runnerName === 'No') continue
+
+        const yesOdds = runner.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null
+        if (yesOdds == null) continue
+
+        props.push({
+          propCategory: category,
+          playerName: normalizePlayerName(runnerName),
+          lineValue,
+          overPrice: yesOdds, // "Yes to 1+ steals" = Over 0.5
+          underPrice: null,
+          yesPrice: null,
+          noPrice: null,
+          isBinary: false,
+        })
+      }
+    }
   }
 
   return props
