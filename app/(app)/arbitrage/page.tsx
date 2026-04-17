@@ -200,18 +200,26 @@ export default async function ArbitragePage() {
   const propArbs: PropArb[] = []
 
   const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() // 4 hours, same as game-level
-  const { data: propOddsRaw } = await supabase
-    .from('prop_odds')
-    .select(`
-      event_id, source_id, prop_category, player_name, line_value,
-      over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
-      event:events(id, title, start_time, league:leagues(abbreviation)),
-      source:market_sources(id, name, slug)
-    `)
-    .gt('snapshot_time', propStaleCutoff)
-    .not('over_price', 'is', null)
-    .not('under_price', 'is', null)
-    .limit(5000)
+  // Fetch props in batches — with 12 books × all sports × all categories,
+  // total rows can exceed 6000+. Supabase max per query is 1000 by default.
+  const PROP_BATCH = 2000
+  let propOddsRaw: any[] = []
+  for (let offset = 0; offset < 20000; offset += PROP_BATCH) {
+    const { data: batch } = await supabase
+      .from('prop_odds')
+      .select(`
+        event_id, source_id, prop_category, player_name, line_value,
+        over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
+        event:events(id, title, start_time, league:leagues(abbreviation)),
+        source:market_sources(id, name, slug)
+      `)
+      .gt('snapshot_time', propStaleCutoff)
+      .not('over_price', 'is', null)
+      .not('under_price', 'is', null)
+      .range(offset, offset + PROP_BATCH - 1)
+    if (!batch || batch.length === 0) break
+    propOddsRaw.push(...batch)
+  }
 
   if (propOddsRaw && propOddsRaw.length > 0) {
     // Filter by enabled books

@@ -346,18 +346,24 @@ export default async function TopEvLinesPage({
   // Query prop_odds, group by (event, category, player, line), compute fair prob
   // from sharpest book (most balanced O/U), then find +EV across all books.
   const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-  const { data: propOddsRaw } = await supabase
-    .from('prop_odds')
-    .select(`
-      event_id, source_id, prop_category, player_name, line_value,
-      over_price, under_price, snapshot_time,
-      event:events(id, title, start_time, league:leagues(abbreviation)),
-      source:market_sources(id, name, slug)
-    `)
-    .gt('snapshot_time', propCutoff)
-    .not('over_price', 'is', null)
-    .not('under_price', 'is', null)
-    .limit(5000)
+  let propOddsRaw: any[] = []
+  const PROP_PAGE = 2000
+  for (let off = 0; off < 20000; off += PROP_PAGE) {
+    const { data: batch } = await supabase
+      .from('prop_odds')
+      .select(`
+        event_id, source_id, prop_category, player_name, line_value,
+        over_price, under_price, snapshot_time,
+        event:events(id, title, start_time, league:leagues(abbreviation)),
+        source:market_sources(id, name, slug)
+      `)
+      .gt('snapshot_time', propCutoff)
+      .not('over_price', 'is', null)
+      .not('under_price', 'is', null)
+      .range(off, off + PROP_PAGE - 1)
+    if (!batch || batch.length === 0) break
+    propOddsRaw.push(...batch)
+  }
 
   if (propOddsRaw && propOddsRaw.length > 0) {
     // Filter by enabled books + upcoming events
