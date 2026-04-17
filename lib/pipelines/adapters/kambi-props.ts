@@ -169,10 +169,21 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     const mapped = mapKambiCategory(label)
     if (!mapped) continue
 
-    // Skip binary props (20+ Points, anytime scorer, double-double).
-    // These are threshold yes/no bets — not comparable cross-book since each
-    // book offers different thresholds. Only over/under lines are useful for arb detection.
-    if (mapped.isBinary) continue
+    // Convert MLB home run binary markets to Over (N-0.5) home runs:
+    //   "Player to Hit a Home Run"  → Over 0.5 (threshold 1)
+    //   "Player to hit 2 or more Home Runs" → Over 1.5 (threshold 2)
+    //   "Player to hit 3 or more Home Runs" → Over 2.5 (threshold 3)
+    // This lets us cross-match against Kambi/FanDuel/Betway under lines.
+    let binaryHrThreshold: number | null = null
+    if (mapped.isBinary && mapped.category === 'player_home_runs') {
+      const m = label.match(/hit\s+(\d+)\s+or\s+more\s+home\s+runs/i)
+      if (m) binaryHrThreshold = parseInt(m[1], 10)
+      else if (/player to hit a home run/i.test(label)) binaryHrThreshold = 1
+    }
+
+    // Skip other binary props — different thresholds across books make them
+    // not directly comparable.
+    if (mapped.isBinary && binaryHrThreshold == null) continue
 
     const outcomes = offer.outcomes ?? []
     if (outcomes.length === 0) continue
@@ -185,8 +196,11 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     // Dedup: only keep the first (main) line per player per category per event.
     // Kambi returns alternate lines without a MAIN_LINE tag for player props,
     // so the first occurrence is the primary line.
-    if (!mapped.isBinary) {
-      const dedupKey = `${offer.eventId}|${mapped.category}|${playerName}`
+    // EXCEPTION: HR binary thresholds (0.5, 1.5, 2.5) should all be kept since
+    // they represent different lines — include threshold in dedup key.
+    const effectiveDedupSuffix = binaryHrThreshold != null ? `|${binaryHrThreshold}` : ''
+    if (!mapped.isBinary || binaryHrThreshold != null) {
+      const dedupKey = `${offer.eventId}|${mapped.category}|${playerName}${effectiveDedupSuffix}`
       if (seenMainLine.has(dedupKey)) continue
       seenMainLine.add(dedupKey)
     }
@@ -230,6 +244,15 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     // Must have at least one price
     if (overPrice == null && underPrice == null && yesPrice == null && noPrice == null) continue
 
+    // For HR binary threshold markets: convert Yes → Over (threshold - 0.5)
+    if (binaryHrThreshold != null && yesPrice != null) {
+      overPrice = yesPrice
+      underPrice = noPrice
+      yesPrice = null
+      noPrice = null
+      lineValue = binaryHrThreshold - 0.5
+    }
+
     const prop: NormalizedProp = {
       propCategory: mapped.category,
       playerName,
@@ -238,7 +261,7 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
       underPrice,
       yesPrice,
       noPrice,
-      isBinary: mapped.isBinary,
+      isBinary: binaryHrThreshold != null ? false : mapped.isBinary,
     }
 
     if (!byEvent.has(offer.eventId)) byEvent.set(offer.eventId, [])

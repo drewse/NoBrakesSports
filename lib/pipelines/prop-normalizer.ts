@@ -93,7 +93,16 @@ const KAMBI_TEAM_TOTAL_PATTERN = /^total points by (.+?) - /i
  * Returns null if the label isn't a prop we track.
  */
 export function mapKambiCategory(label: string): { category: string; isBinary: boolean } | null {
-  const lower = label.toLowerCase().trim()
+  // Strip common Kambi suffixes before matching:
+  //   " - Including Extra Innings (Listed player must be in starting lineup for bets to stand)"
+  //   " - Including Overtime"
+  //   " (Includes Overtime)"
+  //   trailing parenthetical notes
+  let lower = label.toLowerCase().trim()
+    .replace(/\s*-\s*including\s+(extra\s+innings|overtime).*$/i, '')
+    .replace(/\s*\(includes?\s+overtime\)\s*$/i, '')
+    .replace(/\s*\(listed player.*?\)\s*$/i, '')
+    .trim()
 
   // Direct mapping
   const direct = KAMBI_CATEGORY_MAP[lower]
@@ -101,6 +110,24 @@ export function mapKambiCategory(label: string): { category: string; isBinary: b
     const isBinary = KAMBI_BINARY_PATTERNS.some(p => p.test(label))
     return { category: direct, isBinary }
   }
+
+  // Baseball-specific patterns — Kambi uses "Total X by the Player" format
+  if (/^total\s+hits\s+by\s+the\s+player/i.test(lower)) return { category: 'player_hits', isBinary: false }
+  if (/^total\s+rbis\s+by\s+the\s+player/i.test(lower)) return { category: 'player_rbis', isBinary: false }
+  if (/^total\s+runs\s+scored\s+by\s+the\s+player/i.test(lower)) return { category: 'player_runs', isBinary: false }
+  if (/^total\s+bases.*by\s+the\s+player/i.test(lower)) return { category: 'player_total_bases', isBinary: false }
+  if (/^total\s+stolen\s+bases\s+by\s+the\s+player/i.test(lower)) return { category: 'player_stolen_bases', isBinary: false }
+  if (/^total\s+walks\s+by\s+the\s+player/i.test(lower)) return { category: 'player_walks', isBinary: false }
+  if (/^total\s+strikeouts.*pitcher/i.test(lower)) return { category: 'player_strikeouts_p', isBinary: false }
+  if (/^total\s+earned\s+runs.*pitcher/i.test(lower)) return { category: 'player_earned_runs', isBinary: false }
+  if (/^total\s+hits\s+allowed.*pitcher/i.test(lower)) return { category: 'player_hits_allowed', isBinary: false }
+  if (/^total\s+outs\s+recorded.*pitcher/i.test(lower)) return { category: 'pitcher_outs', isBinary: false }
+  // "Player to Hit a Home Run" — binary
+  if (/^player\s+to\s+hit\s+a\s+home\s+run/i.test(lower)) return { category: 'player_home_runs', isBinary: true }
+  // "Player to hit N or more Home Runs" — binary
+  if (/^player\s+to\s+hit\s+\d+\s+or\s+more\s+home\s+runs/i.test(lower)) return { category: 'player_home_runs', isBinary: true }
+  // "Total Home Runs by the Player"
+  if (/^total\s+home\s+runs\s+by\s+the\s+player/i.test(lower)) return { category: 'player_home_runs', isBinary: false }
 
   // Binary prop patterns (e.g. "20+ Points Scored By The Player")
   if (KAMBI_BINARY_PATTERNS.some(p => p.test(label))) {

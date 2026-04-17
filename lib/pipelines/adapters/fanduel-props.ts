@@ -119,15 +119,37 @@ const FD_STAT_MAP: Record<string, string> = {
   'shots on target': 'player_shots_target',
 }
 
-// Tabs to fetch for player props — each returns different stat types
+// Tabs to fetch for player props — each returns different stat types.
+// Covers NBA, MLB, NHL, soccer. Unknown tabs return empty arrays safely.
 const FD_PROP_TABS = [
-  'popular',          // points (and sometimes featured props)
-  'player-points',    // points O/U
-  'player-rebounds',  // rebounds O/U
-  'player-assists',   // assists O/U
-  'player-threes',    // 3PM O/U
-  'player-combos',    // PRA, P+R, P+A, R+A combos
-  'player-defense',   // steals O/U
+  // NBA
+  'popular',
+  'player-points',
+  'player-rebounds',
+  'player-assists',
+  'player-threes',
+  'player-combos',
+  'player-defense',
+  // MLB — batter/pitcher props
+  'batter-hits',
+  'batter-home-runs',
+  'batter-rbis',
+  'batter-total-bases',
+  'batter-runs',
+  'batter-stolen-bases',
+  'batter-walks',
+  'batter-props',
+  'pitcher-props',
+  'pitcher-strikeouts',
+  'pitcher-outs',
+  'pitcher-walks',
+  'home-runs',
+  'hitter-props',
+  // NHL
+  'player-points-nhl',
+  'player-goals',
+  'player-shots',
+  'goalie-saves',
 ]
 
 /**
@@ -170,8 +192,8 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
     const marketType = (market.marketType ?? '') as string
     const runners = market.runners ?? []
 
-    // Match PLAYER_X_TOTAL_* pattern (Points, Rebounds, Assists, etc.)
-    if (marketType.startsWith('PLAYER_') && marketType.includes('TOTAL_') && runners.length === 2) {
+    // Match PLAYER_X_TOTAL_* or PITCHER_X_TOTAL_* O/U markets
+    if ((marketType.startsWith('PLAYER_') || marketType.startsWith('PITCHER_')) && marketType.includes('TOTAL_') && runners.length === 2) {
       const overRunner = runners.find((r: any) => r.runnerName?.includes('Over'))
       const underRunner = runners.find((r: any) => r.runnerName?.includes('Under'))
       if (!overRunner && !underRunner) continue
@@ -197,13 +219,15 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
       })
     }
 
-    // ── Threshold markets: "To Record N+ Steals", "To Score N+ Points", etc. ──
+    // ── Threshold markets: "To Record N+ Hits", "To Hit N+ Home Runs", etc. ──
     // Convert to Over (N-0.5) with only the over_price.
-    // e.g., "To Record 1+ Steals" at -400 → Over 0.5 Steals at -400
-    //        "To Record 2+ Steals" at +126 → Over 1.5 Steals at +126
-    const thresholdMatch = marketType.match(/^(?:TO_RECORD_|TO_SCORE_|)(\d+)\+_(.+)$/i)
-      ?? market.marketName?.match(/^To (?:Record|Score) (\d+)\+\s+(.+)$/i)
-      ?? marketType.match(/^(\d+)\+_MADE_(.+)$/i)
+    const thresholdMatch =
+      marketType.match(/^PLAYER_TO_RECORD_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_RECORD_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_HIT_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_SCORE_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^(\d+)\+_MADE_(.+)$/i) ??
+      market.marketName?.match(/^(?:Player )?To (?:Record|Score|Hit) (\d+)\+\s+(.+)$/i)
     if (thresholdMatch && runners.length >= 1) {
       const threshold = parseInt(thresholdMatch[1], 10)
       const statRaw = thresholdMatch[2]
@@ -212,8 +236,8 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
         .trim()
         .toLowerCase()
 
-      // Map stat to category
       const FD_THRESHOLD_MAP: Record<string, string> = {
+        // Basketball
         'steals': 'player_steals',
         'points': 'player_points',
         'rebounds': 'player_rebounds',
@@ -222,6 +246,20 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
         'threes': 'player_threes',
         'made threes': 'player_threes',
         'three pointers': 'player_threes',
+        // Baseball
+        'hits': 'player_hits',
+        'home runs': 'player_home_runs',
+        'rbis': 'player_rbis',
+        'rbi': 'player_rbis',
+        'total bases': 'player_total_bases',
+        'strikeouts': 'player_strikeouts_p',
+        'runs': 'player_runs',
+        'runs scored': 'player_runs',
+        'stolen bases': 'player_stolen_bases',
+        'walks': 'player_walks',
+        'walks allowed': 'player_walks',
+        'outs': 'pitcher_outs',
+        'outs recorded': 'pitcher_outs',
       }
       const category = FD_THRESHOLD_MAP[statRaw]
       if (!category) continue
