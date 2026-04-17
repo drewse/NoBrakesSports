@@ -127,6 +127,7 @@ const FD_PROP_TABS = [
   'player-assists',   // assists O/U
   'player-threes',    // 3PM O/U
   'player-combos',    // PRA, P+R, P+A, R+A combos
+  'player-defense',   // steals O/U
 ]
 
 /**
