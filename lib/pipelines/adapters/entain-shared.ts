@@ -261,6 +261,13 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
               if (o.totalsPrefix === 'Over' || name.startsWith('over')) overPrice = o.price?.americanOdds ?? null
               else if (o.totalsPrefix === 'Under' || name.startsWith('under')) underPrice = o.price?.americanOdds ?? null
             }
+            // Fallback: Entain consistently puts Over first, Under second
+            // for O/U player props (steals, blocks, etc.) where options lack
+            // totalsPrefix and names don't start with "over"/"under".
+            if (overPrice == null && underPrice == null && options.length === 2) {
+              overPrice = options[0]?.price?.americanOdds ?? null
+              underPrice = options[1]?.price?.americanOdds ?? null
+            }
             if (overPrice != null || underPrice != null) {
               props.push({
                 propCategory: category,
