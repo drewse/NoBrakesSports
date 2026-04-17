@@ -200,11 +200,11 @@ export default async function ArbitragePage() {
   const propArbs: PropArb[] = []
 
   const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() // 4 hours, same as game-level
-  // Fetch props in batches — with 12 books × all sports × all categories,
-  // total rows can exceed 6000+. Supabase max per query is 1000 by default.
-  const PROP_BATCH = 2000
+  // Fetch props in batches — Supabase PostgREST returns max 1000 rows per request.
+  // With 12 books × all sports × all categories, total can exceed 6000+.
+  const PROP_PAGE = 1000
   let propOddsRaw: any[] = []
-  for (let offset = 0; offset < 20000; offset += PROP_BATCH) {
+  for (let offset = 0; offset < 20000; offset += PROP_PAGE) {
     const { data: batch } = await supabase
       .from('prop_odds')
       .select(`
@@ -216,7 +216,7 @@ export default async function ArbitragePage() {
       .gt('snapshot_time', propStaleCutoff)
       .not('over_price', 'is', null)
       .not('under_price', 'is', null)
-      .range(offset, offset + PROP_BATCH - 1)
+      .range(offset, offset + PROP_PAGE - 1)
     if (!batch || batch.length === 0) break
     propOddsRaw.push(...batch)
   }

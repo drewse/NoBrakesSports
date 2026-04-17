@@ -347,7 +347,7 @@ export default async function TopEvLinesPage({
   // from sharpest book (most balanced O/U), then find +EV across all books.
   const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
   let propOddsRaw: any[] = []
-  const PROP_PAGE = 2000
+  const PROP_PAGE = 1000
   for (let off = 0; off < 20000; off += PROP_PAGE) {
     const { data: batch } = await supabase
       .from('prop_odds')
