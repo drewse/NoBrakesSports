@@ -256,11 +256,21 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
           if (!isNaN(lineValue)) {
             let overPrice: number | null = null
             let underPrice: number | null = null
+            let identified = false
             for (const o of options) {
               const name = (o.name?.value ?? '').toLowerCase()
-              if (o.totalsPrefix === 'Over' || name.startsWith('over')) overPrice = o.price?.americanOdds ?? null
-              else if (o.totalsPrefix === 'Under' || name.startsWith('under')) underPrice = o.price?.americanOdds ?? null
+              if (o.totalsPrefix === 'Over' || name.startsWith('over')) {
+                overPrice = o.price?.americanOdds ?? null
+                identified = true
+              } else if (o.totalsPrefix === 'Under' || name.startsWith('under')) {
+                underPrice = o.price?.americanOdds ?? null
+                identified = true
+              }
             }
+            // If we couldn't reliably identify Over vs Under from totalsPrefix
+            // or option names, SKIP this prop entirely. Guessing the order risks
+            // swapping Over/Under which creates phantom 20-65% arbs.
+            if (!identified) continue
             if (overPrice != null || underPrice != null) {
               props.push({
                 propCategory: category,
