@@ -170,6 +170,15 @@ function buildGameUrl(leagueId: string, subcategoryId: string): string {
   return `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(eventsQuery)}&marketsQuery=${encodeURIComponent(marketsQuery)}&include=Events&entity=events`
 }
 
+/**
+ * Build URL for per-event prop markets using the eventSubcategory endpoint.
+ * Discovered from DK DevTools: /controldata/event/eventSubcategory/v1/markets
+ */
+function buildEventPropUrl(eventId: string, subcategoryId: string): string {
+  const marketsQuery = `$filter=eventId eq '${eventId}' AND clientMetadata/subCategoryId eq '${subcategoryId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
+  return `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}%2C${subcategoryId}&marketsQuery=${encodeURIComponent(marketsQuery)}&entity=markets`
+}
+
 
 /** Helper: fetch a DK URL with direct + proxy fallback */
 async function dkFetch(url: string): Promise<Response> {
@@ -326,84 +335,110 @@ async function fetchLeague(
     const gameData = await gameResp.json()
     const results = parseLeagueData(gameData, league)
 
-    // Phase 2: Per-event prop fetch
-    // The unfiltered league query returns 0 markets. DK requires a subcategory
-    // filter, and we don't know the prop subcategory IDs. Instead, fetch each
-    // event's full market set via the event-page endpoint.
-    const PROP_BATCH = 5
-    const eventIds = results.map(r => r.event.eventId)
+    // Phase 2: Discover prop subcategory IDs from event metadata, then fetch props.
+    // DK events have clientMetadata.Subcategories listing all available subcategories.
+    // We skip the game lines subcategory and fetch each remaining one for props.
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
-      const batch = eventIds.slice(i, i + PROP_BATCH)
-      await Promise.all(
-        batch.map(async (eventId) => {
-          try {
-            // DK event-page returns all markets for a single event
-            const url = `${BASE}/v1/events/${eventId}?format=json`
-            const resp = await dkFetch(url)
-            if (!resp.ok) return
+    // Discover all prop subcategory IDs from the first few events
+    const propSubcategoryIds = new Set<string>()
+    for (const ev of gameData.events ?? []) {
+      if (ev.status !== 'NOT_STARTED') continue
+      const subs: any[] = ev.clientMetadata?.Subcategories ?? []
+      for (const s of subs) {
+        const id = String(s.Id ?? s.id ?? s)
+        if (id && id !== league.subcategoryId) { // exclude game lines subcategory
+          propSubcategoryIds.add(id)
+        }
+      }
+      if (propSubcategoryIds.size > 0) break // all events share the same subcategories
+    }
 
-            const data = await resp.json()
-            // Response may have different structure — try parsing
-            const markets = data.markets ?? data.eventGroup?.markets ?? []
-            const selections = data.selections ?? data.eventGroup?.selections ?? []
+    if (propSubcategoryIds.size > 0) {
+      console.log(`[DK] ${league.name}: discovered ${propSubcategoryIds.size} prop subcategories: ${[...propSubcategoryIds].join(', ')}`)
+    }
 
-            if (markets.length === 0) return
+    // Fetch props: for each event × each prop subcategory
+    // Use the eventSubcategory endpoint discovered from DK DevTools
+    const eventIds = results.map(r => r.event.eventId)
+    const PROP_BATCH = 5
 
-            const selByMarket = new Map<string, any[]>()
-            for (const s of selections) {
-              const list = selByMarket.get(s.marketId) ?? []
-              list.push(s)
-              selByMarket.set(s.marketId, list)
+    for (const subId of propSubcategoryIds) {
+      for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
+        const batch = eventIds.slice(i, i + PROP_BATCH)
+        await Promise.all(
+          batch.map(async (eventId) => {
+            try {
+              const url = buildEventPropUrl(eventId, subId)
+              const resp = await dkFetch(url)
+              if (!resp.ok) return
+
+              const data = await resp.json()
+              const markets = data.markets ?? []
+              const selections = data.selections ?? []
+              if (markets.length === 0) return
+
+              const selByMarket = new Map<string, any[]>()
+              for (const s of selections) {
+                const list = selByMarket.get(s.marketId) ?? []
+                list.push(s)
+                selByMarket.set(s.marketId, list)
+              }
+
+              const result = resultsByEventId.get(eventId)
+              if (!result) return
+
+              for (const market of markets) {
+                const typeName = (market.marketType?.name ?? '').toLowerCase()
+                const propCategory = DK_PROP_MAP[typeName]
+                if (!propCategory) continue
+
+                const sels = selByMarket.get(market.id) ?? []
+                if (sels.length !== 2) continue
+
+                const overSel = sels.find((s: any) => s.outcomeType === 'Over')
+                const underSel = sels.find((s: any) => s.outcomeType === 'Under')
+                if (!overSel && !underSel) continue
+
+                const playerRaw = (market.name ?? '').trim()
+                if (!playerRaw) continue
+
+                const lineValue = overSel?.points ?? underSel?.points ?? null
+                if (lineValue == null) continue
+
+                result.props.push({
+                  propCategory,
+                  playerName: normalizePlayerName(playerRaw),
+                  lineValue,
+                  overPrice: parseAmerican(overSel?.displayOdds?.american),
+                  underPrice: parseAmerican(underSel?.displayOdds?.american),
+                  yesPrice: null,
+                  noPrice: null,
+                  isBinary: false,
+                })
+              }
+            } catch {
+              // Per-event prop fetch failed — skip
             }
+          })
+        )
+      }
+    }
 
-            const result = resultsByEventId.get(eventId)
-            if (!result) return
-
-            for (const market of markets) {
-              const typeName = (market.marketType?.name ?? '').toLowerCase()
-              const propCategory = DK_PROP_MAP[typeName]
-              if (!propCategory) continue
-
-              const sels = selByMarket.get(market.id) ?? []
-              if (sels.length !== 2) continue
-
-              const overSel = sels.find((s: any) => s.outcomeType === 'Over')
-              const underSel = sels.find((s: any) => s.outcomeType === 'Under')
-              if (!overSel && !underSel) continue
-
-              const playerRaw = (market.name ?? '').trim()
-              if (!playerRaw) continue
-
-              const lineValue = overSel?.points ?? underSel?.points ?? null
-              if (lineValue == null) continue
-
-              result.props.push({
-                propCategory,
-                playerName: normalizePlayerName(playerRaw),
-                lineValue,
-                overPrice: parseAmerican(overSel?.displayOdds?.american),
-                underPrice: parseAmerican(underSel?.displayOdds?.american),
-                yesPrice: null,
-                noPrice: null,
-                isBinary: false,
-              })
-            }
-          } catch {
-            // Per-event fetch failed — skip
-          }
-        })
-      )
+    // Dedup props per event (same player+category+line from different subcategories)
+    for (const r of results) {
+      const seen = new Set<string>()
+      r.props = r.props.filter(p => {
+        const key = `${p.playerName}|${p.propCategory}|${p.lineValue}`
+        if (seen.has(key)) return false
+        seen.add(key)
+        return true
+      })
     }
 
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
-    if (propCount > 0) {
-      console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
-    } else {
-      console.log(`[DK] ${league.name}: 0 props (per-event endpoint may not be available)`)
-    }
+    console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
 
     return results
   } catch (e) {
