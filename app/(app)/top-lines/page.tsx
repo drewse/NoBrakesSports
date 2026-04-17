@@ -382,14 +382,18 @@ export default async function TopEvLinesPage({
     }
 
     for (const group of propGroups.values()) {
-      if (group.length < 2) continue // need 2+ books to compute fair
+      // Need at least one book with BOTH over_price and under_price to compute fair prob.
+      // One-sided books (e.g., FanDuel threshold markets with only over_price) can still
+      // be compared against the fair line, but can't be used to DERIVE it.
+      const twoSidedBooks = group.filter(p => p.over_price != null && p.under_price != null)
+      if (twoSidedBooks.length === 0) continue
 
-      // Compute fair prob: power-devig the most balanced book (closest to -110/-110)
+      // Compute fair prob: power-devig the most balanced two-sided book (closest to -110/-110)
       let bestBalance = Infinity
       let fairOver = 0.5
       let fairUnder = 0.5
 
-      for (const p of group) {
+      for (const p of twoSidedBooks) {
         const overProb = americanToImpliedProb(p.over_price)
         const underProb = americanToImpliedProb(p.under_price)
         const balance = Math.abs(overProb - underProb)
@@ -427,15 +431,19 @@ export default async function TopEvLinesPage({
         const fairProb = side === 'over' ? fairOver : fairUnder
         const getPrice = (p: any) => side === 'over' ? p.over_price : p.under_price
 
-        const allSources: SourceOdds[] = group.map(p => ({
-          name: p.source?.name ?? '?',
-          price: getPrice(p),
-          evPct: computeEv(fairProb, getPrice(p)),
-        }))
+        // Only include books that have a price on this side (skip null/undefined)
+        const allSources: SourceOdds[] = group
+          .filter(p => getPrice(p) != null)
+          .map(p => ({
+            name: p.source?.name ?? '?',
+            price: getPrice(p),
+            evPct: computeEv(fairProb, getPrice(p)),
+          }))
+        if (allSources.length === 0) continue
         allSources.sort((a, b) => b.evPct - a.evPct)
 
         const best = allSources[0]
-        if (best.evPct > 0) {
+        if (best.evPct > 0 && isFinite(best.evPct)) {
           evLines.push({
             eventId: group[0].event_id,
             eventTitle: ev?.title ?? '—',
