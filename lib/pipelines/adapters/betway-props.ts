@@ -344,6 +344,54 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             for (const market of evData.Markets) {
               // Only process prop markets (skip game-level)
               if (!propMarketIds.has(market.Id)) continue
+
+              const groupCNameT = marketGroupMap.get(market.Id) ?? ''
+              const titleT = (market.Title ?? '') as string
+
+              // ── Threshold markets: "Player To Get N+ 3-Pointers" etc. ──
+              // Convert to Over (N-0.5) with only over_price.
+              const threshMatch = titleT.match(/player to get (\d+)\+\s+(.+?)$/i)
+              if (threshMatch) {
+                const threshold = parseInt(threshMatch[1], 10)
+                const statRaw = threshMatch[2].toLowerCase().trim()
+                const THRESH_MAP: Record<string, string> = {
+                  'points': 'player_points',
+                  'rebounds': 'player_rebounds',
+                  'assists': 'player_assists',
+                  '3-pointers': 'player_threes',
+                  'three pointers': 'player_threes',
+                  'steals': 'player_steals',
+                  'blocks': 'player_blocks',
+                }
+                const category = THRESH_MAP[statRaw]
+                if (!category) continue
+
+                const lineValue = threshold - 0.5
+
+                const flatIds = (market.Outcomes ?? []).flat() as number[]
+                for (const oid of flatIds) {
+                  const o = evOutcomeMap.get(oid)
+                  if (!o || o.OddsDecimal <= 1) continue
+                  // CouponName contains the player name: "Devin Booker (PHX)"
+                  const couponName = (o.CouponName ?? '') as string
+                  if (!couponName) continue
+                  const playerName = couponName.replace(/\s*\([A-Z]{2,5}\)\s*$/, '').trim()
+                  if (playerName.length < 3) continue
+
+                  result.props.push({
+                    propCategory: category,
+                    playerName: normalizePlayerName(playerName),
+                    lineValue,
+                    overPrice: decimalToAmerican(o.OddsDecimal),
+                    underPrice: null,
+                    yesPrice: null,
+                    noPrice: null,
+                    isBinary: false,
+                  })
+                }
+                continue
+              }
+
               // Only O/U markets (must have Over/Under headers)
               if (!market.Headers || !market.Headers.includes('Over')) continue
 
@@ -405,6 +453,24 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
           }
         })
       )
+    }
+
+    // Dedup props per event: prefer two-sided O/U rows over one-sided threshold rows
+    for (const r of results) {
+      const map = new Map<string, NormalizedProp>()
+      for (const p of r.props) {
+        const key = `${p.playerName}|${p.propCategory}|${p.lineValue}`
+        const existing = map.get(key)
+        if (!existing) {
+          map.set(key, p)
+          continue
+        }
+        // Prefer row with both over AND under prices
+        const pHasBoth = p.overPrice != null && p.underPrice != null
+        const existingHasBoth = existing.overPrice != null && existing.underPrice != null
+        if (pHasBoth && !existingHasBoth) map.set(key, p)
+      }
+      r.props = [...map.values()]
     }
 
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
