@@ -354,21 +354,27 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               const allOutcomeIds = (market.Outcomes ?? []).flat() as number[]
               const outcomes = allOutcomeIds.map((id: number) => evOutcomeMap.get(id)).filter(Boolean)
 
-              const yesIds = new Set((market.OutcomeGroups?.yes?.outcomes ?? []) as number[])
-              const noIds = new Set((market.OutcomeGroups?.no?.outcomes ?? []) as number[])
-
+              // Use CouponName to reliably identify Over vs Under.
+              // OutcomeGroups.yes/no is NOT always Over/Under — Betway sometimes
+              // swaps them, creating phantom arbs (e.g., Christian Braun blocks).
               let overOdds: number | null = null
               let underOdds: number | null = null
 
               for (const o of outcomes) {
-                if (yesIds.has(o.Id) && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
-                else if (noIds.has(o.Id) && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+                if (o.CouponName === 'Over' && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
+                else if (o.CouponName === 'Under' && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
               }
-              // CouponName fallback
-              if (overOdds == null || underOdds == null) {
-                for (const o of outcomes) {
-                  if (o.CouponName === 'Over' && o.OddsDecimal > 1) overOdds = decimalToAmerican(o.OddsDecimal)
-                  if (o.CouponName === 'Under' && o.OddsDecimal > 1) underOdds = decimalToAmerican(o.OddsDecimal)
+
+              // Fallback: use Headers position if CouponName missing
+              // Headers: ["Over", "Under"] maps to Outcomes[0][0]=Over, Outcomes[0][1]=Under
+              if (overOdds == null && underOdds == null && (market.Headers ?? []).includes('Over')) {
+                const headers: string[] = market.Headers ?? []
+                const flatIds = (market.Outcomes ?? []).flat() as number[]
+                for (let idx = 0; idx < headers.length && idx < flatIds.length; idx++) {
+                  const o = evOutcomeMap.get(flatIds[idx])
+                  if (!o || o.OddsDecimal <= 1) continue
+                  if (headers[idx] === 'Over') overOdds = decimalToAmerican(o.OddsDecimal)
+                  else if (headers[idx] === 'Under') underOdds = decimalToAmerican(o.OddsDecimal)
                 }
               }
 
