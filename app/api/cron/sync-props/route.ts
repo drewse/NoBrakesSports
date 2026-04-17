@@ -1020,6 +1020,55 @@ export async function GET(req: NextRequest) {
 
       if (alertsSent >= 5) break // rate limit
     }
+
+    // ── Prop arb detection for alerts ──
+    // Group props by (event, category, player, line) — find best O/U across books
+    if (alertsSent < 5 && dedupedRows.length > 0) {
+      const propGroups = new Map<string, Array<{ source: string; sourceId: string; over: number | null; under: number | null }>>()
+      for (const row of dedupedRows) {
+        const key = `${row.event_id}|${row.prop_category}|${row.player_name}|${row.line_value}`
+        const slug = [...sourceMap.entries()].find(([, id]) => id === row.source_id)?.[0] ?? '?'
+        if (!propGroups.has(key)) propGroups.set(key, [])
+        propGroups.get(key)!.push({ source: slug, sourceId: row.source_id, over: row.over_price, under: row.under_price })
+      }
+
+      for (const [key, books] of propGroups) {
+        if (alertsSent >= 5) break
+        if (books.length < 2) continue
+
+        const withOver = books.filter(b => b.over != null)
+        const withUnder = books.filter(b => b.under != null)
+        if (withOver.length === 0 || withUnder.length === 0) continue
+
+        const bestOver = withOver.reduce((a, b) => (b.over! > a.over!) ? b : a)
+        const bestUnder = withUnder.reduce((a, b) => (b.under! > a.under!) ? b : a)
+        if (bestOver.sourceId === bestUnder.sourceId) continue
+
+        const combined = toImplied(bestOver.over!) + toImplied(bestUnder.under!)
+        if (combined >= 1.0) continue
+
+        const profitPct = (1 / combined - 1) * 100
+        if (profitPct < 1.0) continue // higher threshold for props to reduce spam
+
+        const parts = key.split('|')
+        const eventId = parts[0]
+        const category = parts[1]
+        const player = parts[2]
+        const line = parts[3]
+        const eventTitle = eventTitles.get(eventId) ?? '—'
+
+        await sendArbAlert({
+          type: 'arb',
+          eventTitle,
+          league: '—',
+          market: `${player} ${category.replace('player_', '')} ${line}`,
+          sideA: { label: 'Over', price: bestOver.over!, source: bestOver.source },
+          sideB: { label: 'Under', price: bestUnder.under!, source: bestUnder.source },
+          profitPct,
+        })
+        alertsSent++
+      }
+    }
   } catch (e) {
     console.error('Alert detection error:', e)
   }
