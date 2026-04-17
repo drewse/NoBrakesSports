@@ -249,9 +249,27 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
     if (options.length === 2 && market.attr != null) {
       const marketName = market.name?.value ?? ''
       const parsed = parsePlayerName(marketName)
+      // Fallback: if market name is just the player name (no "- Stat" suffix),
+      // use the templateCategory name to determine the stat type.
+      // e.g., catName="Player Steals", market name="Victor Wembanyama"
+      let category: string | undefined
+      let playerName: string | undefined
       if (parsed) {
-        const category = PROP_MAP[parsed.statType]
-        if (category) {
+        category = PROP_MAP[parsed.statType]
+        playerName = parsed.playerName
+      } else if (catName) {
+        // Try to extract stat from category name: "Player Steals" → "steals"
+        const catLower = catName.toLowerCase()
+          .replace(/^player\s+/, '')  // "Player Steals" → "steals"
+          .replace(/^total\s+/, '')   // "Total Steals" → "steals"
+          .trim()
+        category = PROP_MAP[catLower]
+        // Market name is the player name (possibly with team abbreviation)
+        playerName = marketName
+          .replace(/\s*\([A-Z]{2,5}\)\s*$/, '')  // strip "(SAS)"
+          .trim()
+      }
+      if (category && playerName) {
           const lineValue = parseFloat(market.attr)
           if (!isNaN(lineValue)) {
             let overPrice: number | null = null
@@ -271,13 +289,12 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
             if (overPrice != null || underPrice != null) {
               props.push({
                 propCategory: category,
-                playerName: normalizePlayerName(parsed.playerName),
+                playerName: normalizePlayerName(playerName),
                 lineValue, overPrice, underPrice,
                 yesPrice: null, noPrice: null, isBinary: false,
               })
             }
           }
-        }
       }
     }
   }
