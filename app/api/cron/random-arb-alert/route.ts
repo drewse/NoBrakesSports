@@ -80,7 +80,7 @@ export async function GET(req: NextRequest) {
 
     const combined = toImplied(bestHome.home_price) + toImplied(bestAway.away_price)
     const profit = (1 / combined - 1) * 100
-    if (profit < 0 || profit > 5) continue
+    if (profit < 1 || profit > 5) continue
 
     arbs.push({
       eventTitle: ev.title,
@@ -133,7 +133,7 @@ export async function GET(req: NextRequest) {
 
     const combined = toImplied(bestOver.over_price) + toImplied(bestUnder.under_price)
     const profit = (1 / combined - 1) * 100
-    if (profit < 0 || profit > 5) continue
+    if (profit < 1 || profit > 5) continue
 
     const [, category, player, line] = key.split('|')
     const ev = (bestOver as any).event
@@ -157,8 +157,8 @@ export async function GET(req: NextRequest) {
   const pick = arbs[Math.floor(Math.random() * arbs.length)]
 
   // Send to Discord
-  const emoji = pick.profitPct >= 2 ? '🔥' : pick.profitPct >= 1 ? '💰' : '💎'
-  const color = pick.profitPct >= 2 ? 0x00ff88 : pick.profitPct >= 1 ? 0xffd700 : 0x88ccff
+  const emoji = pick.profitPct >= 3 ? '🔥' : pick.profitPct >= 2 ? '💰' : '💎'
+  const color = pick.profitPct >= 3 ? 0x00ff88 : pick.profitPct >= 2 ? 0xffd700 : 0x88ccff
 
   await fetch(WEBHOOK_URL, {
     method: 'POST',
@@ -174,7 +174,7 @@ export async function GET(req: NextRequest) {
           { name: pick.sideB.label, value: `**${formatOdds(pick.sideB.price)}** @ ${pick.sideB.source}`, inline: true },
           { name: 'Profit', value: `**${pick.profitPct.toFixed(2)}%**`, inline: true },
         ],
-        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${arbs.length} total arbs (0-5%)` },
+        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${arbs.length} total arbs (1-5%)` },
         timestamp: new Date().toISOString(),
       }],
     }),
