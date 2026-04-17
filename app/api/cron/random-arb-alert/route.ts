@@ -26,10 +26,18 @@ interface ArbCandidate {
 }
 
 export async function GET(req: NextRequest) {
+  // Allow: Vercel cron, Authorization header with CRON_SECRET, or ?key= query param
   const authHeader = req.headers.get('authorization')
   const cronSecret = process.env.CRON_SECRET
   const isVercelCron = req.headers.get('user-agent')?.includes('vercel-cron')
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}` && !isVercelCron) {
+  const url = new URL(req.url)
+  const queryKey = url.searchParams.get('key')
+  const authorized =
+    isVercelCron ||
+    !cronSecret ||
+    authHeader === `Bearer ${cronSecret}` ||
+    queryKey === cronSecret
+  if (!authorized) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
