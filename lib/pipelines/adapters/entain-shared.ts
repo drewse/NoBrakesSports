@@ -7,7 +7,15 @@
 
 import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
 
-const ACCESS_ID = 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy'
+// Each Entain operator has its own access ID (they do NOT share one)
+const ENTAIN_ACCESS_IDS: Record<string, string> = {
+  'www.on.betmgm.ca':       'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy',
+  'www.on.bwin.ca':         'ODQwNmFkZWItY2NlNS00OGE3LWI4NzktOGE4Njc0NDM5Y2U5',
+  'www.on.partysports.ca':  'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy', // TODO: get real partypoker access ID
+}
+
+// Fallback for unknown domains
+const DEFAULT_ACCESS_ID = 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy'
 
 export interface EntainConfig {
   domain: string  // e.g. 'www.on.betmgm.ca'
@@ -126,7 +134,8 @@ function makeHeaders(config: EntainConfig): Record<string, string> {
 
 export async function scrapeEntain(config: EntainConfig, signal?: AbortSignal): Promise<EntainResult[]> {
   const BASE = `https://${config.domain}/cds-api/bettingoffer`
-  const COMMON = `x-bwin-accessid=${ACCESS_ID}&lang=en-us&country=CA&userCountry=CA&subdivision=CA-Ontario`
+  const accessId = ENTAIN_ACCESS_IDS[config.domain] ?? DEFAULT_ACCESS_ID
+  const COMMON = `x-bwin-accessid=${accessId}&lang=en-us&country=CA&userCountry=CA&subdivision=CA-Ontario`
   const HEADERS = makeHeaders(config)
   const results: EntainResult[] = []
 

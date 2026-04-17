@@ -4,20 +4,25 @@ import { NextRequest, NextResponse } from 'next/server'
 export const maxDuration = 30
 export const dynamic = 'force-dynamic'
 
-const ACCESS_ID = 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy'
+const ACCESS_IDS: Record<string, string> = {
+  'www.on.betmgm.ca': 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy',
+  'www.on.bwin.ca': 'ODQwNmFkZWItY2NlNS00OGE3LWI4NzktOGE4Njc0NDM5Y2U5',
+  'www.on.partysports.ca': 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy',
+}
 
 export async function GET(req: NextRequest) {
   const results: any = {}
 
   const domains = [
     { name: 'betmgm', domain: 'www.on.betmgm.ca' },
-    { name: 'bwin', domain: 'sports.bwin.ca' },
-    { name: 'partypoker', domain: 'sports.partypoker.ca' },
+    { name: 'bwin', domain: 'www.on.bwin.ca' },
+    { name: 'partypoker', domain: 'www.on.partysports.ca' },
   ]
 
   for (const { name, domain } of domains) {
     try {
-      const COMMON = `x-bwin-accessid=${ACCESS_ID}&lang=en-us&country=CA&userCountry=CA&subdivision=CA-Ontario`
+      const accessId = ACCESS_IDS[domain] ?? ACCESS_IDS['www.on.betmgm.ca']
+      const COMMON = `x-bwin-accessid=${accessId}&lang=en-us&country=CA&userCountry=CA&subdivision=CA-Ontario`
       const HEADERS: Record<string, string> = {
         'Accept': 'application/json, text/plain, */*',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
