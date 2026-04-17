@@ -876,22 +876,36 @@ export async function GET(req: NextRequest) {
   }
 
   // 8. Update snapshot_time for unchanged rows (they were still fetched)
+  // CRITICAL: scope update to EXACTLY the (event, source, category, player, line)
+  // tuples that were refetched. Old code updated ALL rows matching (event, source)
+  // which kept stale/orphaned rows (e.g., 1st-quarter markets rejected by parser)
+  // alive indefinitely — their snapshot_time got refreshed even though they were
+  // no longer in the adapter's output.
   if (unchanged.length > 0) {
-    // Bulk update snapshot_time for unchanged rows
-    const CHUNK = 500
-    for (let i = 0; i < unchanged.length; i += CHUNK) {
-      const chunk = unchanged.slice(i, i + CHUNK)
-      const keys = chunk.map(r => propKey(r.event_id, r.source_id, r.prop_category, r.player_name, r.line_value))
-      // For unchanged, just update snapshot_time via individual updates grouped by event+source
-      // This is a tradeoff: simpler than a complex WHERE clause
-      const eventSourcePairs = new Set(chunk.map(r => `${r.event_id}|${r.source_id}`))
-      for (const pair of eventSourcePairs) {
-        const [eid, sid] = pair.split('|')
+    // Group by (event, source, category) — narrow scope with .in() on players
+    const groups = new Map<string, Set<string>>()
+    const rowMap = new Map<string, Array<{ player: string; line: number | null }>>()
+    for (const r of unchanged) {
+      const key = `${r.event_id}|${r.source_id}|${r.prop_category}`
+      if (!rowMap.has(key)) rowMap.set(key, [])
+      rowMap.get(key)!.push({ player: r.player_name, line: r.line_value })
+      if (!groups.has(key)) groups.set(key, new Set())
+      groups.get(key)!.add(r.player_name)
+    }
+
+    for (const [key, players] of groups) {
+      const [eid, sid, category] = key.split('|')
+      const playerList = [...players]
+      // Update in chunks of 100 players to avoid URL length limits
+      for (let i = 0; i < playerList.length; i += 100) {
+        const chunk = playerList.slice(i, i + 100)
         await db
           .from('prop_odds')
           .update({ snapshot_time: now })
           .eq('event_id', eid)
           .eq('source_id', sid)
+          .eq('prop_category', category)
+          .in('player_name', chunk)
       }
     }
   }
