@@ -358,8 +358,7 @@ export default async function TopEvLinesPage({
         source:market_sources(id, name, slug)
       `)
       .gt('snapshot_time', propCutoff)
-      .not('over_price', 'is', null)
-      .not('under_price', 'is', null)
+      .or('over_price.not.is.null,under_price.not.is.null')
       .range(off, off + PROP_PAGE - 1)
     if (!batch || batch.length === 0) break
     propOddsRaw.push(...batch)

@@ -214,8 +214,7 @@ export default async function ArbitragePage() {
         source:market_sources(id, name, slug)
       `)
       .gt('snapshot_time', propStaleCutoff)
-      .not('over_price', 'is', null)
-      .not('under_price', 'is', null)
+      .or('over_price.not.is.null,under_price.not.is.null')
       .range(offset, offset + PROP_PAGE - 1)
     if (!batch || batch.length === 0) break
     propOddsRaw.push(...batch)
