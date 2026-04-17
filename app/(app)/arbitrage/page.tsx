@@ -241,11 +241,16 @@ export default async function ArbitragePage() {
     for (const group of propGroups.values()) {
       if (group.length < 2) continue // need 2+ books
 
-      const bestOver = group.reduce((best: any, p: any) =>
-        (p.over_price ?? -Infinity) > (best.over_price ?? -Infinity) ? p : best
+      // Filter to rows with the relevant price populated on each side
+      const withOver = group.filter((p: any) => p.over_price != null)
+      const withUnder = group.filter((p: any) => p.under_price != null)
+      if (withOver.length === 0 || withUnder.length === 0) continue
+
+      const bestOver = withOver.reduce((best: any, p: any) =>
+        p.over_price > best.over_price ? p : best
       )
-      const bestUnder = group.reduce((best: any, p: any) =>
-        (p.under_price ?? -Infinity) > (best.under_price ?? -Infinity) ? p : best
+      const bestUnder = withUnder.reduce((best: any, p: any) =>
+        p.under_price > best.under_price ? p : best
       )
 
       // Must come from different books
@@ -255,7 +260,11 @@ export default async function ArbitragePage() {
       const underProb = americanToImpliedProb(bestUnder.under_price)
       const combinedProb = overProb + underProb
 
+      // Skip if either implied prob is invalid (NaN/Infinity from null prices)
+      if (!isFinite(overProb) || !isFinite(underProb) || combinedProb <= 0) continue
+
       const profitPct = (1 / combinedProb - 1) * 100
+      if (!isFinite(profitPct)) continue
       const ev = (bestOver as any).event
       propArbs.push({
         eventTitle: ev?.title ?? '—',
