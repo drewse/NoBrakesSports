@@ -322,7 +322,7 @@ export default async function ArbitragePage() {
       // Basketball
       player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
       player_threes: '3PM', player_pts_reb_ast: 'PRA', player_steals: 'Stl',
-      player_blocks: 'Blk', player_turnovers: 'TO',
+      player_blocks: 'Blk', player_turnovers: 'TO', player_steals_blocks: 'Stl+Blk',
       player_pts_reb: 'P+R', player_pts_ast: 'P+A', player_ast_reb: 'R+A',
       player_double_double: 'DD', player_triple_double: 'TD',
       // Baseball
