@@ -103,7 +103,7 @@ export function ArbCalculatorClient({
   return (
     <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-12rem)]">
       {/* ── Left Panel: Calculator (60%) ──────────────────────── */}
-      <div className="lg:w-[60%] w-full flex-shrink-0 order-2 lg:order-1">
+      <div className="lg:w-[72%] w-full flex-shrink-0 order-2 lg:order-1">
         <div className="lg:sticky lg:top-4">
           {!selected ? (
             <Card className="bg-nb-900 border-nb-800">
@@ -286,18 +286,18 @@ export function ArbCalculatorClient({
       </div>
 
       {/* ── Right Panel: Opportunity Feed (40%) ──────────────── */}
-      <div className="lg:w-[40%] w-full flex flex-col min-h-0 order-1 lg:order-2 lg:-mt-[4.25rem]">
-        <div className="flex items-center justify-between mb-3">
+      <div className="lg:w-[28%] w-full flex flex-col min-h-0 order-1 lg:order-2 lg:-mt-[4.25rem]">
+        <div className="flex items-center justify-between mb-2">
           <div>
-            <h2 className="text-white text-base font-bold">Opportunities</h2>
-            <p className="text-nb-500 text-xs mt-0.5">
+            <h2 className="text-white text-sm font-bold">Opportunities</h2>
+            <p className="text-nb-500 text-[10px] mt-0.5">
               {totalArbs} found across {uniqueBooks} books
             </p>
           </div>
           {latestScan && (
-            <div className="flex items-center gap-1.5 text-nb-500">
-              <Clock className="h-3.5 w-3.5" />
-              <span className="text-xs">Last scanned {formatRelativeTime(latestScan)}</span>
+            <div className="flex items-center gap-1 text-nb-500">
+              <Clock className="h-3 w-3" />
+              <span className="text-[10px]">{formatRelativeTime(latestScan)}</span>
             </div>
           )}
         </div>
@@ -323,21 +323,21 @@ export function ArbCalculatorClient({
                     : 'bg-nb-900 border-nb-800 hover:bg-nb-800/60 hover:border-nb-700'
                 }`}
               >
-                <div className="p-4 space-y-2.5">
+                <div className="p-3 space-y-1.5">
                   {/* Top row */}
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center justify-between gap-1">
+                    <div className="flex items-center gap-1.5 min-w-0">
                       <Badge
                         variant={arb.type === 'prop' ? 'outline' : 'muted'}
-                        className={`text-[10px] flex-shrink-0 ${
+                        className={`text-[9px] px-1.5 py-0 flex-shrink-0 ${
                           arb.type === 'prop' ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' : ''
                         }`}
                       >
                         {arb.type === 'prop' ? 'PROP' : 'GAME'}
                       </Badge>
-                      <span className="text-xs text-nb-500 flex-shrink-0">{arb.league}</span>
+                      <span className="text-[10px] text-nb-500 flex-shrink-0">{arb.league}</span>
                     </div>
-                    <span className={`font-mono text-base font-bold flex-shrink-0 ${
+                    <span className={`font-mono text-sm font-bold flex-shrink-0 ${
                       arb.profitPct > 0 ? 'text-green-400' : arb.profitPct > -1 ? 'text-amber-400' : 'text-red-400'
                     }`}>
                       {arb.profitPct > 0 ? '+' : ''}{arb.profitPct.toFixed(2)}%
@@ -345,19 +345,19 @@ export function ArbCalculatorClient({
                   </div>
 
                   {/* Event + description */}
-                  <p className="text-white text-sm font-semibold truncate">{arb.eventTitle}</p>
-                  <p className="text-nb-400 text-xs truncate">{arb.description}</p>
+                  <p className="text-white text-xs font-semibold truncate">{arb.eventTitle}</p>
+                  <p className="text-nb-400 text-[11px] truncate">{arb.description}</p>
 
                   {/* Books + odds */}
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-2 min-w-0 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0 text-[11px] flex-wrap">
                       <span className="text-nb-200 font-mono font-semibold">{formatOdds(arb.bestSideA.price)}</span>
-                      <span className="text-nb-500">{arb.bestSideA.source}</span>
+                      <span className="text-nb-500 truncate">{arb.bestSideA.source}</span>
                       <span className="text-nb-700">vs</span>
                       <span className="text-nb-200 font-mono font-semibold">{formatOdds(arb.bestSideB.price)}</span>
-                      <span className="text-nb-500">{arb.bestSideB.source}</span>
+                      <span className="text-nb-500 truncate">{arb.bestSideB.source}</span>
                     </div>
-                    <span className="text-xs text-nb-600 flex-shrink-0">{formatRelativeTime(arb.lastUpdated)}</span>
+                    <span className="text-[10px] text-nb-600 flex-shrink-0">{formatRelativeTime(arb.lastUpdated)}</span>
                   </div>
                 </div>
               </button>
