@@ -39,11 +39,9 @@ export default async function ArbitragePage() {
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
-  // Query current_market_odds — one row per (event, source, market_type).
-  // This table has ~500 rows total vs market_snapshots which grows unboundedly.
-  // Filter stale odds: snapshot_time within last 4 hours (adapters run every ~15 min).
+  // Fire game-level + prop-level queries concurrently to cut total latency.
   const staleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
-  const { data: snapshots } = await supabase
+  const snapshotsPromise = supabase
     .from('current_market_odds')
     .select(
       `
@@ -55,6 +53,28 @@ export default async function ArbitragePage() {
     .eq('market_type', 'moneyline')
     .gt('snapshot_time', staleCutoff)
     .limit(5000)
+
+  // Fire prop batch requests NOW (don't await yet) — they run while we process game arbs.
+  const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  const PROP_PAGE = 1000
+  const PROP_MAX = 10000
+  const propBatchPromises = Promise.all(Array.from(
+    { length: PROP_MAX / PROP_PAGE },
+    (_, i) => supabase
+      .from('prop_odds')
+      .select(`
+        event_id, source_id, prop_category, player_name, line_value,
+        over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
+        event:events(id, title, start_time, league:leagues(abbreviation)),
+        source:market_sources(id, name, slug)
+      `)
+      .gt('snapshot_time', propStaleCutoff)
+      .or('over_price.not.is.null,under_price.not.is.null')
+      .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
+  ))
+
+  // Await game-level snapshots (prop batches are running in parallel)
+  const { data: snapshots } = await snapshotsPromise
 
   // Filter out Polymarket and apply user's book selection
   const filteredSnapshots = (snapshots ?? []).filter(s => {
@@ -199,23 +219,10 @@ export default async function ArbitragePage() {
   // ── Prop Arb Detection ────────────────────────────────────────────────────
   const propArbs: PropArb[] = []
 
-  const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString() // 4 hours, same as game-level
-  // Fetch props in batches — Supabase PostgREST returns max 1000 rows per request.
-  // With 12 books × all sports × all categories, total can exceed 6000+.
-  const PROP_PAGE = 1000
-  let propOddsRaw: any[] = []
-  for (let offset = 0; offset < 20000; offset += PROP_PAGE) {
-    const { data: batch } = await supabase
-      .from('prop_odds')
-      .select(`
-        event_id, source_id, prop_category, player_name, line_value,
-        over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
-        event:events(id, title, start_time, league:leagues(abbreviation)),
-        source:market_sources(id, name, slug)
-      `)
-      .gt('snapshot_time', propStaleCutoff)
-      .or('over_price.not.is.null,under_price.not.is.null')
-      .range(offset, offset + PROP_PAGE - 1)
+  // Await prop batches (fired earlier, running in parallel with game arb processing)
+  const propBatchResults = await propBatchPromises
+  const propOddsRaw: any[] = []
+  for (const { data: batch } of propBatchResults) {
     if (!batch || batch.length === 0) break
     propOddsRaw.push(...batch)
   }

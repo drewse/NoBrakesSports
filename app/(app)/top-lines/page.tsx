@@ -179,8 +179,9 @@ export default async function TopEvLinesPage({
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
+  // Fire game-level + prop-level queries concurrently to cut total latency.
   const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
-  const { data: snapshots } = await supabase
+  const snapshotsPromise = supabase
     .from('current_market_odds')
     .select(`
       id, event_id, source_id, market_type,
@@ -192,6 +193,27 @@ export default async function TopEvLinesPage({
     .gt('snapshot_time', cutoff)
     .in('market_type', ['moneyline', 'spread', 'total'])
     .limit(10000)
+
+  const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const PROP_PAGE = 1000
+  const PROP_MAX = 10000
+  const propBatchPromises = Promise.all(Array.from(
+    { length: PROP_MAX / PROP_PAGE },
+    (_, i) => supabase
+      .from('prop_odds')
+      .select(`
+        event_id, source_id, prop_category, player_name, line_value,
+        over_price, under_price, snapshot_time,
+        event:events(id, title, start_time, league:leagues(abbreviation)),
+        source:market_sources(id, name, slug)
+      `)
+      .gt('snapshot_time', propCutoff)
+      .or('over_price.not.is.null,under_price.not.is.null')
+      .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
+  ))
+
+  // Await game-level snapshots (prop batches are running in parallel)
+  const { data: snapshots } = await snapshotsPromise
 
   // ── Dedup + Group by (event_id, market_type) ────────────────────────────
   // Keep only the LATEST row per (event_id, source_id, market_type) to prevent
@@ -345,21 +367,10 @@ export default async function TopEvLinesPage({
   // ── Prop +EV Detection ──────────────────────────────────────────────────
   // Query prop_odds, group by (event, category, player, line), compute fair prob
   // from sharpest book (most balanced O/U), then find +EV across all books.
-  const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-  let propOddsRaw: any[] = []
-  const PROP_PAGE = 1000
-  for (let off = 0; off < 20000; off += PROP_PAGE) {
-    const { data: batch } = await supabase
-      .from('prop_odds')
-      .select(`
-        event_id, source_id, prop_category, player_name, line_value,
-        over_price, under_price, snapshot_time,
-        event:events(id, title, start_time, league:leagues(abbreviation)),
-        source:market_sources(id, name, slug)
-      `)
-      .gt('snapshot_time', propCutoff)
-      .or('over_price.not.is.null,under_price.not.is.null')
-      .range(off, off + PROP_PAGE - 1)
+  // Await prop batches (fired earlier, running in parallel with game EV processing)
+  const propBatchResults = await propBatchPromises
+  const propOddsRaw: any[] = []
+  for (const { data: batch } of propBatchResults) {
     if (!batch || batch.length === 0) break
     propOddsRaw.push(...batch)
   }
