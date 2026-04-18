@@ -805,11 +805,19 @@ export async function GET(req: NextRequest) {
   }
 
   // Dedup propRows: if the same (event, source, category, player, line) appears
-  // multiple times, keep only the last one. This prevents "ON CONFLICT DO UPDATE
-  // command cannot affect row a second time" errors in batch upserts.
+  // multiple times, prefer the row with both over AND under prices (complete O/U
+  // market) over one-sided threshold entries. This prevents "To Record 2+ X" at
+  // +900 from overwriting a legitimate O/U market at -150/+120 and creating fake arbs.
   const dedupMap = new Map<string, PropRow>()
   for (const row of propRows) {
     const key = propKey(row.event_id, row.source_id, row.prop_category, row.player_name, row.line_value)
+    const existing = dedupMap.get(key)
+    if (existing) {
+      const existingHasBoth = existing.over_price != null && existing.under_price != null
+      const newHasBoth = row.over_price != null && row.under_price != null
+      // Keep the more complete entry (has both sides)
+      if (existingHasBoth && !newHasBoth) continue
+    }
     dedupMap.set(key, row)
   }
   const dedupedRows = [...dedupMap.values()]

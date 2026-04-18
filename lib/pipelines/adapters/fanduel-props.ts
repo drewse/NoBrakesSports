@@ -158,7 +158,7 @@ const FD_PROP_TABS = [
  */
 async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
   const allProps: NormalizedProp[] = []
-  const seen = new Set<string>() // dedup by "player|category|line"
+  const seen = new Map<string, number>() // dedup by "player|category|line" → index in allProps
 
   // Fetch all tabs in parallel
   const tabResults = await Promise.allSettled(
@@ -175,8 +175,18 @@ async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
     if (result.status !== 'fulfilled') continue
     for (const prop of result.value) {
       const key = `${prop.playerName}|${prop.propCategory}|${prop.lineValue}`
-      if (seen.has(key)) continue
-      seen.add(key)
+      const existing = seen.get(key)
+      if (existing != null) {
+        // Prefer the entry with both over AND under prices (full O/U market)
+        // over a one-sided threshold entry that only has overPrice.
+        const existingHasBoth = allProps[existing].overPrice != null && allProps[existing].underPrice != null
+        const newHasBoth = prop.overPrice != null && prop.underPrice != null
+        if (existingHasBoth || !newHasBoth) continue
+        // New entry is more complete — replace the existing one
+        allProps[existing] = prop
+        continue
+      }
+      seen.set(key, allProps.length)
       allProps.push(prop)
     }
   }
