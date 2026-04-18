@@ -248,12 +248,9 @@ export default async function ArbitragePage() {
     for (const group of propGroups.values()) {
       if (group.length < 2) continue // need 2+ books
 
-      // Only consider rows where BOTH over and under are populated from the
-      // same source — this filters out one-sided threshold entries (e.g.,
-      // "To Record 2+ X" at +900 with no under price) that create fake arbs
-      // when compared against a different book's under price.
-      const withOver = group.filter((p: any) => p.over_price != null && p.under_price != null)
-      const withUnder = group.filter((p: any) => p.under_price != null && p.over_price != null)
+      // Filter to rows with the relevant price populated on each side
+      const withOver = group.filter((p: any) => p.over_price != null)
+      const withUnder = group.filter((p: any) => p.under_price != null)
       if (withOver.length === 0 || withUnder.length === 0) continue
 
       const bestOver = withOver.reduce((best: any, p: any) =>
@@ -275,8 +272,8 @@ export default async function ArbitragePage() {
 
       const profitPct = (1 / combinedProb - 1) * 100
       if (!isFinite(profitPct)) continue
-      // Only include positive arbs
-      if (profitPct <= 0) continue
+      // Only include positive arbs, cap at 20% to filter mismatched-line artifacts
+      if (profitPct <= 0 || profitPct > 20) continue
       const ev = (bestOver as any).event
       propArbs.push({
         eventTitle: ev?.title ?? '—',
