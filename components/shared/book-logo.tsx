@@ -12,7 +12,8 @@ interface BookConfig {
   bg: string      // tailwind bg class (fallback only)
   text: string    // tailwind text class (fallback only)
   hasLogo?: boolean  // true if /public/books/{slug}.png exists
-  logoSlug?: string  // use a different slug's PNG (e.g. betrivers_on → betrivers)
+  logoSlug?: string  // use a different slug's file (e.g. betrivers_on → betrivers)
+  logoExt?: string   // file extension override (default: 'png')
 }
 
 const BOOK_CONFIG: Record<string, BookConfig> = {
@@ -31,18 +32,17 @@ const BOOK_CONFIG: Record<string, BookConfig> = {
   betway:              { abbrev: 'BW',  bg: 'bg-[#2d2d2d]',      text: 'text-white',        hasLogo: true },
   betvictor:           { abbrev: 'BV',  bg: 'bg-[#cc0000]',      text: 'text-white',        hasLogo: true },
   bet99:               { abbrev: '99',  bg: 'bg-[#1a1a1a]',      text: 'text-[#f5c518]',   hasLogo: true },
-  unibet:              { abbrev: 'UB',  bg: 'bg-[#147b45]',      text: 'text-white' },
   northstarbets:       { abbrev: 'NS',  bg: 'bg-[#1e3a5f]',      text: 'text-white',        hasLogo: true },
   proline:             { abbrev: 'PL',  bg: 'bg-[#003da5]',      text: 'text-white',        hasLogo: true },
-  '888sport':          { abbrev: '888', bg: 'bg-[#1e1e1e]',      text: 'text-[#ff8800]' },
-  bwin:                { abbrev: 'BW',  bg: 'bg-[#ffcc00]',      text: 'text-black' },
-  betano:              { abbrev: 'BN',  bg: 'bg-[#ff6b00]',      text: 'text-white' },
-  leovegas:            { abbrev: 'LV',  bg: 'bg-[#ff6600]',      text: 'text-white' },
-  tonybet:             { abbrev: 'TB',  bg: 'bg-[#1a1a2e]',      text: 'text-[#00d4ff]' },
-  casumo:              { abbrev: 'CA',  bg: 'bg-[#7b2d8e]',      text: 'text-white' },
-  ballybet:            { abbrev: 'BB',  bg: 'bg-[#e31837]',      text: 'text-white' },
-  partypoker:          { abbrev: 'PP',  bg: 'bg-[#ff6600]',      text: 'text-white' },
-  jackpotbet:          { abbrev: 'JB',  bg: 'bg-[#ffd700]',      text: 'text-black' },
+  '888sport':          { abbrev: '888', bg: 'bg-[#1e1e1e]',      text: 'text-[#ff8800]',    hasLogo: true },
+  bwin:                { abbrev: 'BW',  bg: 'bg-[#ffcc00]',      text: 'text-black',        hasLogo: true },
+  betano:              { abbrev: 'BN',  bg: 'bg-[#ff6b00]',      text: 'text-white',        hasLogo: true },
+  leovegas:            { abbrev: 'LV',  bg: 'bg-[#ff6600]',      text: 'text-white',        hasLogo: true },
+  tonybet:             { abbrev: 'TB',  bg: 'bg-[#1a1a2e]',      text: 'text-[#00d4ff]',    hasLogo: true },
+  casumo:              { abbrev: 'CA',  bg: 'bg-[#7b2d8e]',      text: 'text-white',        hasLogo: true },
+  ballybet:            { abbrev: 'BB',  bg: 'bg-[#e31837]',      text: 'text-white',        hasLogo: true },
+  partypoker:          { abbrev: 'PP',  bg: 'bg-[#ff6600]',      text: 'text-white',        hasLogo: true },
+  jackpotbet:          { abbrev: 'JB',  bg: 'bg-[#ffd700]',      text: 'text-black',        hasLogo: true, logoSlug: 'jackpot', logoExt: 'jpg' },
   polymarket:          { abbrev: 'PM',  bg: 'bg-[#0052ff]',      text: 'text-white' },
   kalshi:              { abbrev: 'KL',  bg: 'bg-[#6366f1]',      text: 'text-white' },
   the_odds_api:        { abbrev: 'OA',  bg: 'bg-nb-700',         text: 'text-white' },
@@ -66,7 +66,6 @@ const NAME_TO_SLUG: Record<string, string> = {
   'Betway':              'betway',
   'BetVictor':           'betvictor',
   'BET99':               'bet99',
-  'Unibet':              'unibet',
   'NorthStar Bets':      'northstarbets',
   'PROLINE+':            'proline',
   '888sport':            '888sport',
@@ -118,9 +117,10 @@ export function BookLogo({ name, size = 'sm', className = '' }: BookLogoProps) {
   // Use real logo if available
   if (config.hasLogo && !imgError) {
     const logoFile = config.logoSlug ?? slug
+    const logoExt = config.logoExt ?? 'png'
     return (
       <Image
-        src={`/books/${logoFile}.png`}
+        src={`/books/${logoFile}.${logoExt}`}
         alt={name}
         title={name}
         width={sz.img}

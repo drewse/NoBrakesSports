@@ -24,7 +24,6 @@ const PAGE_SIZE = 2000
 // Kambi operators with confirmed public API access and distinct odds
 export const KAMBI_OPERATORS: { clientId: string; sourceSlug: string; displayName: string }[] = [
   { clientId: 'rsicaon',      sourceSlug: 'betrivers',    displayName: 'BetRivers (Ontario)' },
-  { clientId: 'ubca',         sourceSlug: 'unibet',       displayName: 'Unibet CA' },
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 ]
@@ -402,7 +401,7 @@ export interface KambiOperatorResults {
 
 /**
  * Full Kambi scrape: fetch every prop for every event across all configured sports
- * and ALL Kambi operators (BetRivers, Unibet, LeoVegas).
+ * and ALL Kambi operators (BetRivers, LeoVegas, NorthStar).
  *
  * Each operator may return different odds for the same events.
  * Event IDs are shared across operators (Kambi platform-level), but prices differ.
