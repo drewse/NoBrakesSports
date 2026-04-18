@@ -3,6 +3,7 @@
 import { useMemo } from 'react'
 import { formatOdds, formatSpread } from '@/lib/utils'
 import type { MarketSnapshot } from '@/types'
+import { BookLogo } from '@/components/shared/book-logo'
 
 interface MarketComparisonSectionProps {
   marketType: string
@@ -105,7 +106,7 @@ function MoneylineTable({
             <tr key={snap.id} className="border-b border-border/30 hover:bg-nb-800/20 transition-colors">
               <td className="px-4 py-2.5">
                 <span className="text-xs text-nb-300 font-medium">
-                  {(snap.source as any)?.name ?? '—'}
+                  <BookLogo name={(snap.source as any)?.slug ?? (snap.source as any)?.name ?? '—'} size="sm" />
                 </span>
               </td>
               <td className="px-4 py-2.5">
@@ -198,7 +199,7 @@ function SpreadTable({
                     <tr key={snap.id} className="border-b border-border/30 hover:bg-nb-800/20 transition-colors">
                       <td className="px-4 py-2.5">
                         <span className="text-xs text-nb-300 font-medium">
-                          {(snap.source as any)?.name ?? '—'}
+                          <BookLogo name={(snap.source as any)?.slug ?? (snap.source as any)?.name ?? '—'} size="sm" />
                         </span>
                       </td>
                       <td className="px-4 py-2.5">
@@ -278,7 +279,7 @@ function TotalTable({ snapshots }: { snapshots: MarketSnapshot[] }) {
                     <tr key={snap.id} className="border-b border-border/30 hover:bg-nb-800/20 transition-colors">
                       <td className="px-4 py-2.5">
                         <span className="text-xs text-nb-300 font-medium">
-                          {(snap.source as any)?.name ?? '—'}
+                          <BookLogo name={(snap.source as any)?.slug ?? (snap.source as any)?.name ?? '—'} size="sm" />
                         </span>
                       </td>
                       <td className="px-4 py-2.5">

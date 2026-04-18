@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { BookOpen, ChevronDown, Check } from 'lucide-react'
+import { BookLogo } from '@/components/shared/book-logo'
 import { Button } from '@/components/ui/button'
 import {
   BOOK_FILTER_COOKIE,
@@ -207,6 +208,7 @@ export function BookSelector({ sources, initialEnabled, canadianSlugs }: BookSel
                   >
                     {isChecked && <Check className="h-2.5 w-2.5 text-nb-950" strokeWidth={3} />}
                   </div>
+                  <BookLogo name={source.slug ?? source.name} size="sm" />
                   <span className={`text-xs flex-1 text-left ${isChecked ? 'text-white' : 'text-nb-400'}`}>
                     {source.name}
                   </span>

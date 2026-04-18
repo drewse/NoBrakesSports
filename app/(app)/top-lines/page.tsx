@@ -15,6 +15,7 @@ import {
 } from '@/lib/utils'
 import { isUpcomingEvent } from '@/lib/queries'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
+import { BookLogo } from '@/components/shared/book-logo'
 
 export const metadata = { title: 'Top EV Lines' }
 
@@ -625,7 +626,7 @@ export default async function TopEvLinesPage({
                         <p className="text-sm font-semibold text-white mb-0.5">{line.outcomeLabel}</p>
                         <div className="flex items-baseline gap-2">
                           <span className="font-mono text-xl font-bold text-white">{formatOdds(line.bestPrice)}</span>
-                          <span className="text-[10px] text-nb-400">{line.bestSource}</span>
+                          <BookLogo name={line.bestSource} size="sm" />
                         </div>
                         <div className="flex items-center gap-3 mt-1.5">
                           <span className={`font-mono text-xs font-bold ${evColor(line.evPct)}`}>
@@ -729,7 +730,7 @@ export default async function TopEvLinesPage({
                           <span className="font-mono text-sm text-white">
                             {formatOdds(line.bestPrice)}
                           </span>
-                          <p className="text-[10px] text-nb-400 mt-0.5">{line.bestSource}</p>
+                          <div className="mt-1"><BookLogo name={line.bestSource} size="sm" /></div>
                         </td>
 
                         {/* All books */}
@@ -745,7 +746,7 @@ export default async function TopEvLinesPage({
                                     : 'border-nb-800 text-nb-400',
                                 ].join(' ')}
                               >
-                                <span className="text-[9px] text-nb-500 font-sans">{src.name.split(' ')[0]}</span>
+                                <BookLogo name={src.name} size="xs" />
                                 <span>{formatOdds(src.price)}</span>
                               </div>
                             ))}

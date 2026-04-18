@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatOdds, formatRelativeTime } from '@/lib/utils'
 import { Calculator, Clock, DollarSign, Target, Wallet } from 'lucide-react'
+import { BookLogo } from '@/components/shared/book-logo'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -209,7 +210,7 @@ export function ArbCalculatorClient({
                           {' '}@{' '}
                           <span className="font-mono text-white font-semibold">{formatOdds(side.price)}</span>
                           {' '}on{' '}
-                          <span className="text-nb-200 font-medium">{side.source}</span>
+                          <BookLogo name={side.source} size="xs" />
                         </p>
                       ))}
                     </div>
@@ -352,10 +353,10 @@ export function ArbCalculatorClient({
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5 min-w-0 text-[11px] flex-wrap">
                       <span className="text-nb-200 font-mono font-semibold">{formatOdds(arb.bestSideA.price)}</span>
-                      <span className="text-nb-500 truncate">{arb.bestSideA.source}</span>
+                      <BookLogo name={arb.bestSideA.source} size="xs" />
                       <span className="text-nb-700">vs</span>
                       <span className="text-nb-200 font-mono font-semibold">{formatOdds(arb.bestSideB.price)}</span>
-                      <span className="text-nb-500 truncate">{arb.bestSideB.source}</span>
+                      <BookLogo name={arb.bestSideB.source} size="xs" />
                     </div>
                     <span className="text-[10px] text-nb-600 flex-shrink-0">{formatRelativeTime(arb.lastUpdated)}</span>
                   </div>
@@ -390,7 +391,7 @@ function BetCard({
     <div className="bg-nb-800/60 rounded-xl border border-nb-700/50 p-4 space-y-3">
       <div className="flex items-center justify-between">
         <span className={`text-sm font-bold ${isPrimary ? 'text-white' : 'text-nb-300'}`}>{label}</span>
-        <span className="text-xs text-nb-500 font-medium">{source}</span>
+        <BookLogo name={source} size="md" />
       </div>
       <div className="text-center py-1">
         <p className="font-mono text-3xl font-bold text-white">{formatOdds(price)}</p>

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { ProGate } from '@/components/shared/pro-gate'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
+import { BookLogo } from '@/components/shared/book-logo'
 import { formatOdds, formatRelativeTime } from '@/lib/utils'
 
 export const metadata = { title: 'History' }
@@ -87,7 +88,7 @@ export default async function HistoryPage() {
                               <p className="text-xs font-medium text-white">{(snap as any).event?.title ?? '—'}</p>
                               <p className="text-[10px] text-nb-500">{(snap as any).event?.league?.abbreviation}</p>
                             </td>
-                            <td className="px-4 py-2.5 text-xs text-nb-300">{(snap as any).source?.name}</td>
+                            <td className="px-4 py-2.5"><BookLogo name={(snap as any).source?.slug ?? (snap as any).source?.name ?? '—'} size="sm" /></td>
                             <td className="px-4 py-2.5">
                               <Badge variant="muted" className="text-[10px] capitalize">{snap.market_type}</Badge>
                             </td>

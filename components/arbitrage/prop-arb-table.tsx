@@ -1,6 +1,7 @@
 'use client'
 
 import { formatOdds, formatRelativeTime } from '@/lib/utils'
+import { BookLogo } from '@/components/shared/book-logo'
 
 export interface PropArb {
   eventTitle: string
@@ -79,13 +80,13 @@ export function PropArbTable({ arbs }: { arbs: PropArb[] }) {
               <td className="px-4 py-2.5">
                 <div className="flex flex-col gap-0.5">
                   <span className="font-mono text-xs text-green-400">{formatOdds(arb.bestOverPrice)}</span>
-                  <span className="text-[10px] text-nb-400">{arb.bestOverSource}</span>
+                  <BookLogo name={arb.bestOverSource} size="xs" />
                 </div>
               </td>
               <td className="px-4 py-2.5">
                 <div className="flex flex-col gap-0.5">
                   <span className="font-mono text-xs text-green-400">{formatOdds(arb.bestUnderPrice)}</span>
-                  <span className="text-[10px] text-nb-400">{arb.bestUnderSource}</span>
+                  <BookLogo name={arb.bestUnderSource} size="xs" />
                 </div>
               </td>
               <td className="px-4 py-2.5">

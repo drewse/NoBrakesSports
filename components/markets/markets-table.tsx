@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-table'
 import { ArrowUp, ArrowDown, ArrowUpDown, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { BookLogo } from '@/components/shared/book-logo'
 import { Button } from '@/components/ui/button'
 import { formatOdds, formatImpliedProb, formatSpread, formatRelativeTime } from '@/lib/utils'
 import type { MarketSnapshot } from '@/types'
@@ -50,7 +51,7 @@ export function MarketsTable({ snapshots, isPro }: MarketsTableProps) {
       header: 'Source',
       cell: ({ row }) => {
         const source = (row.original as any).source
-        return <span className="text-xs text-nb-300 whitespace-nowrap">{source?.name ?? '—'}</span>
+        return <BookLogo name={source?.slug ?? source?.name ?? '—'} size="sm" />
       },
     },
     {

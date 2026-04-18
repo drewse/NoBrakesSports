@@ -3,6 +3,7 @@ import { ChevronRight, TrendingUp, TrendingDown } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { formatDivergence, formatPredictionPrice } from '@/lib/utils'
+import { BookLogo } from '@/components/shared/book-logo'
 import type { PredictionMarketSnapshot } from '@/types'
 
 interface DivergenceCardProps {
@@ -39,7 +40,7 @@ export function DivergenceCard({ predictions }: DivergenceCardProps) {
                     {(p as any).event?.title ?? p.contract_title}
                   </p>
                   <div className="flex items-center justify-between">
-                    <span className="text-[10px] text-nb-400">{(p as any).source?.name}</span>
+                    <BookLogo name={(p as any).source?.slug ?? (p as any).source?.name ?? '—'} size="xs" />
                     <div className="flex items-center gap-1">
                       {isPositive ? (
                         <TrendingUp className="h-3 w-3 text-white" />

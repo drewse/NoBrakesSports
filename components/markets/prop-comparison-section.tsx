@@ -2,6 +2,7 @@
 
 import { useState, useMemo, Fragment } from 'react'
 import { formatOdds } from '@/lib/utils'
+import { BookLogo } from '@/components/shared/book-logo'
 
 interface PropOdd {
   source_id: string
@@ -185,8 +186,8 @@ export function PropComparisonSection({ props }: PropComparisonSectionProps) {
                 <tr className="border-b border-nb-800/50">
                   <th className="sticky left-0 bg-nb-900/90 z-10" />
                   {sources.map(s => (
-                    <th key={s.id} colSpan={3} className="px-2 py-1 text-center text-[10px] font-semibold text-nb-300 uppercase tracking-wider">
-                      {s.name}
+                    <th key={s.id} colSpan={3} className="px-2 py-1 text-center">
+                      <div className="flex justify-center"><BookLogo name={s.slug ?? s.name} size="sm" /></div>
                     </th>
                   ))}
                 </tr>
