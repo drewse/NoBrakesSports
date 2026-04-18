@@ -361,16 +361,6 @@ export default async function ArbitragePage() {
 
   return (
     <div className="p-6 space-y-5 max-w-[1600px]">
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-lg font-bold text-white">Arbitrage</h1>
-          <Badge variant="pro">PRO</Badge>
-        </div>
-        <p className="text-xs text-nb-400">
-          {totalArbs} opportunities detected across {uniqueBooks} books
-        </p>
-      </div>
-
       <ProGate isPro={isPro} featureName="Arbitrage" blur={false}>
         <ArbCalculatorClient
           arbs={allArbs as UnifiedArb[]}

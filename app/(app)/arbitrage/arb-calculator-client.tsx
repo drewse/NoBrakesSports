@@ -101,10 +101,28 @@ export function ArbCalculatorClient({
     ? arbs.reduce((latest, a) => (a.lastUpdated > latest ? a.lastUpdated : latest), arbs[0].lastUpdated)
     : null
 
+  function formatTimestamp(iso: string): string {
+    return new Date(iso).toLocaleString('en-US', {
+      month: 'short', day: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+      hour12: true,
+    })
+  }
+
   return (
     <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-12rem)]">
-      {/* ── Left Panel: Calculator (60%) ──────────────────────── */}
+      {/* ── Left Panel: Calculator ──────────────────────── */}
       <div className="lg:w-[72%] w-full flex-shrink-0 order-2 lg:order-1">
+        {/* Header */}
+        <div className="mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <h1 className="text-lg font-bold text-white">Arbitrage</h1>
+            <Badge variant="pro">PRO</Badge>
+          </div>
+          <p className="text-xs text-nb-400">
+            {totalArbs} opportunities detected across {uniqueBooks} books
+          </p>
+        </div>
         <div className="lg:sticky lg:top-4">
           {!selected ? (
             <Card className="bg-nb-900 border-nb-800">
@@ -286,21 +304,21 @@ export function ArbCalculatorClient({
         </div>
       </div>
 
-      {/* ── Right Panel: Opportunity Feed (40%) ──────────────── */}
-      <div className="lg:w-[28%] w-full flex flex-col min-h-0 order-1 lg:order-2 lg:-mt-[4.25rem]">
-        <div className="flex items-center justify-between mb-2">
-          <div>
-            <h2 className="text-white text-sm font-bold">Opportunities</h2>
-            <p className="text-nb-500 text-[10px] mt-0.5">
-              {totalArbs} found across {uniqueBooks} books
-            </p>
+      {/* ── Right Panel: Opportunity Feed ──────────────── */}
+      <div className="lg:w-[28%] w-full flex flex-col min-h-0 order-1 lg:order-2">
+        {/* Header — aligned with left panel */}
+        <div className="mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <h2 className="text-lg font-bold text-white">Opportunities</h2>
           </div>
-          {latestScan && (
-            <div className="flex items-center gap-1 text-nb-500">
-              <Clock className="h-3 w-3" />
-              <span className="text-[10px]">{formatRelativeTime(latestScan)}</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1 text-nb-500">
+            <Clock className="h-3 w-3" />
+            {latestScan ? (
+              <span className="text-[10px]">Last updated at {formatTimestamp(latestScan)}</span>
+            ) : (
+              <span className="text-[10px]">No data yet</span>
+            )}
+          </div>
         </div>
 
         {totalArbs === 0 ? (
