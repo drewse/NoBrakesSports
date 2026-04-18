@@ -161,3 +161,43 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ── Scroll fade-in animation ─────────────────────────────────────────────── */
+.scroll-fade {
+  opacity: 0;
+  transform: translateY(24px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+              transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-fade-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Card lift on hover ───────────────────────────────────────────────────── */
+.card-lift {
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+              border-color 0.25s ease,
+              box-shadow 0.25s ease;
+}
+
+.card-lift:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.4);
+}
+
+/* ── Hero glow effect ─────────────────────────────────────────────────────── */
+.hero-glow {
+  background: radial-gradient(
+    ellipse 60% 40% at 50% 0%,
+    rgba(255, 255, 255, 0.06) 0%,
+    transparent 70%
+  );
+}
+
+/* ── Dashboard preview glow ───────────────────────────────────────────────── */
+.preview-glow {
+  box-shadow: 0 0 80px rgba(255, 255, 255, 0.03),
+              0 0 160px rgba(255, 255, 255, 0.02);
+}
