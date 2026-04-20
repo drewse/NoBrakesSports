@@ -51,16 +51,22 @@ export const DK_LEAGUES: {
   },
   {
     sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
-    // Live DK MLB subcategory IDs captured by the phase-1 probe. Listed
-    // explicitly instead of a wide scan so we don't burn thousands of
-    // requests per cron cycle (which was timing out and triggering DK
-    // connection resets on other leagues).
+    // Known-live IDs from the initial scan + wider candidate range to
+    // catch missing batter stats (hits/runs/rbis/stolen bases/walks/Ks)
+    // that must live in IDs outside the 15200-16600 window we first tried.
+    // Phase-1 probe will trim this to the actual live set.
     propSubcategoryIds: [
+      // Confirmed live from last run
       '15219', '15221', '15418',
       '15628', '15629', '15630', '15631', '15632',
       '15891', '15892', '15893', '15972',
       '16216', '16217', '16218', '16220', '16221', '16222', '16223',
       '16261', '16262', '16263', '16264', '16265', '16266', '16268',
+      // Wider unexplored ranges
+      ...Array.from({ length: 1000 }, (_, i) => String(13500 + i)), // 13500-14499
+      ...Array.from({ length: 700 }, (_, i) => String(14500 + i)),  // 14500-15199
+      ...Array.from({ length: 400 }, (_, i) => String(16600 + i)),  // 16600-16999
+      ...Array.from({ length: 500 }, (_, i) => String(17000 + i)),  // 17000-17499
     ],
   },
   {
@@ -536,9 +542,34 @@ async function fetchLeague(
     //   Phase 2 — fetch the surviving IDs × every event in parallel.
     const eventIds = results.map(r => r.event.eventId)
 
-    // Phase-1 probe skipped — the propSubcategoryIds lists in DK_LEAGUES
-    // are already pre-trimmed to known-live IDs. Saves ~1.4k probe
-    // requests per cron cycle.
+    // Phase-1 probe (only when the candidate list is large) — fire chunked
+    // concurrent probes against the first event to narrow down to live IDs.
+    // Skipped for NBA where the list is already pre-trimmed.
+    if (propSubcategoryIds.size > 50 && eventIds.length > 0) {
+      const PROBE_CHUNK = 100
+      const allIds = [...propSubcategoryIds]
+      const liveIds = new Set<string>()
+      for (let i = 0; i < allIds.length; i += PROBE_CHUNK) {
+        const slice = allIds.slice(i, i + PROBE_CHUNK)
+        const probeResults = await Promise.all(
+          slice.map(async (subId) => {
+            try {
+              const resp = await dkFetch(buildEventPropUrl(eventIds[0], subId))
+              if (!resp.ok) return null
+              const data = await resp.json()
+              return (data.markets ?? []).length > 0 ? subId : null
+            } catch { return null }
+          }),
+        )
+        for (const r of probeResults) if (r) liveIds.add(r)
+      }
+      propSubcategoryIds.clear()
+      for (const id of liveIds) propSubcategoryIds.add(id)
+      if (league.name === 'MLB') {
+        console.log(`[DK MLB] live subcategory IDs after wide scan:`, [...liveIds])
+      }
+    }
+
     // Diag: collect every MLB marketType we encounter with a running
     // count of markets. Helps identify missing DK_PROP_MAP entries.
     const mlbMarketTypeCounts = new Map<string, { mapped: boolean; count: number }>()
