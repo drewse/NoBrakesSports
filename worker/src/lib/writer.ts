@@ -24,6 +24,7 @@ export async function writeBookResults(
   ctx: WriterContext,
   results: ScrapedEvent[]
 ): Promise<WriteResult> {
+  log.info('write begin', { source: ctx.sourceSlug, inputEvents: results.length, build: 'v3' })
   const db = getSupabase()
   const now = new Date().toISOString()
   const errors: string[] = []

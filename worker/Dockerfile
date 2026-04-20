@@ -27,4 +27,7 @@ RUN npx tsc
 ENV PORT=8080
 EXPOSE 8080
 
+ARG CACHEBUST=v3
+RUN echo "Build $CACHEBUST" > /tmp/build.txt
+
 CMD ["node", "dist/index.js"]
