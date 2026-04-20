@@ -99,18 +99,13 @@ export async function writeBookResults(
     eventByMatchKey.set(key, entry)
   }
 
-  /** Figure out the DB event's home team from the title parts by looking for
-   *  the adapter's team names inside them. Works with either "Home vs Away"
-   *  or "Away vs Home" stored-title conventions. Falls back to the adapter's
-   *  home team (no swap) when neither name matches (different labeling). */
-  function resolveDbHome(parts: [string, string], adapterHome: string, adapterAway: string): string {
-    const p0 = normTeam(parts[0])
-    const p1 = normTeam(parts[1])
-    const h = normTeam(adapterHome)
-    const a = normTeam(adapterAway)
-    if (p0 === h || p1 === a) return parts[0]
-    if (p1 === h || p0 === a) return parts[1]
-    return adapterHome
+  /** The stored row's home side is ALWAYS parts[0] of the title (the main app
+   *  display parses it that way, so this is the canonical anchor). If the
+   *  adapter's own home team doesn't line up with parts[0], we need to swap
+   *  the adapter's home/away prices before writing so every book's
+   *  home_price column refers to the same team within a given event. */
+  function resolveDbHome(parts: [string, string]): string {
+    return parts[0]
   }
 
   // ── 4. Per-event processing ──
@@ -141,7 +136,7 @@ export async function writeBookResults(
     const matched = eventByExtId.get(extId) ?? eventByMatchKey.get(extId)
     let eventId = matched?.id
     let dbHomeTeam = matched
-      ? resolveDbHome(matched.titleParts, event.homeTeam, event.awayTeam)
+      ? resolveDbHome(matched.titleParts)
       : event.homeTeam
     if (!eventId) {
       // Auto-create the event. If another client (Vercel sync) inserted the

@@ -220,6 +220,13 @@ export async function GET(req: NextRequest) {
     return `nick:${leagueSlug}:${date}:${sorted[0]}:${sorted[1]}`
   }
 
+  // Track each event's canonical "home" side (parts[0] of title). Every
+  // book's home_price column in current_market_odds must refer to the SAME
+  // team for an event or else cross-book arbs pair mismatched sides and
+  // produce phantom opportunities. Books that disagree on home/away get
+  // swapped at write time (see needsSwap helper below).
+  const eventHomeSide = new Map<string, string>()
+
   for (const ev of (dbEvents ?? []) as any[]) {
     const leagueSlug = ev.league?.slug ?? ''
     const date = new Date(ev.start_time).toISOString().slice(0, 10)
@@ -229,6 +236,37 @@ export async function GET(req: NextRequest) {
       const teamB = parts[1].trim()
       eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), ev.id)
       eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), ev.id)
+      eventHomeSide.set(ev.id, teamA)
+    }
+  }
+
+  /** Returns true when the adapter's homeName is NOT the DB event's canonical
+   *  parts[0] home — i.e., the gm.homePrice/awayPrice need to be swapped to
+   *  line up with other books' rows for the same event. */
+  function needsSwap(eventId: string, adapterHome: string, adapterAway: string): boolean {
+    const dbHome = eventHomeSide.get(eventId)
+    if (!dbHome) return false
+    const n = (s: string) => s.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+    const h = n(adapterHome), a = n(adapterAway), db = n(dbHome)
+    // If adapter's home equals canonical home, no swap.
+    if (h === db) return false
+    // If adapter's away equals canonical home, swap is needed.
+    if (a === db) return true
+    // Last-word nickname match (e.g. "LA Dodgers" vs "Los Angeles Dodgers")
+    const lastWord = (s: string) => s.split(' ').pop() ?? ''
+    if (lastWord(h) === lastWord(db)) return false
+    if (lastWord(a) === lastWord(db)) return true
+    return false
+  }
+
+  /** Apply home/away swap to a game market row if the adapter's notion of
+   *  home differs from the DB event's canonical parts[0] home. */
+  function orientGM(gm: any, eventId: string, adapterHome: string, adapterAway: string): any {
+    if (!needsSwap(eventId, adapterHome, adapterAway)) return gm
+    return {
+      ...gm,
+      homePrice: gm.awayPrice ?? null,
+      awayPrice: gm.homePrice ?? null,
     }
   }
 
@@ -239,11 +277,13 @@ export async function GET(req: NextRequest) {
       ?? eventByKey.get(makeNicknameKey(leagueSlug, date, teamA, teamB))
   }
 
-  /** Register a new event in the lookup */
-  function registerEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string, eventId: string) {
+  /** Register a new event in the lookup. The `homeName` (physical home team)
+   *  is stored as the canonical home anchor so later writers swap if needed. */
+  function registerEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string, eventId: string, homeName?: string) {
     const date = new Date(startTime).toISOString().slice(0, 10)
     eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), eventId)
     eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), eventId)
+    if (homeName) eventHomeSide.set(eventId, homeName)
   }
 
   // Collect all Kambi events that need DB event creation
@@ -283,7 +323,7 @@ export async function GET(req: NextRequest) {
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
 
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
@@ -291,7 +331,7 @@ export async function GET(req: NextRequest) {
 
     if (newEvent) {
       eventsCreated++
-      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName)
     }
   }
 
@@ -392,7 +432,8 @@ export async function GET(req: NextRequest) {
       const eventId = findEvent(leagueSlug, result.event.start, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
         const homeProb = gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null
@@ -429,7 +470,8 @@ export async function GET(req: NextRequest) {
       const eventId = findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
         gameMarketRows.push({
@@ -480,7 +522,7 @@ export async function GET(req: NextRequest) {
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
 
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
@@ -488,7 +530,7 @@ export async function GET(req: NextRequest) {
 
     if (newEvent) {
       eventsCreated++
-      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName)
     }
   }
 
@@ -499,7 +541,8 @@ export async function GET(req: NextRequest) {
       const eventId = findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
         gameMarketRows.push({
@@ -533,14 +576,14 @@ export async function GET(req: NextRequest) {
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
 
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
     if (newEvent) {
       eventsCreated++
-      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id)
+      registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName)
     }
   }
 
@@ -550,7 +593,8 @@ export async function GET(req: NextRequest) {
       const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
 
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
           .map(v => v ?? '').join('|')
         gameMarketRows.push({
@@ -586,19 +630,20 @@ export async function GET(req: NextRequest) {
     const leagueId = leagueIdBySlug.get(leagueSlug)
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
-    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
+    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName) }
   }
 
   if (mgmSourceId) {
     for (const result of mgmResults) {
       const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: mgmSourceId, market_type: gm.marketType,
@@ -633,19 +678,20 @@ export async function GET(req: NextRequest) {
     const leagueId = leagueIdBySlug.get(leagueSlug)
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
-    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
+    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName) }
   }
 
   if (bwinSourceId) {
     for (const result of bwinResults) {
       const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: bwinSourceId, market_type: gm.marketType,
@@ -679,19 +725,20 @@ export async function GET(req: NextRequest) {
     const leagueId = leagueIdBySlug.get(leagueSlug)
     if (!leagueId) continue
     if (findEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)) continue
-    const title = `${result.event.awayName} vs ${result.event.homeName}`
+    const title = `${result.event.homeName} vs ${result.event.awayName}`
     const { data: newEvent } = await db
       .from('events')
       .insert({ title, start_time: result.event.startTime, status: 'scheduled', league_id: leagueId, external_id: makeExternalId(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName) })
       .select('id').single()
-    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id) }
+    if (newEvent) { eventsCreated++; registerEvent(leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName, newEvent.id, result.event.homeName) }
   }
 
   if (ppSourceId) {
     for (const result of ppResults) {
       const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeName, result.event.awayName)
       if (!eventId) continue
-      for (const gm of result.gameMarkets) {
+      for (const rawGm of result.gameMarkets) {
+        const gm = orientGM(rawGm, eventId, result.event.homeName, result.event.awayName)
         const oddsHash = [gm.homePrice, gm.awayPrice, gm.drawPrice, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice].map(v => v ?? '').join('|')
         gameMarketRows.push({
           event_id: eventId, source_id: ppSourceId, market_type: gm.marketType,
