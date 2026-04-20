@@ -31,12 +31,16 @@ import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, NormalizedEvent, GameMarket } from '../lib/types.js'
 
 const BASE = 'https://www.on.bet365.ca'
-const SEED_URL = `${BASE}/#/IP/B18` // NBA page — sets the cf_clearance cookie
 
 interface Bet365Competition {
   name: string
   leagueSlug: string
   sport: string
+  /** URL fragment that bet365 navigates to for this league's market grid.
+   *  Loading it causes bet365's own JS to fire the matchmarketscontentapi
+   *  requests with valid x-net-sync-term + cookies — we capture those
+   *  responses via waitForResponse. */
+  pageFragment: string
   lid: number
   cid: number
   cgid: number
@@ -52,10 +56,10 @@ const COMPETITIONS: Bet365Competition[] = [
     name: 'NBA',
     leagueSlug: 'nba',
     sport: 'basketball',
+    pageFragment: '#/AC/B18/C20604387/D48/',
     lid: 32, cid: 272, cgid: 2, ctid: 272,
     pdB: 18, pdC: 20604387, pdD: 48,
   },
-  // Other leagues TBD — collect lid/cid/cgid/ctid + pd B/C/D from DevTools.
 ]
 
 const MARKET_TYPE_IDS: Array<{ id: number; type: 'moneyline' | 'spread' | 'total' }> = [
@@ -239,37 +243,63 @@ export const bet365Adapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Cloudflare clearance: visit the page and wait for networkidle so
-      // the CF challenge JavaScript completes and cf_clearance is set on
-      // document.cookie. The CF JS issues XHRs that change document.title
-      // / set the cookie before letting the real page render, so
-      // domcontentloaded fires WAY too early.
-      log.info('seed visit', { url: SEED_URL })
-      try {
-        const seedResp = await page.goto(SEED_URL, { waitUntil: 'networkidle', timeout: 60_000 })
-        log.info('seed loaded', { status: seedResp?.status() ?? null, url: page.url() })
-        if (seedResp && seedResp.status() === 403) {
-          log.error('seed blocked by Cloudflare 403 — proxy may need rotation', {
-            html: (await page.content()).slice(0, 200),
-          })
-          return { events: [], errors: ['CF 403 on seed'] }
-        }
-      } catch (e: any) {
-        log.error('seed nav failed', { message: e?.message ?? String(e) })
-        errors.push(`seed nav: ${e?.message ?? e}`)
-        return { events: [], errors }
-      }
-      // Extra settle for CF cookie write
-      await page.waitForTimeout(3_000)
-
       for (const comp of COMPETITIONS) {
         if (signal.aborted) break
 
-        // Fetch each market type from inside the page's JS context so the
-        // request inherits the page's session cookies + TLS fingerprint.
-        // page.request.get() uses a separate context and gets blocked by CF.
+        // Strategy: navigate to bet365's NBA grid page and let their JS
+        // fire the matchmarketscontentapi requests with the proper
+        // x-net-sync-term header + cookies. We intercept the responses via
+        // waitForResponse rather than trying to forge our own request.
+        const targetUrl = `${BASE}/${comp.pageFragment}`
+
+        // Pre-register response listeners for the three market type fetches
+        // BEFORE navigating — pages issue these requests during render.
+        const captured = new Map<'moneyline' | 'spread' | 'total', { status: number; text: string }>()
+        const listenerOff = page.on('response', async (resp) => {
+          const url = resp.url()
+          if (!url.includes('matchmarketscontentapi/markets')) return
+          // Parse market type from URL pd parameter (E=NNN)
+          const eMatch = decodeURIComponent(url).match(/[#%23]E(\d+)[#%23]/)
+          if (!eMatch) return
+          const eId = parseInt(eMatch[1], 10)
+          const mt = MARKET_TYPE_IDS.find(m => m.id === eId)
+          if (!mt) return
+          if (captured.has(mt.type)) return
+          try {
+            const text = await resp.text()
+            captured.set(mt.type, { status: resp.status(), text })
+          } catch { /* response stream may have closed */ }
+        })
+
+        log.info('navigating to comp page', { comp: comp.name, url: targetUrl })
+        try {
+          await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 60_000 })
+        } catch (e: any) {
+          log.error('comp page nav failed', { comp: comp.name, message: e?.message ?? String(e) })
+          errors.push(`${comp.name} nav: ${e?.message ?? e}`)
+          continue
+        }
+        // Give bet365's market loader extra time to finish issuing requests.
+        await page.waitForTimeout(5_000)
+
+        // Stop the listener for this comp.
+        ;(page as unknown as { off: typeof page.on }).off?.('response', listenerOff as any)
+
+        log.info('captured market responses', {
+          comp: comp.name,
+          types: [...captured.keys()],
+          counts: [...captured.entries()].map(([t, v]) => ({ type: t, status: v.status, len: v.text.length })),
+        })
+
+        // If the page didn't fire all three, fall back to fetching them
+        // from inside the page context (might still 200-empty without sync
+        // term, but worth trying once).
         const responses = await Promise.allSettled(
           MARKET_TYPE_IDS.map(async ({ id, type }) => {
+            const cap = captured.get(type)
+            if (cap) {
+              return { type, status: cap.status, text: cap.text, records: parseResponse(cap.text), url: '(captured)' }
+            }
             const url = buildUrl(comp, id)
             const result = await page.evaluate(async ({ u, h }) => {
               const r = await fetch(u, { headers: { Accept: '*/*', ...h }, credentials: 'include' })
