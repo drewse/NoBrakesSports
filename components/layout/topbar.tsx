@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Bell, LogOut, User, CreditCard } from 'lucide-react'
+import { Search, Bell, LogOut, User, CreditCard, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -23,9 +23,10 @@ interface TopbarProps {
   sources?: { name: string; slug: string }[]
   initialEnabledBooks?: string[] | null
   canadianSlugs?: string[]
+  onMenuClick?: () => void
 }
 
-export function Topbar({ profile, title, sources = [], initialEnabledBooks = null, canadianSlugs }: TopbarProps) {
+export function Topbar({ profile, title, sources = [], initialEnabledBooks = null, canadianSlugs, onMenuClick }: TopbarProps) {
   const router = useRouter()
   const [signingOut, setSigningOut] = useState(false)
 
@@ -38,15 +39,23 @@ export function Topbar({ profile, title, sources = [], initialEnabledBooks = nul
   }
 
   return (
-    <header className="flex h-14 items-center justify-between border-b border-border bg-nb-950 px-6">
-      <div className="flex items-center gap-3">
+    <header className="flex h-14 items-center justify-between border-b border-border bg-nb-950 px-3 sm:px-4 lg:px-6">
+      <div className="flex items-center gap-2 min-w-0">
+        {/* Mobile menu trigger */}
+        <button
+          onClick={onMenuClick}
+          className="lg:hidden -ml-1 flex h-10 w-10 items-center justify-center rounded text-nb-300 hover:bg-nb-800 hover:text-white"
+          aria-label="Open menu"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
         {title && (
-          <h1 className="text-sm font-semibold text-white">{title}</h1>
+          <h1 className="text-sm font-semibold text-white truncate">{title}</h1>
         )}
       </div>
 
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="text-nb-400 hover:text-white" aria-label="Search">
+      <div className="flex items-center gap-1 sm:gap-2">
+        <Button variant="ghost" size="icon" className="hidden sm:inline-flex text-nb-400 hover:text-white" aria-label="Search">
           <Search className="h-4 w-4" />
         </Button>
 

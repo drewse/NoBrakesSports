@@ -47,7 +47,7 @@ export default async function LineMovementPage() {
     .slice(0, 10)
 
   return (
-    <div className="p-6 space-y-6 max-w-[1200px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1200px]">
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h1 className="text-lg font-bold text-white">Line Movement</h1>

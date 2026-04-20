@@ -142,15 +142,16 @@ export function BookSelector({ sources, initialEnabled, canadianSlugs }: BookSel
         variant="ghost"
         size="sm"
         onClick={() => setOpen(o => !o)}
-        className={`gap-1.5 h-8 px-2.5 text-xs ${isAll ? 'text-nb-400 hover:text-white' : 'text-white bg-nb-800 hover:bg-nb-700'}`}
+        className={`gap-1.5 h-9 sm:h-8 px-2.5 text-xs ${isAll ? 'text-nb-400 hover:text-white' : 'text-white bg-nb-800 hover:bg-nb-700'}`}
       >
         <BookOpen className="h-3.5 w-3.5 shrink-0" />
-        <span>{label}</span>
+        <span className="hidden xs:inline">{label}</span>
+        <span className="xs:hidden">{isAll ? 'Books' : label.replace(/ of .*/, '')}</span>
         <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </Button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 z-50 w-72 rounded-lg border border-border bg-nb-900 shadow-2xl">
+        <div className="fixed sm:absolute inset-x-3 sm:inset-x-auto sm:right-0 top-[3.5rem] sm:top-full sm:mt-2 z-50 sm:w-72 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-lg border border-border bg-nb-900 shadow-2xl">
           {/* Preset buttons */}
           <div className="p-3 border-b border-border">
             <p className="text-[10px] font-semibold text-nb-500 uppercase tracking-wider mb-2">Quick Select</p>

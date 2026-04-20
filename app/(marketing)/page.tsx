@@ -80,22 +80,22 @@ export default function LandingPage() {
   return (
     <>
       {/* ─── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden min-h-[92vh] flex items-center">
+      <section className="relative overflow-hidden min-h-[80vh] sm:min-h-[92vh] flex items-center">
         <div className="absolute inset-0 bg-grid opacity-100 pointer-events-none" />
         <div className="absolute inset-0 hero-glow pointer-events-none" />
 
-        <div className="relative mx-auto max-w-4xl px-6 py-32 text-center">
+        <div className="relative mx-auto w-full max-w-4xl px-4 sm:px-6 py-20 sm:py-32 text-center">
           {/* Eyebrow */}
           <ScrollFade>
-            <div className="inline-flex items-center gap-2 rounded-full border border-nb-700 bg-nb-900/80 px-4 py-1.5 mb-8">
+            <div className="inline-flex items-center gap-2 rounded-full border border-nb-700 bg-nb-900/80 px-3 py-1.5 mb-6 sm:mb-8">
               <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-xs font-medium text-nb-300 tracking-wide">Live odds from 15+ sportsbooks</span>
+              <span className="text-[11px] sm:text-xs font-medium text-nb-300 tracking-wide">Live odds from 15+ sportsbooks</span>
             </div>
           </ScrollFade>
 
           {/* Headline */}
           <ScrollFade delay={100}>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-white tracking-tight leading-[1.05] mb-6">
+            <h1 className="text-4xl xs:text-5xl sm:text-6xl lg:text-7xl font-bold text-white tracking-tight leading-[1.05] mb-4 sm:mb-6">
               Find +EV Bets
               <br />
               <span className="text-nb-400">Before Anyone Else</span>
@@ -104,7 +104,7 @@ export default function LandingPage() {
 
           {/* Subheadline */}
           <ScrollFade delay={200}>
-            <p className="text-lg sm:text-xl text-nb-400 max-w-xl mx-auto leading-relaxed mb-10">
+            <p className="text-base sm:text-xl text-nb-400 max-w-xl mx-auto leading-relaxed mb-8 sm:mb-10">
               Compare real-time odds across every major sportsbook.
               Surface +EV lines, spot arbitrage, and track line movements — all in one fast dashboard.
             </p>
@@ -131,7 +131,7 @@ export default function LandingPage() {
       </section>
 
       {/* ─── Product Preview ──────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-5xl px-6 -mt-8 pb-24">
+      <section className="mx-auto max-w-5xl px-4 sm:px-6 -mt-4 sm:-mt-8 pb-16 sm:pb-24">
         <ScrollFade>
           <div className="rounded-2xl border border-nb-700/60 bg-nb-900 overflow-hidden preview-glow">
             {/* Browser chrome */}
@@ -141,58 +141,62 @@ export default function LandingPage() {
                 <div className="h-2.5 w-2.5 rounded-full bg-nb-700" />
                 <div className="h-2.5 w-2.5 rounded-full bg-nb-700" />
               </div>
-              <div className="ml-3 flex-1 max-w-xs">
+              <div className="ml-3 flex-1 max-w-xs hidden xs:block">
                 <div className="h-5 rounded-md bg-nb-800 flex items-center px-3">
-                  <span className="text-[10px] text-nb-500 font-mono">nobrakes.sports/dashboard</span>
+                  <span className="text-[10px] text-nb-500 font-mono truncate">nobrakes.sports/dashboard</span>
                 </div>
               </div>
             </div>
 
             {/* Dashboard content */}
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {/* Stat cards */}
-              <div className="grid grid-cols-4 gap-3 mb-5">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-5">
                 {[
                   { label: 'Active Events', value: '247', change: '+12' },
                   { label: '+EV Opportunities', value: '18', change: '+3' },
                   { label: 'Arb Detected', value: '4', change: 'Live' },
                   { label: 'Biggest Edge', value: '4.2%', change: 'NBA' },
                 ].map((stat) => (
-                  <div key={stat.label} className="rounded-lg border border-nb-800 bg-nb-850 p-4">
-                    <p className="text-[10px] text-nb-500 uppercase tracking-wider mb-1.5">{stat.label}</p>
-                    <div className="flex items-end justify-between">
-                      <span className="text-xl font-bold text-white font-mono">{stat.value}</span>
-                      <span className="text-[10px] text-green-400 font-medium">{stat.change}</span>
+                  <div key={stat.label} className="rounded-lg border border-nb-800 bg-nb-850 p-3 sm:p-4">
+                    <p className="text-[9px] sm:text-[10px] text-nb-500 uppercase tracking-wider mb-1.5 truncate">{stat.label}</p>
+                    <div className="flex items-end justify-between gap-1">
+                      <span className="text-lg sm:text-xl font-bold text-white font-mono">{stat.value}</span>
+                      <span className="text-[9px] sm:text-[10px] text-green-400 font-medium">{stat.change}</span>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Table preview */}
+              {/* Table preview — horizontally scrolls on small screens */}
               <div className="rounded-lg border border-nb-800 overflow-hidden">
-                <div className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800 bg-nb-900/80">
-                  {['Event', 'League', 'Best Line', 'Book', 'Edge', 'Status'].map((h) => (
-                    <div key={h} className="text-[10px] text-nb-500 uppercase tracking-wider font-medium">{h}</div>
-                  ))}
-                </div>
-                {[
-                  { event: 'Lakers vs Celtics', league: 'NBA', line: '-110', book: 'DraftKings', edge: '+3.2%', status: 'live' },
-                  { event: 'Yankees vs Red Sox', league: 'MLB', line: '+145', book: 'FanDuel', edge: '+2.8%', status: 'live' },
-                  { event: 'Chiefs vs Bills', league: 'NFL', line: '-105', book: 'BetMGM', edge: '+1.9%', status: 'pre' },
-                  { event: 'Oilers vs Leafs', league: 'NHL', line: '+130', book: 'bet365', edge: '+1.5%', status: 'pre' },
-                  { event: 'Arsenal vs Liverpool', league: 'EPL', line: '-120', book: 'Pinnacle', edge: '+1.2%', status: 'pre' },
-                ].map((row, i) => (
-                  <div key={i} className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800/50 last:border-b-0">
-                    <span className="text-xs text-nb-200 truncate">{row.event}</span>
-                    <span className="text-[11px] text-nb-500 font-mono">{row.league}</span>
-                    <span className="text-xs text-white font-mono font-semibold">{row.line}</span>
-                    <span className="text-[11px] text-nb-400">{row.book}</span>
-                    <span className="text-xs text-green-400 font-mono font-medium">{row.edge}</span>
-                    <span className={`text-[10px] font-medium ${row.status === 'live' ? 'text-green-400' : 'text-nb-500'}`}>
-                      {row.status === 'live' ? 'LIVE' : 'Upcoming'}
-                    </span>
+                <div className="overflow-x-auto">
+                  <div className="min-w-[560px]">
+                    <div className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800 bg-nb-900/80">
+                      {['Event', 'League', 'Best Line', 'Book', 'Edge', 'Status'].map((h) => (
+                        <div key={h} className="text-[10px] text-nb-500 uppercase tracking-wider font-medium">{h}</div>
+                      ))}
+                    </div>
+                    {[
+                      { event: 'Lakers vs Celtics', league: 'NBA', line: '-110', book: 'DraftKings', edge: '+3.2%', status: 'live' },
+                      { event: 'Yankees vs Red Sox', league: 'MLB', line: '+145', book: 'FanDuel', edge: '+2.8%', status: 'live' },
+                      { event: 'Chiefs vs Bills', league: 'NFL', line: '-105', book: 'BetMGM', edge: '+1.9%', status: 'pre' },
+                      { event: 'Oilers vs Leafs', league: 'NHL', line: '+130', book: 'bet365', edge: '+1.5%', status: 'pre' },
+                      { event: 'Arsenal vs Liverpool', league: 'EPL', line: '-120', book: 'Pinnacle', edge: '+1.2%', status: 'pre' },
+                    ].map((row, i) => (
+                      <div key={i} className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800/50 last:border-b-0">
+                        <span className="text-xs text-nb-200 truncate">{row.event}</span>
+                        <span className="text-[11px] text-nb-500 font-mono">{row.league}</span>
+                        <span className="text-xs text-white font-mono font-semibold">{row.line}</span>
+                        <span className="text-[11px] text-nb-400">{row.book}</span>
+                        <span className="text-xs text-green-400 font-mono font-medium">{row.edge}</span>
+                        <span className={`text-[10px] font-medium ${row.status === 'live' ? 'text-green-400' : 'text-nb-500'}`}>
+                          {row.status === 'live' ? 'LIVE' : 'Upcoming'}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
             </div>
           </div>
@@ -201,13 +205,13 @@ export default function LandingPage() {
 
       {/* ─── Stats bar ────────────────────────────────────────────────────── */}
       <section className="border-y border-nb-800/60">
-        <div className="mx-auto max-w-5xl px-6">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6">
           <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-nb-800/60">
             {STATS.map((stat, i) => (
               <ScrollFade key={stat.label} delay={i * 80}>
-                <div className="px-6 py-10 text-center">
-                  <p className="text-3xl font-bold text-white font-mono mb-1">{stat.value}</p>
-                  <p className="text-xs text-nb-500 tracking-wide">{stat.label}</p>
+                <div className="px-3 sm:px-6 py-6 sm:py-10 text-center">
+                  <p className="text-2xl sm:text-3xl font-bold text-white font-mono mb-1">{stat.value}</p>
+                  <p className="text-[11px] sm:text-xs text-nb-500 tracking-wide">{stat.label}</p>
                 </div>
               </ScrollFade>
             ))}
@@ -216,25 +220,25 @@ export default function LandingPage() {
       </section>
 
       {/* ─── Features ─────────────────────────────────────────────────────── */}
-      <section id="features" className="mx-auto max-w-5xl px-6 py-28">
+      <section id="features" className="mx-auto max-w-5xl px-4 sm:px-6 py-16 sm:py-28">
         <ScrollFade>
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 tracking-tight">
+          <div className="text-center mb-10 sm:mb-16">
+            <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 sm:mb-4 tracking-tight">
               Everything you need to beat the books
             </h2>
-            <p className="text-nb-400 max-w-lg mx-auto text-base">
+            <p className="text-nb-400 max-w-lg mx-auto text-sm sm:text-base">
               Built for serious bettors who want data-driven edges, not gut feelings.
             </p>
           </div>
         </ScrollFade>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {FEATURES.map((feature, i) => {
             const Icon = feature.icon
             return (
               <ScrollFade key={feature.title} delay={i * 80}>
-                <div className="card-lift rounded-xl border border-nb-800 bg-nb-900/80 p-6 h-full hover:border-nb-600">
-                  <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-nb-700 bg-nb-800">
+                <div className="card-lift rounded-xl border border-nb-800 bg-nb-900/80 p-5 sm:p-6 h-full hover:border-nb-600">
+                  <div className="mb-3 sm:mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-nb-700 bg-nb-800">
                     <Icon className="h-5 w-5 text-nb-300" />
                   </div>
                   <h3 className="text-sm font-semibold text-white mb-2">{feature.title}</h3>
@@ -247,10 +251,10 @@ export default function LandingPage() {
       </section>
 
       {/* ─── Social Proof ─────────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-5xl px-6 pb-28">
+      <section className="mx-auto max-w-5xl px-4 sm:px-6 pb-16 sm:pb-28">
         <ScrollFade>
-          <div className="rounded-xl border border-nb-800 bg-nb-900/50 p-8 sm:p-12">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-8 text-center">
+          <div className="rounded-xl border border-nb-800 bg-nb-900/50 p-6 sm:p-8 md:p-12">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-center">
               <div>
                 <div className="flex items-center justify-center gap-2 mb-2">
                   <Users className="h-4 w-4 text-nb-500" />
@@ -279,19 +283,19 @@ export default function LandingPage() {
 
       {/* ─── Pricing ──────────────────────────────────────────────────────── */}
       <section id="pricing" className="border-y border-nb-800/60 bg-nb-900/40">
-        <div className="mx-auto max-w-5xl px-6 py-28">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 py-16 sm:py-28">
           <ScrollFade>
-            <div className="text-center mb-14">
-              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 tracking-tight">
+            <div className="text-center mb-10 sm:mb-14">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 sm:mb-4 tracking-tight">
                 Simple, transparent pricing
               </h2>
-              <p className="text-nb-400 max-w-md mx-auto">
+              <p className="text-sm sm:text-base text-nb-400 max-w-md mx-auto">
                 Start free. Upgrade when you want real-time data and the full toolkit.
               </p>
             </div>
           </ScrollFade>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 max-w-2xl mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 max-w-2xl mx-auto">
             {/* Free */}
             <ScrollFade delay={0}>
               <div className="card-lift rounded-xl border border-nb-800 bg-nb-950 p-7 h-full flex flex-col">
@@ -341,17 +345,17 @@ export default function LandingPage() {
       </section>
 
       {/* ─── FAQ ───────────────────────────────────────────────────────────── */}
-      <section id="faq" className="mx-auto max-w-2xl px-6 py-28">
+      <section id="faq" className="mx-auto max-w-2xl px-4 sm:px-6 py-16 sm:py-28">
         <ScrollFade>
-          <div className="text-center mb-14">
-            <h2 className="text-3xl font-bold text-white tracking-tight">Frequently asked questions</h2>
+          <div className="text-center mb-10 sm:mb-14">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Frequently asked questions</h2>
           </div>
         </ScrollFade>
 
         <div className="space-y-3">
           {FAQS.map((faq, i) => (
             <ScrollFade key={faq.q} delay={i * 60}>
-              <div className="rounded-xl border border-nb-800 bg-nb-900/60 p-5 hover:border-nb-700 transition-colors">
+              <div className="rounded-xl border border-nb-800 bg-nb-900/60 p-4 sm:p-5 hover:border-nb-700 transition-colors">
                 <p className="text-sm font-semibold text-white mb-2">{faq.q}</p>
                 <p className="text-sm text-nb-400 leading-relaxed">{faq.a}</p>
               </div>
@@ -361,12 +365,12 @@ export default function LandingPage() {
       </section>
 
       {/* ─── Final CTA ─────────────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-3xl px-6 pb-28">
+      <section className="mx-auto max-w-3xl px-4 sm:px-6 pb-16 sm:pb-28">
         <ScrollFade>
-          <div className="rounded-2xl border border-nb-700/60 bg-nb-900/80 p-12 sm:p-16 text-center relative overflow-hidden">
+          <div className="rounded-2xl border border-nb-700/60 bg-nb-900/80 p-6 sm:p-12 lg:p-16 text-center relative overflow-hidden">
             <div className="absolute inset-0 hero-glow pointer-events-none" />
             <div className="relative">
-              <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4 tracking-tight">
+              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 sm:mb-4 tracking-tight">
                 Ready to find your edge?
               </h2>
               <p className="text-nb-400 mb-8 max-w-md mx-auto">

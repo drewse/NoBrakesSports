@@ -149,7 +149,7 @@ export default async function MarketsPage({
   }
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1400px]">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold text-white">Markets</h1>

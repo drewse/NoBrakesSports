@@ -66,7 +66,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="p-6 max-w-[600px] space-y-6">
+    <div className="p-3 sm:p-4 lg:p-6 max-w-[600px] space-y-6">
       <h1 className="text-lg font-bold text-white">Profile</h1>
 
       <Card>

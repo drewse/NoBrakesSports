@@ -77,6 +77,11 @@
 }
 
 @layer components {
+  /* Standard page wrapper — responsive padding for mobile → desktop */
+  .page-wrap {
+    @apply p-4 sm:p-6 space-y-4 sm:space-y-5 max-w-[1600px];
+  }
+
   /* Terminal-style monochrome glow */
   .glow-sm {
     box-shadow: 0 0 8px rgba(255, 255, 255, 0.06);

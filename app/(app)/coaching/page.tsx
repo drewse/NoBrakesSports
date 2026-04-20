@@ -59,7 +59,7 @@ export default async function CoachingPage() {
     .gte('scheduled_at', new Date().toISOString())
 
   return (
-    <div className="p-6 space-y-6 max-w-[1100px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1100px]">
       {/* Header */}
       <div>
         <h1 className="text-lg font-bold text-white mb-1">1-on-1 Method Coaching</h1>

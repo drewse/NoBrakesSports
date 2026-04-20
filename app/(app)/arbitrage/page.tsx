@@ -360,7 +360,7 @@ export default async function ArbitragePage() {
   }
 
   return (
-    <div className="p-6 space-y-5 max-w-[1600px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1600px]">
       <ProGate isPro={isPro} featureName="Arbitrage" blur={false}>
         <ArbCalculatorClient
           arbs={allArbs as UnifiedArb[]}

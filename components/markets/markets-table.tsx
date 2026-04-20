@@ -146,12 +146,12 @@ export function MarketsTable({ snapshots, isPro }: MarketsTableProps) {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full min-w-[720px]">
           <thead>
             {table.getHeaderGroups().map((hg) => (
               <tr key={hg.id} className="border-b border-border bg-nb-900/60">
                 {hg.headers.map((header) => (
-                  <th key={header.id} className="px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider whitespace-nowrap">
+                  <th key={header.id} className="px-3 sm:px-4 py-2.5 text-left text-[10px] font-semibold text-nb-400 uppercase tracking-wider whitespace-nowrap">
                     {flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
                 ))}
@@ -162,7 +162,7 @@ export function MarketsTable({ snapshots, isPro }: MarketsTableProps) {
             {table.getRowModel().rows.map((row) => (
               <tr key={row.id} className="border-b border-border/50 hover:bg-nb-800/30 transition-colors">
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} className="px-4 py-3">
+                  <td key={cell.id} className="px-3 sm:px-4 py-3">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
@@ -179,19 +179,19 @@ export function MarketsTable({ snapshots, isPro }: MarketsTableProps) {
         </table>
       </div>
 
-      <div className="flex items-center justify-between px-4 py-3 border-t border-border bg-nb-900/30">
-        <p className="text-xs text-nb-400">
+      <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-t border-border bg-nb-900/30 flex-wrap">
+        <p className="text-[11px] sm:text-xs text-nb-400">
           {snapshots.length} markets{!isPro && ' · Upgrade Pro for full access'}
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="h-7 text-xs"
+          <Button variant="ghost" size="sm" className="h-9 sm:h-7 text-xs min-w-[60px]"
             onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
             Prev
           </Button>
           <span className="text-xs text-nb-400">
             {table.getState().pagination.pageIndex + 1} / {table.getPageCount() || 1}
           </span>
-          <Button variant="ghost" size="sm" className="h-7 text-xs"
+          <Button variant="ghost" size="sm" className="h-9 sm:h-7 text-xs min-w-[60px]"
             onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
             Next
           </Button>

@@ -26,7 +26,7 @@ export default async function WatchlistPage() {
   const teams = (teamsRaw ?? []) as any[]
 
   return (
-    <div className="p-6 space-y-6 max-w-[900px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[900px]">
       <div>
         <h1 className="text-lg font-bold text-white">Watchlist</h1>
         <p className="text-xs text-nb-400 mt-0.5">

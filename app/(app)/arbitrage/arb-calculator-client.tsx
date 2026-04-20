@@ -110,11 +110,11 @@ export function ArbCalculatorClient({
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-12rem)]">
+    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:min-h-[calc(100vh-12rem)]">
       {/* ── Left Panel: Calculator ──────────────────────── */}
-      <div className="lg:w-[72%] w-full flex-shrink-0 order-2 lg:order-1">
-        {/* Header */}
-        <div className="mb-4">
+      <div className="lg:w-[72%] w-full min-w-0 flex-shrink-0 order-2 lg:order-1">
+        {/* Header — hidden on mobile because it's shown above the feed */}
+        <div className="hidden lg:block mb-4">
           <div className="flex items-center gap-2 mb-1">
             <h1 className="text-lg font-bold text-white">Arbitrage</h1>
             <Badge variant="pro">PRO</Badge>
@@ -125,7 +125,7 @@ export function ArbCalculatorClient({
         </div>
         <div className="lg:sticky lg:top-4">
           {!selected ? (
-            <Card className="bg-nb-900 border-nb-800">
+            <Card className="bg-nb-900 border-nb-800 hidden lg:block">
               <CardContent className="px-8 py-24 flex flex-col items-center justify-center text-center gap-5">
                 <div className="h-16 w-16 rounded-full bg-nb-800 border border-nb-700 flex items-center justify-center">
                   <Calculator className="h-7 w-7 text-nb-400" />
@@ -305,19 +305,30 @@ export function ArbCalculatorClient({
       </div>
 
       {/* ── Right Panel: Opportunity Feed ──────────────── */}
-      <div className="lg:w-[28%] w-full flex flex-col min-h-0 order-1 lg:order-2">
-        {/* Header — aligned with left panel */}
-        <div className="mb-4">
-          <div className="flex items-center justify-between mb-1">
-            <h2 className="text-lg font-bold text-white">Opportunities</h2>
+      <div className="lg:w-[28%] w-full min-w-0 flex flex-col min-h-0 order-1 lg:order-2">
+        {/* Header — on mobile acts as the page header */}
+        <div className="mb-3 sm:mb-4">
+          <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <h2 className="text-base sm:text-lg font-bold text-white truncate">
+                <span className="lg:hidden">Arbitrage</span>
+                <span className="hidden lg:inline">Opportunities</span>
+              </h2>
+              <Badge variant="pro" className="lg:hidden">PRO</Badge>
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-nb-500">
-            <Clock className="h-3 w-3" />
-            {latestScan ? (
-              <span className="text-[10px]">Last updated at {formatTimestamp(latestScan)}</span>
-            ) : (
-              <span className="text-[10px]">No data yet</span>
-            )}
+          <div className="flex items-center gap-2 flex-wrap text-nb-500">
+            <span className="lg:hidden text-[11px] text-nb-400">
+              {totalArbs} opportunities · {uniqueBooks} books
+            </span>
+            <span className="hidden lg:inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {latestScan ? (
+                <span className="text-[10px]">Last updated at {formatTimestamp(latestScan)}</span>
+              ) : (
+                <span className="text-[10px]">No data yet</span>
+              )}
+            </span>
           </div>
         </div>
 
@@ -331,7 +342,7 @@ export function ArbCalculatorClient({
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-2.5 overflow-y-auto flex-1 lg:max-h-[calc(100vh-14rem)]">
+          <div className="space-y-2.5 lg:overflow-y-auto flex-1 lg:max-h-[calc(100vh-14rem)]">
             {arbs.map((arb, i) => (
               <button
                 key={i}

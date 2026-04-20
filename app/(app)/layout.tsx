@@ -1,8 +1,7 @@
 import { redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
-import { Sidebar } from '@/components/layout/sidebar'
-import { Topbar } from '@/components/layout/topbar'
+import { AppShell } from '@/components/layout/app-shell'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 import type { Profile } from '@/types'
 
@@ -50,19 +49,13 @@ export default async function AppLayout({
   const initialEnabledBooks = enabledBooksSet ? [...enabledBooksSet] : null
 
   return (
-    <div className="flex h-screen overflow-hidden bg-nb-950">
-      <Sidebar profile={profile as Profile | null} />
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <Topbar
-          profile={profile as Profile | null}
-          sources={sources}
-          initialEnabledBooks={initialEnabledBooks}
-          canadianSlugs={canadianSlugs}
-        />
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
-      </div>
-    </div>
+    <AppShell
+      profile={profile as Profile | null}
+      sources={sources}
+      initialEnabledBooks={initialEnabledBooks}
+      canadianSlugs={canadianSlugs}
+    >
+      {children}
+    </AppShell>
   )
 }

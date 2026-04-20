@@ -24,7 +24,7 @@ export default async function BillingPage() {
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
   return (
-    <div className="p-6 max-w-[700px] space-y-6">
+    <div className="p-3 sm:p-4 lg:p-6 max-w-[700px] space-y-6">
       <h1 className="text-lg font-bold text-white">Billing</h1>
 
       {/* Current plan */}

@@ -104,14 +104,14 @@ export default async function AdminPage() {
   const degradedSources = sources?.filter((s) => s.health_status !== 'healthy' && s.is_active).length ?? 0
 
   return (
-    <div className="p-6 space-y-6 max-w-[1000px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1000px]">
       <div className="flex items-center gap-3">
         <h1 className="text-lg font-bold text-white">Admin Panel</h1>
         <Badge variant="white" className="text-[10px]">ADMIN</Badge>
       </div>
 
       {/* Summary stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-4">
         {[
           { label: 'Total Users', value: totalUsers ?? 0 },
           { label: 'Pro Subscribers', value: proUsers ?? 0 },

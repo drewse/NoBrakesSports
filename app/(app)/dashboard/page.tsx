@@ -58,10 +58,10 @@ export default async function DashboardPage() {
     .sort((a, b) => Math.abs(b.divergence_pct!) - Math.abs(a.divergence_pct!))[0]
 
   return (
-    <div className="p-6 space-y-6 max-w-[1400px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1400px]">
       {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div>
+      <div className="flex items-start sm:items-center justify-between gap-2 flex-wrap">
+        <div className="min-w-0">
           <h1 className="text-lg font-bold text-white">Overview</h1>
           <p className="text-xs text-nb-400 mt-0.5">
             Pre-game market intelligence · Updated {formatRelativeTime(new Date().toISOString())}
@@ -76,7 +76,7 @@ export default async function DashboardPage() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
         <StatCard
           label="Active Events"
           value={activeEvents}
@@ -104,14 +104,14 @@ export default async function DashboardPage() {
       </div>
 
       {/* Main content grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
         {/* Markets table (2/3 width) */}
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 min-w-0">
           <DashboardMarketTable events={events ?? []} isPro={isPro} />
         </div>
 
         {/* Right column */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           <DivergenceCard predictions={upcomingPredictions.slice(0, 5)} />
           <WatchlistSummary items={watchlist ?? []} />
         </div>

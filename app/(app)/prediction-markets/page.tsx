@@ -34,7 +34,7 @@ export default async function PredictionMarketsPage() {
   }).slice(0, isPro ? 100 : 20)
 
   return (
-    <div className="p-6 space-y-5 max-w-[1400px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1400px]">
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h1 className="text-lg font-bold text-white">Prediction Markets</h1>

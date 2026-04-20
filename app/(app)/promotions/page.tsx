@@ -231,7 +231,7 @@ export default function PromotionsPage() {
   const totalValue = PROMOS.filter(p => p.type === 'Welcome Bonus').length
 
   return (
-    <div className="p-6 space-y-6 max-w-[1200px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1200px]">
       {/* Header */}
       <div>
         <h1 className="text-lg font-bold text-white mb-1">Promotions</h1>

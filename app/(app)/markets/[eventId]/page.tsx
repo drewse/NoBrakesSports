@@ -46,7 +46,7 @@ export default async function EventDetailPage({
   // Guard: this app is pre-game only. Show unavailable state for started events.
   if (!isUpcomingEvent(event.start_time)) {
     return (
-      <div className="p-6 space-y-6 max-w-[1100px]">
+      <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1100px]">
         <Link
           href="/markets"
           className="inline-flex items-center gap-1.5 text-xs text-nb-400 hover:text-nb-200 transition-colors"
@@ -134,7 +134,7 @@ export default async function EventDetailPage({
   const { home, away } = parseTeams(event.title)
 
   return (
-    <div className="p-6 space-y-6 max-w-[1100px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1100px]">
       {/* Back nav */}
       <Link
         href="/markets"

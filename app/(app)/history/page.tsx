@@ -33,7 +33,7 @@ export default async function HistoryPage() {
   const uniqueEvents = new Set(snapshots?.map((s) => s.event_id)).size
 
   return (
-    <div className="p-6 space-y-6 max-w-[1100px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1100px]">
       <div>
         <div className="flex items-center gap-2 mb-1">
           <h1 className="text-lg font-bold text-white">History</h1>

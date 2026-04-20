@@ -32,7 +32,7 @@ export default async function AdminSubscriptionsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1100px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1100px]">
       <h1 className="text-lg font-bold text-white">Subscriptions</h1>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">

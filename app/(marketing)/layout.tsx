@@ -11,24 +11,24 @@ export default function MarketingLayout({
     <div className="min-h-screen bg-nb-950 text-white">
       {/* Navbar — minimal: logo, pricing, login, CTA */}
       <nav className="fixed top-0 z-50 w-full border-b border-nb-800/40 bg-nb-950/80 backdrop-blur-lg">
-        <div className="mx-auto max-w-5xl px-6 flex h-14 items-center justify-between">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 flex h-14 items-center justify-between gap-2">
           {/* Logo */}
-          <Link href="/" className="flex items-center gap-2.5 group">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white group-hover:scale-105 transition-transform">
+          <Link href="/" className="flex items-center gap-2 group min-w-0">
+            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white group-hover:scale-105 transition-transform shrink-0">
               <Zap className="h-4 w-4 text-nb-950 fill-nb-950" />
             </div>
-            <span className="text-sm font-bold tracking-tight text-white">
+            <span className="text-sm font-bold tracking-tight text-white whitespace-nowrap">
               NO BRAKES
-              <span className="ml-1 text-[10px] font-medium text-nb-500 tracking-widest">SPORTS</span>
+              <span className="ml-1 hidden xs:inline text-[10px] font-medium text-nb-500 tracking-widest">SPORTS</span>
             </span>
           </Link>
 
           {/* Right side */}
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
             <Link href="/pricing" className="hidden sm:block text-sm text-nb-400 hover:text-white transition-colors">
               Pricing
             </Link>
-            <Button asChild variant="ghost" size="sm">
+            <Button asChild variant="ghost" size="sm" className="hidden xs:inline-flex">
               <Link href="/login">Log in</Link>
             </Button>
             <Button asChild size="sm">
@@ -45,7 +45,7 @@ export default function MarketingLayout({
 
       {/* Footer — clean and minimal */}
       <footer className="border-t border-nb-800/40">
-        <div className="mx-auto max-w-5xl px-6 py-12">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 py-8 sm:py-12">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
             <div>
               <div className="flex items-center gap-2 mb-4">

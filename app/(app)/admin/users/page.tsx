@@ -21,7 +21,7 @@ export default async function AdminUsersPage() {
     .limit(100)
 
   return (
-    <div className="p-6 space-y-6 max-w-[1200px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1200px]">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold text-white">Users <span className="text-nb-400 font-normal text-sm">({users?.length ?? 0})</span></h1>
       </div>

@@ -44,7 +44,7 @@ export default function FeatureFlagsPage() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[800px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[800px]">
       <div className="flex items-center gap-2">
         <Flag className="h-5 w-5 text-nb-400" />
         <h1 className="text-lg font-bold text-white">Feature Flags</h1>
