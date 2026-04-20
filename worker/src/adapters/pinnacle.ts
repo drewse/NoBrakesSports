@@ -253,34 +253,49 @@ export const pinnacleAdapter: BookAdapter = {
 
             try {
               const markets: PinnacleMarket[] = await gql(page, `${BASE}/matchups/${s.id}/markets/related/straight`)
+              // Pair over/under strictly by line value across ALL total markets
+              // for this special. A single Pinnacle "total" market sometimes
+              // contains prices for multiple alt lines; .find() picking the
+              // first over and first under caused mismatched-line pairs and
+              // nonsensical fair probs on the main app.
+              const byLine = new Map<number, { over?: number; under?: number }>()
               for (const m of markets) {
-                // Pinnacle props: total type, Over/Under, full-game period
                 if (m.type !== 'total') continue
-                const over = m.prices?.find(p => p.designation === 'over')
-                const under = m.prices?.find(p => p.designation === 'under')
-                const lineValue = over?.points ?? under?.points ?? null
-                if (lineValue == null) continue
-
-                if (!rawPriceSampled && over?.price != null && under?.price != null) {
-                  rawPriceSampled = true
-                  log.info('raw prop price sample', {
-                    league: league.slug,
-                    player: parsed.playerName,
-                    stat: parsed.stat,
-                    line: lineValue,
-                    rawOver: over.price,
-                    rawUnder: under.price,
-                    normalizedOver: normalizePinnaclePrice(over.price),
-                    normalizedUnder: normalizePinnaclePrice(under.price),
-                  })
+                for (const p of m.prices ?? []) {
+                  if (p.points == null || p.price == null) continue
+                  const american = normalizePinnaclePrice(p.price)
+                  if (american == null) continue
+                  const entry = byLine.get(p.points) ?? {}
+                  if (p.designation === 'over') entry.over = american
+                  else if (p.designation === 'under') entry.under = american
+                  byLine.set(p.points, entry)
                 }
+              }
 
+              if (!rawPriceSampled && byLine.size > 0) {
+                rawPriceSampled = true
+                log.info('raw prop price sample', {
+                  league: league.slug,
+                  player: parsed.playerName,
+                  stat: parsed.stat,
+                  marketCount: markets.length,
+                  lineCount: byLine.size,
+                  lines: [...byLine.entries()].slice(0, 5).map(([line, p]) => ({
+                    line, over: p.over, under: p.under,
+                  })),
+                })
+              }
+
+              for (const [line, prices] of byLine) {
+                // Require BOTH sides for a prop row; one-sided Pinnacle entries
+                // corrupt the +EV fair-prob calc (they can't be devigged).
+                if (prices.over == null || prices.under == null) continue
                 bucket.props.push({
                   propCategory: category,
                   playerName: parsed.playerName,
-                  lineValue,
-                  overPrice: normalizePinnaclePrice(over?.price),
-                  underPrice: normalizePinnaclePrice(under?.price),
+                  lineValue: line,
+                  overPrice: prices.over,
+                  underPrice: prices.under,
                   yesPrice: null, noPrice: null, isBinary: false,
                 })
               }
