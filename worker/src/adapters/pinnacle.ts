@@ -69,6 +69,24 @@ const PROP_MAP: Record<string, string> = {
   'shots on target':       'player_shots_target',
 }
 
+/**
+ * Pinnacle's guest Arcadia API returns DECIMAL odds (e.g. 1.91, 2.05).
+ * Our prop_odds / game_market tables store American odds as integers.
+ * Values between 1.0 and 20 are treated as decimal; everything else is already
+ * American (Pinnacle never returns American > 20 or < -10000 for realistic markets,
+ * but |value| is a reliable discriminator: decimal is always in [1.01, ~30],
+ * American is always |v| >= 100).
+ */
+function normalizePinnaclePrice(v: number | null | undefined): number | null {
+  if (v == null) return null
+  if (v > 1 && v < 50) {
+    // Decimal odds → American
+    if (v >= 2) return Math.round((v - 1) * 100)
+    return Math.round(-100 / (v - 1))
+  }
+  return Math.round(v)
+}
+
 interface PinnacleMatchup {
   id: number
   type: 'matchup' | 'special'
@@ -122,6 +140,7 @@ export const pinnacleAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
+      let rawPriceSampled = false
 
       await page.goto(SEED, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await page.waitForTimeout(1_500)
@@ -186,16 +205,16 @@ export const pinnacleAdapter: BookAdapter = {
                 if (m.type === 'moneyline') {
                   bucket.gameMarkets.push({
                     marketType: 'moneyline',
-                    homePrice: home?.price ?? null,
-                    awayPrice: away?.price ?? null,
+                    homePrice: normalizePinnaclePrice(home?.price),
+                    awayPrice: normalizePinnaclePrice(away?.price),
                     drawPrice: null,
                     spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
                   })
                 } else if (m.type === 'spread') {
                   bucket.gameMarkets.push({
                     marketType: 'spread',
-                    homePrice: home?.price ?? null,
-                    awayPrice: away?.price ?? null,
+                    homePrice: normalizePinnaclePrice(home?.price),
+                    awayPrice: normalizePinnaclePrice(away?.price),
                     drawPrice: null,
                     spreadValue: home?.points != null ? Math.abs(home.points) : null,
                     totalValue: null, overPrice: null, underPrice: null,
@@ -205,8 +224,8 @@ export const pinnacleAdapter: BookAdapter = {
                     marketType: 'total',
                     homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
                     totalValue: over?.points ?? under?.points ?? null,
-                    overPrice: over?.price ?? null,
-                    underPrice: under?.price ?? null,
+                    overPrice: normalizePinnaclePrice(over?.price),
+                    underPrice: normalizePinnaclePrice(under?.price),
                   })
                 }
               }
@@ -242,12 +261,26 @@ export const pinnacleAdapter: BookAdapter = {
                 const lineValue = over?.points ?? under?.points ?? null
                 if (lineValue == null) continue
 
+                if (!rawPriceSampled && over?.price != null && under?.price != null) {
+                  rawPriceSampled = true
+                  log.info('raw prop price sample', {
+                    league: league.slug,
+                    player: parsed.playerName,
+                    stat: parsed.stat,
+                    line: lineValue,
+                    rawOver: over.price,
+                    rawUnder: under.price,
+                    normalizedOver: normalizePinnaclePrice(over.price),
+                    normalizedUnder: normalizePinnaclePrice(under.price),
+                  })
+                }
+
                 bucket.props.push({
                   propCategory: category,
                   playerName: parsed.playerName,
                   lineValue,
-                  overPrice: over?.price ?? null,
-                  underPrice: under?.price ?? null,
+                  overPrice: normalizePinnaclePrice(over?.price),
+                  underPrice: normalizePinnaclePrice(under?.price),
                   yesPrice: null, noPrice: null, isBinary: false,
                 })
               }
