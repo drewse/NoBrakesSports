@@ -127,18 +127,37 @@ function detectPropCategory(title: string, groupCName: string): string | null {
     return null
   }
 
-  // Title-based detection (group-independent): this handles markets Betway
-  // puts in non-standard group names or in merged "player props" containers.
-  if (lower.startsWith('total points -') || lower.startsWith('total points o')) return 'player_points'
-  if (lower.startsWith('total rebounds -') || lower.startsWith('total rebounds o')) return 'player_rebounds'
-  if (lower.startsWith('total assists -') || lower.startsWith('total assists o')) return 'player_assists'
-  if (lower.startsWith('total 3-pointers -') || lower.startsWith('total 3-pointers o')) return 'player_threes'
-  if (lower.startsWith('total three pointers') || lower.startsWith('total threes')) return 'player_threes'
-  // Group-qualified variants (redundant safety net)
-  if (groupCName === 'points' && lower.startsWith('total points')) return 'player_points'
-  if (groupCName === 'rebounds' && lower.startsWith('total rebounds')) return 'player_rebounds'
-  if (groupCName === 'assists' && lower.startsWith('total assists')) return 'player_assists'
-  if (groupCName === '3-pointers' && lower.startsWith('total 3-pointers')) return 'player_threes'
+  // Title-based detection (group-independent): Betway's actual title shapes
+  // include "Total <Stat> - <Player> (<TEAM>)" for single-stat O/U props and
+  // bare "<Stat> - <Player>" (or with combo connectives) for alternates. Be
+  // permissive — "includes" instead of "startsWith" — since a non-obvious
+  // group name was the reason "Total Assists - <Player>" wasn't landing.
+  if (!lower.includes(' - ')) {
+    // No player separator — let the group fallback below handle game-level
+    // markets that happen to share these stat words.
+  } else {
+    // 3-pointers / threes
+    if (lower.includes('3-pointer') || lower.includes('three pointer') || lower.includes('threes made') || lower.includes('3-point field goal')) {
+      return 'player_threes'
+    }
+    // Combos BEFORE single stats (substring collisions: "points and rebounds"
+    // contains both "points" and "rebounds").
+    const hasPts = lower.includes('points')
+    const hasReb = lower.includes('rebounds')
+    const hasAst = lower.includes('assists')
+    if (hasPts && hasReb && hasAst) return 'player_pts_reb_ast'
+    if (hasPts && hasReb) return 'player_pts_reb'
+    if (hasPts && hasAst) return 'player_pts_ast'
+    if (hasReb && hasAst) return 'player_ast_reb'
+    if (lower.includes('steals') && lower.includes('blocks')) return 'player_steals_blocks'
+    // Singles
+    if (hasPts) return 'player_points'
+    if (hasReb) return 'player_rebounds'
+    if (hasAst) return 'player_assists'
+    if (lower.includes('blocks')) return 'player_blocks'
+    if (lower.includes('steals')) return 'player_steals'
+    if (lower.includes('turnover')) return 'player_turnovers'
+  }
 
   // Defense group
   if (groupCName === 'defense') {
@@ -350,16 +369,37 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
                 marketGroupMap.set(id, gName)
               }
             }
-            // Secondary pass: treat any market whose title starts with
-            // "Total <stat> -" as a prop even if its group wasn't in the
-            // known list. This rescues markets like "Total Assists - Daniss
-            // Jenkins O/U 3.5" when Betway files them under a group slug we
-            // don't recognize.
+            // Secondary pass: treat any market whose title contains a stat
+            // keyword AND a player dash separator as a prop market even if
+            // its group wasn't in the known list. Rescues "Total Assists -
+            // Daniss Jenkins", "Points and Rebounds - Anthony Black", etc.
+            // when Betway files them under a group slug we don't recognize.
+            const PROP_STAT_WORDS = /\b(points|rebounds|assists|3-pointer|three pointer|threes|blocks|steals|turnover|hits|home run|rbis?|strikeouts|total bases|runs|stolen bases|walks|earned runs|outs|goals|shots on goal|saves|shots on target|power play)/i
             for (const m of evData.Markets ?? []) {
-              const t = ((m.Title ?? '') as string).toLowerCase()
-              if (/^total (points|rebounds|assists|3-pointers|threes|three pointers|blocks|steals|turnovers|hits|home runs?|rbis?|strikeouts|total bases|runs|stolen bases|walks|earned runs|outs|goals|shots on goal|saves|shots on target|power play points)\b.*\s-\s/.test(t)) {
-                propMarketIds.add(m.Id)
-              }
+              const title = (m.Title ?? '') as string
+              if (!title.includes(' - ')) continue
+              if (!PROP_STAT_WORDS.test(title)) continue
+              // Exclude game-level total (no player, no dash suffix)
+              if (/^total (points|runs|goals)\s*$/i.test(title.trim())) continue
+              propMarketIds.add(m.Id)
+            }
+
+            // One-time sample log per cron run to help diagnose coverage gaps.
+            // Dumps the first NBA event's market titles + group names so we
+            // can see exactly how Betway is labeling prop markets.
+            if (league.leagueSlug === 'nba' && !(globalThis as any).__BW_NBA_SAMPLED__) {
+              ;(globalThis as any).__BW_NBA_SAMPLED__ = true
+              const groupNames = Object.keys(groups)
+              const sampleTitles = (evData.Markets ?? [])
+                .slice(0, 80)
+                .map((m: any) => ({ id: m.Id, title: m.Title, group: marketGroupMap.get(m.Id) ?? null, hasHandicap: m.Handicap != null }))
+              console.log('[Betway NBA sample]', {
+                eventId,
+                marketGroups: groupNames,
+                totalMarkets: (evData.Markets ?? []).length,
+                propMarketIdsCount: propMarketIds.size,
+                sample: sampleTitles.filter((t: any) => /assist|points|rebound|three|block|steal/i.test(t.title ?? '')),
+              })
             }
 
             const result = resultsByEventId.get(eventId)
