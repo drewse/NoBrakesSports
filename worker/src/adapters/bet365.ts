@@ -230,12 +230,19 @@ export const bet365Adapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
-    // bet365 hard-blocks the Railway IP at Cloudflare. The challenge HTML
-    // is served immediately with no JS to wait through. Until a residential
-    // proxy is configured (PROXY_URL env var), short-circuit to avoid
-    // burning a Chromium context every poll cycle.
+    // bet365 requires a level of browser interaction we don't yet automate:
+    //   1. Hash-based SPA — markets API only fires on tab/league click,
+    //      not on initial render (confirmed: 35 page requests, 0 markets).
+    //   2. Cloudflare JS challenge fires intermittently even through the
+    //      residential proxy ("Just a moment..." HTML, ERR_CONNECTION_CLOSED).
+    //   3. Proxy IP rotation needed to avoid CF flagging after a few cycles.
+    // Disabled by default. Set BET365_ENABLED=1 to attempt.
+    if (process.env.BET365_ENABLED !== '1') {
+      log.info('skipped — bet365 requires interactive scraping; set BET365_ENABLED=1 to attempt')
+      return { events: [], errors: [] }
+    }
     if (!process.env.PROXY_URL) {
-      log.info('skipped — no PROXY_URL configured (CF hard-blocks Railway IP)')
+      log.info('skipped — no PROXY_URL configured')
       return { events: [], errors: [] }
     }
 
