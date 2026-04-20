@@ -56,45 +56,36 @@ export default async function ArbitragePage() {
 
   // Fire prop batch requests NOW (don't await yet) — they run while we process game arbs.
   const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
-  const eventStartCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const PROP_PAGE = 1000
-  const PROP_PARALLEL = 10
-  // Unbounded paging: fire PROP_PARALLEL batches at a time; if the last one
-  // in the group came back full, fire another group. Stops when any batch
-  // returns short, which means we've reached the tail of the result set.
+  // Unbounded prop fetch: get exact count first, then fire all pages in a
+  // single parallel burst. Cheaper than sequential rounds and eliminates
+  // the earlier 10k cap that truncated the tail of the result set.
   const fetchAllProps = async (): Promise<any[]> => {
+    const { count } = await supabase
+      .from('prop_odds')
+      .select('id', { count: 'exact', head: true })
+      .gt('snapshot_time', propStaleCutoff)
+      .or('over_price.not.is.null,under_price.not.is.null')
+    const total = count ?? 0
+    if (total === 0) return []
+    const pageCount = Math.ceil(total / PROP_PAGE)
+    const batches = await Promise.all(
+      Array.from({ length: pageCount }, (_, i) =>
+        supabase
+          .from('prop_odds')
+          .select(`
+            event_id, source_id, prop_category, player_name, line_value,
+            over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
+            event:events(id, title, start_time, league:leagues(abbreviation)),
+            source:market_sources(id, name, slug)
+          `)
+          .gt('snapshot_time', propStaleCutoff)
+          .or('over_price.not.is.null,under_price.not.is.null')
+          .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
+      ),
+    )
     const all: any[] = []
-    let startOffset = 0
-    // Safety ceiling in case something goes wrong — 500k rows is well beyond
-    // any realistic active prop count.
-    const HARD_STOP = 500_000
-    while (startOffset < HARD_STOP) {
-      const chunk = await Promise.all(
-        Array.from({ length: PROP_PARALLEL }, (_, i) =>
-          supabase
-            .from('prop_odds')
-            .select(`
-              event_id, source_id, prop_category, player_name, line_value,
-              over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
-              event:events!inner(id, title, start_time, league:leagues(abbreviation)),
-              source:market_sources(id, name, slug)
-            `)
-            .gt('snapshot_time', propStaleCutoff)
-            .gt('event.start_time', eventStartCutoff)
-            .or('over_price.not.is.null,under_price.not.is.null')
-            .range(startOffset + i * PROP_PAGE, startOffset + (i + 1) * PROP_PAGE - 1),
-        ),
-      )
-      let lastBatchFull = false
-      for (let i = 0; i < chunk.length; i++) {
-        const batch = chunk[i].data
-        if (!batch || batch.length === 0) continue
-        all.push(...batch)
-        if (i === chunk.length - 1 && batch.length === PROP_PAGE) lastBatchFull = true
-      }
-      if (!lastBatchFull) break
-      startOffset += PROP_PARALLEL * PROP_PAGE
-    }
+    for (const { data } of batches) if (data) all.push(...data)
     return all
   }
   const propBatchPromises = fetchAllProps()
