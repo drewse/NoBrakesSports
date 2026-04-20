@@ -455,52 +455,10 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // Discover DK's current prop subcategory IDs via the public /api/v5/
-    // eventgroups endpoint on sportsbook.draftkings.com. /controldata/ only
-    // accepts subcategory-filtered queries and DK removed the subcategory
-    // list from event payloads, so this /api/v5/ path is the fallback.
+    // Candidate prop subcategory IDs to scan. /api/v5/ is 403-blocked on
+    // Vercel so we can't discover live IDs dynamically — but the scan
+    // against the hardcoded range (seeded from a captured live curl) works.
     const propSubcategoryIds = new Set<string>(league.propSubcategoryIds)
-    const firstEventId = results[0]?.event.eventId
-    if (firstEventId) {
-      const urls = buildDiscoveryUrls(league.leagueId, firstEventId)
-      for (const probeUrl of urls) {
-        try {
-          const probeResp = await dkFetch(probeUrl, { withBrowserHeaders: true })
-          if (!probeResp.ok) {
-            if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${probeResp.status} ${probeUrl}`)
-            continue
-          }
-          const probeData = await probeResp.json()
-          const allSubIds = new Set<string>()
-          // /api/v5/ shape: eventGroup.offerCategories[].offerSubcategoryDescriptors[].subcategoryId
-          const eg = probeData.eventGroup ?? probeData
-          for (const oc of eg.offerCategories ?? []) {
-            for (const osd of oc.offerSubcategoryDescriptors ?? []) {
-              const id = osd.subcategoryId ?? osd.subCategoryId ?? osd.id
-              if (id) allSubIds.add(String(id))
-            }
-          }
-          if (allSubIds.size > 0) {
-            for (const sid of allSubIds) {
-              if (sid !== league.subcategoryId) propSubcategoryIds.add(sid)
-            }
-            if (league.name === 'NBA') {
-              console.log(`[DK NBA discover] OK: ${probeUrl}`, {
-                subcategoryIds: [...allSubIds],
-              })
-            }
-            break
-          } else if (league.name === 'NBA') {
-            console.log(`[DK NBA discover] 200 but empty: ${probeUrl}`, {
-              rootKeys: Object.keys(probeData ?? {}),
-              eventGroupKeys: probeData?.eventGroup ? Object.keys(probeData.eventGroup) : null,
-            })
-          }
-        } catch (e: any) {
-          if (league.name === 'NBA') console.log(`[DK NBA discover] error:`, e?.message ?? String(e))
-        }
-      }
-    }
 
     // Two-phase fetch to avoid Vercel timeout:
     //   Phase 1 — probe all candidate subcategory IDs ONLY against the
@@ -508,10 +466,8 @@ async function fetchLeague(
     //             Keep only the IDs that returned ≥1 market.
     //   Phase 2 — fetch the surviving IDs × every event in parallel.
     const eventIds = results.map(r => r.event.eventId)
-    const liveSubcategoryTypes = new Map<string, Set<string>>()
 
     const firstEvent = eventIds[0]
-    let milestoneSample: any = null
     if (firstEvent) {
       const probeResults = await Promise.all(
         [...propSubcategoryIds].map(async (subId) => {
@@ -521,39 +477,14 @@ async function fetchLeague(
             const data = await resp.json()
             const markets = data.markets ?? []
             if (markets.length === 0) return null
-            const types = new Set<string>()
-            for (const m of markets) types.add((m.marketType?.name ?? '').toLowerCase())
-            // Capture the first Points-Milestones market shape for diag.
-            if (league.name === 'NBA' && !milestoneSample) {
-              const pm = markets.find((m: any) => /points milestones/i.test(m.marketType?.name ?? ''))
-              if (pm) {
-                const sels = (data.selections ?? []).filter((s: any) => s.marketId === pm.id)
-                milestoneSample = {
-                  marketType: pm.marketType?.name,
-                  marketName: pm.name,
-                  marketKeys: Object.keys(pm),
-                  selectionCount: sels.length,
-                  selectionKeys: sels[0] ? Object.keys(sels[0]) : null,
-                  firstThreeSelections: sels.slice(0, 3),
-                }
-              }
-            }
-            return { subId, types }
+            return { subId }
           } catch { return null }
         }),
       )
       const liveIds = new Set<string>()
-      for (const r of probeResults) {
-        if (r) {
-          liveIds.add(r.subId)
-          if (league.name === 'NBA') liveSubcategoryTypes.set(r.subId, r.types)
-        }
-      }
+      for (const r of probeResults) if (r) liveIds.add(r.subId)
       propSubcategoryIds.clear()
       for (const id of liveIds) propSubcategoryIds.add(id)
-      if (league.name === 'NBA' && milestoneSample) {
-        console.log('[DK NBA milestone sample]', milestoneSample)
-      }
     }
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
@@ -589,6 +520,45 @@ async function fetchLeague(
                 if (!propCategory) continue
 
                 const sels = selByMarket.get(market.id) ?? []
+
+                // ── Milestones branch ──
+                // DK's current NBA prop shape: one market per (player, stat)
+                // with N selections (one per threshold level). Each selection
+                // has label "15+" / "18+" / ... and milestoneValue numeric.
+                // Convert each selection to an over-only row at line=N-0.5.
+                if (typeName.endsWith(' milestones')) {
+                  // Extract player name: marketType "Points Milestones" →
+                  // stat suffix "Points"; market.name "Donovan Mitchell
+                  // Points" → player "Donovan Mitchell".
+                  const statSuffix = (market.marketType?.name ?? '').replace(/\s+Milestones$/i, '').trim()
+                  const rawName = (market.name ?? '').trim()
+                  const playerRaw = statSuffix && rawName.toLowerCase().endsWith(statSuffix.toLowerCase())
+                    ? rawName.slice(0, rawName.length - statSuffix.length).trim()
+                    : rawName
+                  if (!playerRaw) continue
+
+                  for (const sel of sels) {
+                    const threshold = typeof sel.milestoneValue === 'number'
+                      ? sel.milestoneValue
+                      : parseFloat(String(sel.milestoneValue ?? sel.label ?? '').replace(/[^\d.]/g, ''))
+                    if (!isFinite(threshold)) continue
+                    const price = parseAmerican(sel.displayOdds?.american)
+                    if (price == null) continue
+                    result.props.push({
+                      propCategory,
+                      playerName: normalizePlayerName(playerRaw),
+                      lineValue: threshold - 0.5,
+                      overPrice: price,
+                      underPrice: null,
+                      yesPrice: null,
+                      noPrice: null,
+                      isBinary: false,
+                    })
+                  }
+                  continue
+                }
+
+                // ── Classic O/U branch ──
                 if (sels.length !== 2) continue
 
                 const overSel = sels.find((s: any) => s.outcomeType === 'Over')
@@ -634,10 +604,6 @@ async function fetchLeague(
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     if (results.length > 0) {
       console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
-    }
-
-    if (league.name === 'NBA' && liveSubcategoryTypes.size > 0) {
-      console.log(`[DK NBA live subcats]`, [...liveSubcategoryTypes.entries()].map(([id, types]) => ({ id, types: [...types] })))
     }
 
     return results
