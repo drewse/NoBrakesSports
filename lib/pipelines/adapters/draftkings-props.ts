@@ -508,6 +508,7 @@ async function fetchLeague(
     // Phase-1 probe skipped — the propSubcategoryIds lists in DK_LEAGUES
     // are already pre-trimmed to known-live IDs. Saves ~1.4k probe
     // requests per cron cycle.
+    const unmappedMlbTypes = new Set<string>()
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
     const PROP_BATCH = 5
@@ -539,7 +540,12 @@ async function fetchLeague(
               for (const market of markets) {
                 const typeName = (market.marketType?.name ?? '').toLowerCase()
                 const propCategory = DK_PROP_MAP[typeName]
-                if (!propCategory) continue
+                if (!propCategory) {
+                  // Track unmapped types so we can identify missing
+                  // DK_PROP_MAP entries after the run.
+                  if (league.name === 'MLB') unmappedMlbTypes.add(typeName)
+                  continue
+                }
 
                 const sels = selByMarket.get(market.id) ?? []
 
@@ -626,6 +632,9 @@ async function fetchLeague(
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     if (results.length > 0) {
       console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
+    }
+    if (league.name === 'MLB' && unmappedMlbTypes.size > 0) {
+      console.log(`[DK MLB unmapped marketTypes]`, [...unmappedMlbTypes])
     }
 
     return results
