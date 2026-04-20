@@ -38,6 +38,7 @@ async function main() {
   log.info('starting worker', {
     adapters: adapters.map(a => a.slug),
     node: process.version,
+    build: 'v2-writer-verbose',
   })
 
   // Start health server so Railway's probe passes
