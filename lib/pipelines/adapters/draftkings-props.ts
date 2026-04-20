@@ -235,10 +235,23 @@ function buildDiscoveryUrls(leagueId: string, eventId: string): string[] {
 }
 
 
-/** Helper: fetch a DK URL with direct + proxy fallback */
-async function dkFetch(url: string): Promise<Response> {
+/** Browser-like headers DK's /api/v5/ endpoints require (they 403 without). */
+const DK_BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Origin': 'https://sportsbook.draftkings.com',
+  'Referer': 'https://sportsbook.draftkings.com/',
+}
+
+/** Helper: fetch a DK URL with direct + proxy fallback. */
+async function dkFetch(url: string, opts: { withBrowserHeaders?: boolean } = {}): Promise<Response> {
+  const init: RequestInit = {
+    signal: AbortSignal.timeout(12000),
+    headers: opts.withBrowserHeaders ? DK_BROWSER_HEADERS : undefined,
+  }
   try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(12000) })
+    const resp = await fetch(url, init)
     if (!resp.ok && resp.status === 403) throw new Error('blocked')
     return resp
   } catch {
@@ -424,7 +437,7 @@ async function fetchLeague(
       const urls = buildDiscoveryUrls(league.leagueId, firstEventId)
       for (const probeUrl of urls) {
         try {
-          const probeResp = await dkFetch(probeUrl)
+          const probeResp = await dkFetch(probeUrl, { withBrowserHeaders: true })
           const status = probeResp.status
           if (!probeResp.ok) {
             if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${status} ${probeUrl.slice(0, 120)}`)
