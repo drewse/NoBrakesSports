@@ -136,6 +136,17 @@ function detectPropCategory(title: string, groupCName: string): string | null {
     // No player separator — let the group fallback below handle game-level
     // markets that happen to share these stat words.
   } else {
+    // Reject MLB multi-stat combos we don't have categories for.
+    // "Total Hits + Runs + RBI - <Player>", "Total Hits + RBI", etc.
+    // Without this they fall through to the single-stat baseball section
+    // below and get stored as plain player_hits / player_rbis, which shows
+    // up in the UI as e.g. "Nick Kurtz Hits 1.5" when the real market is
+    // Hits + Runs + RBI.
+    const plusCount = (lower.match(/\s\+\s/g) ?? []).length
+    const mlbStatWords = ['hit', 'run', 'rbi', 'home run', 'total base', 'strikeout']
+    const mlbMatchCount = mlbStatWords.filter(w => lower.includes(w)).length
+    if (plusCount >= 1 && mlbMatchCount >= 2) return null
+
     // 3-pointers / threes
     if (lower.includes('3-pointer') || lower.includes('three pointer') || lower.includes('threes made') || lower.includes('3-point field goal')) {
       return 'player_threes'
