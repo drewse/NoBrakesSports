@@ -30,22 +30,37 @@ export async function writeBookResults(
   const errors: string[] = []
 
   // ── 1. Resolve (or create) the market_sources row ──
-  let { data: source } = await db
+  const { data: existing, error: lookupErr } = await db
     .from('market_sources')
     .select('id')
     .eq('slug', ctx.sourceSlug)
     .maybeSingle()
-  if (!source) {
-    const { data: created, error } = await db
+  if (lookupErr) {
+    log.error('market_sources lookup failed', { slug: ctx.sourceSlug, message: lookupErr.message, code: lookupErr.code })
+  }
+  let sourceId: string | undefined = existing?.id
+  if (!sourceId) {
+    const { data: created, error: insertErr } = await db
       .from('market_sources')
       .insert({ name: ctx.sourceName, slug: ctx.sourceSlug, source_type: 'sportsbook', is_active: true })
       .select('id').single()
-    if (error || !created) {
-      return { eventsCreated: 0, eventsMatched: 0, gameMarketsUpserted: 0, propsUpserted: 0, errors: [`source insert: ${error?.message ?? 'unknown'}`] }
+    if (created?.id) {
+      sourceId = created.id
+    } else if (insertErr?.code === '23505') {
+      // Race / RLS / soft-filter — row actually exists, re-lookup
+      const { data: retry } = await db.from('market_sources').select('id').eq('slug', ctx.sourceSlug).maybeSingle()
+      sourceId = retry?.id
     }
-    source = created
+    if (!sourceId) {
+      log.error('market_sources resolve failed — aborting write', {
+        slug: ctx.sourceSlug,
+        lookupErr: lookupErr?.message ?? null,
+        insertErr: insertErr?.message ?? null,
+      })
+      return { eventsCreated: 0, eventsMatched: 0, gameMarketsUpserted: 0, propsUpserted: 0, errors: [`source resolve: ${insertErr?.message ?? lookupErr?.message ?? 'unknown'}`] }
+    }
   }
-  const sourceId: string = source.id
+  log.debug('source resolved', { slug: ctx.sourceSlug, sourceId })
 
   // ── 2. Map league slugs to league_ids ──
   const { data: leaguesRaw } = await db.from('leagues').select('id, slug')
