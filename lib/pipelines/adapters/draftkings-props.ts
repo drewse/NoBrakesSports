@@ -389,18 +389,16 @@ async function fetchLeague(
     if (propSubcategoryIds.size > 0) {
       console.log(`[DK] ${league.name}: discovered ${propSubcategoryIds.size} prop subcategories: ${[...propSubcategoryIds].join(', ')}`)
     } else if (league.name === 'NBA') {
-      if (!(globalThis as any).__DK_NBA_SHAPE_LOGGED__) {
-        ;(globalThis as any).__DK_NBA_SHAPE_LOGGED__ = true
-        console.log('[DK NBA] subcategory discovery returned 0 — deep dump', {
-          responseRootKeys: Object.keys(gameData ?? {}),
-          responseMetadataKeys: gameData?.metadata ? Object.keys(gameData.metadata) : null,
-          responseMetadataSample: gameData?.metadata,
-          responseSubcategoriesSample: gameData?.subcategories,
-          firstEventMetadata: firstEvent?.metadata,
-          firstEventTags: firstEvent?.tags,
-          leagueData: gameData?.leagues?.[0] ?? gameData?.league,
-        })
-      }
+      // Fire every run (no once-per-process guard) until DK props flow again.
+      console.log('[DK NBA shape]', {
+        responseRootKeys: Object.keys(gameData ?? {}),
+        responseMetadataKeys: gameData?.metadata ? Object.keys(gameData.metadata) : null,
+        responseMetadataSample: gameData?.metadata,
+        responseSubcategoriesSample: gameData?.subcategories,
+        firstEventMetadata: firstEvent?.metadata,
+        firstEventTags: firstEvent?.tags,
+        leagueData: gameData?.leagues?.[0] ?? gameData?.league,
+      })
     }
 
     // Fetch props: for each event × each prop subcategory
