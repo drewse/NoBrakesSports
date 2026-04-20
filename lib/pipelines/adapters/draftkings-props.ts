@@ -203,11 +203,37 @@ const DK_PROP_MAP: Record<string, string> = {
   'outs milestones': 'pitcher_outs',
   'outs recorded milestones': 'pitcher_outs',
   'hits allowed milestones': 'player_hits_allowed',
-  // MLB classic O/U — DK's current per-player markets
+  // MLB classic O/U extras — unique typeName variants DK uses
   'strikeouts thrown o/u': 'player_strikeouts_p',
   'total strikeouts thrown': 'player_strikeouts_p',
+  'strikeouts o/u': 'player_strikeouts_p',
+  'pitcher strikeouts o/u': 'player_strikeouts_p',
   'walks allowed o/u': 'player_walks',
+  'hits allowed o/u': 'player_hits_allowed',
+  'total hits allowed': 'player_hits_allowed',
+  'earned runs o/u': 'player_earned_runs',
+  'total earned runs': 'player_earned_runs',
   'total total bases': 'player_total_bases',
+  'total bases o/u': 'player_total_bases',
+  'total hits o/u': 'player_hits',
+  'total runs o/u': 'player_runs',
+  'rbis o/u': 'player_rbis',
+  'home runs o/u': 'player_home_runs',
+  'total walks': 'player_walks',
+  'batter walks': 'player_walks',
+  'stolen bases o/u': 'player_stolen_bases',
+  'outs recorded o/u': 'pitcher_outs',
+  'total outs recorded': 'pitcher_outs',
+  'pitcher outs o/u': 'pitcher_outs',
+  // Extra base hit splits
+  'total singles': 'player_singles',
+  'singles o/u': 'player_singles',
+  'total doubles': 'player_doubles',
+  'doubles o/u': 'player_doubles',
+  'total triples': 'player_triples',
+  'triples o/u': 'player_triples',
+  'total extra base hits': 'player_extra_base_hits',
+  'extra base hits o/u': 'player_extra_base_hits',
   // NHL milestones
   'goals milestones': 'player_goals',
   'points milestones (nhl)': 'player_hockey_points',
@@ -513,6 +539,9 @@ async function fetchLeague(
     // Phase-1 probe skipped — the propSubcategoryIds lists in DK_LEAGUES
     // are already pre-trimmed to known-live IDs. Saves ~1.4k probe
     // requests per cron cycle.
+    // Diag: collect every MLB marketType we encounter with a running
+    // count of markets. Helps identify missing DK_PROP_MAP entries.
+    const mlbMarketTypeCounts = new Map<string, { mapped: boolean; count: number }>()
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
     const PROP_BATCH = 5
@@ -544,6 +573,12 @@ async function fetchLeague(
               for (const market of markets) {
                 const typeName = (market.marketType?.name ?? '').toLowerCase()
                 const propCategory = DK_PROP_MAP[typeName]
+                if (league.name === 'MLB') {
+                  const prev = mlbMarketTypeCounts.get(typeName) ?? { mapped: !!propCategory, count: 0 }
+                  prev.count++
+                  prev.mapped = !!propCategory
+                  mlbMarketTypeCounts.set(typeName, prev)
+                }
                 if (!propCategory) continue
 
                 const sels = selByMarket.get(market.id) ?? []
@@ -631,6 +666,12 @@ async function fetchLeague(
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     if (results.length > 0) {
       console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
+    }
+    if (league.name === 'MLB' && mlbMarketTypeCounts.size > 0) {
+      const sorted = [...mlbMarketTypeCounts.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .map(([n, d]) => `${d.mapped ? '✓' : '✗'} ${n} (${d.count})`)
+      console.log(`[DK MLB marketTypes]`, sorted)
     }
 
     return results
