@@ -100,23 +100,14 @@ function parseSpecialDesc(desc: string): { playerName: string; stat: string } | 
 }
 
 async function gql(page: import('playwright').Page, url: string): Promise<any> {
-  const result = await page.evaluate(async ({ url, headers }) => {
-    try {
-      const r = await fetch(url, { headers, credentials: 'include' })
-      const text = await r.text()
-      return { ok: r.ok, status: r.status, body: text }
-    } catch (e: any) {
-      return { ok: false, status: 0, body: `fetch threw: ${e?.message ?? e}` }
-    }
-  }, { url, headers: HEADERS })
-  if (!result.ok) {
-    throw new Error(`HTTP ${result.status}: ${String(result.body).slice(0, 200)}`)
+  // Use Playwright's built-in request context (bypasses browser CORS) but
+  // carry the cookies + UA from the page context for auth/challenge parity.
+  const resp = await page.request.get(url, { headers: HEADERS })
+  if (!resp.ok()) {
+    const body = await resp.text().catch(() => '')
+    throw new Error(`HTTP ${resp.status()}: ${body.slice(0, 200)}`)
   }
-  try {
-    return JSON.parse(result.body)
-  } catch {
-    throw new Error(`bad JSON: ${result.body.slice(0, 200)}`)
-  }
+  return resp.json()
 }
 
 export const pinnacleAdapter: BookAdapter = {

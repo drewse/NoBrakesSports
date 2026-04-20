@@ -190,19 +190,32 @@ export const pointsbetAdapter: BookAdapter = {
           const events = (listData as any).events ?? []
 
           // For each event, enrich with props from the detail endpoint.
+          // Try the three URL shapes PointsBet uses; first one that works wins.
+          const detailCandidates = (key: string | number) => [
+            `${BASE_V3}/events/${key}`,
+            `${BASE_V3}/events/${key}/markets`,
+            `https://api.on.pointsbet.com/api/v2/events/${key}`,
+          ]
+
           const enriched = await Promise.all(events.map(async (ev: PBEvent) => {
             if (ev.isLive || !ev.homeTeam || !ev.awayTeam) return ev
-            try {
-              const detail = await page.evaluate(async (url: string) => {
-                const r = await fetch(url, { headers: { Accept: 'application/json' } })
-                if (!r.ok) return null
-                return r.json()
-              }, `${BASE_V3}/events/${ev.key}`)
-              if (detail && (detail as any).specialFixedOddsMarkets) {
-                // Detail page has a much larger markets array — prefer it
-                ev.specialFixedOddsMarkets = (detail as any).specialFixedOddsMarkets
-              }
-            } catch { /* fall back to list-level markets */ }
+            for (const url of detailCandidates(ev.key)) {
+              try {
+                const detail = await page.evaluate(async (u: string) => {
+                  const r = await fetch(u, { headers: { Accept: 'application/json' } })
+                  return { ok: r.ok, status: r.status, body: r.ok ? await r.json() : null }
+                }, url)
+                if (detail.ok && detail.body) {
+                  const mkts = (detail.body as any).specialFixedOddsMarkets
+                    ?? (detail.body as any).markets
+                    ?? (detail.body as any).event?.specialFixedOddsMarkets
+                  if (Array.isArray(mkts) && mkts.length > (ev.specialFixedOddsMarkets?.length ?? 0)) {
+                    ev.specialFixedOddsMarkets = mkts
+                    break
+                  }
+                }
+              } catch { /* try next url */ }
+            }
             return ev
           }))
 
@@ -316,6 +329,19 @@ export const pointsbetAdapter: BookAdapter = {
           total: unmappedClasses.size,
         })
       }
+
+      // Diagnostic summary
+      const totalProps = scraped.reduce((s, r) => s + r.props.length, 0)
+      const totalGameMkts = scraped.reduce((s, r) => s + r.gameMarkets.length, 0)
+      const avgMarkets = scraped.length > 0
+        ? scraped.reduce((s, r) => s + r.gameMarkets.length + r.props.length, 0) / scraped.length
+        : 0
+      log.info('scrape summary', {
+        events: scraped.length,
+        totalGameMkts,
+        totalProps,
+        avgMarketsPerEvent: +avgMarkets.toFixed(1),
+      })
 
       return { events: scraped, errors }
     }, {
