@@ -388,6 +388,22 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             const result = resultsByEventId.get(eventId)
             if (!result) return
 
+            // Targeted diag: for every NBA event, log its title once per cron
+            // + dump any markets whose title matches "assists" (so we can see
+            // if Daniss Jenkins / any player assists markets are actually in
+            // the feed for a given event).
+            if (league.leagueSlug === 'nba') {
+              const assistMatches = (evData.Markets ?? []).filter((m: any) =>
+                /assist/i.test(m.Title ?? '')
+              )
+              console.log(`[BW NBA] ${result.event.awayName} @ ${result.event.homeName}`, {
+                eventId,
+                totalMarkets: (evData.Markets ?? []).length,
+                assistMarketCount: assistMatches.length,
+                firstAssistTitles: assistMatches.slice(0, 10).map((m: any) => m.Title),
+              })
+            }
+
             for (const market of evData.Markets) {
               const titleFull = (market.Title ?? '') as string
               const titleLower = titleFull.toLowerCase()
