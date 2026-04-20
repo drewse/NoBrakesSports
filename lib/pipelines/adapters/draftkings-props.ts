@@ -42,8 +42,10 @@ export const DK_LEAGUES: {
   },
   {
     sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
-    // Strikeouts, Hits, Home Runs, RBIs, Total Bases, Runs, Stolen Bases, Walks, Outs
-    propSubcategoryIds: ['15218', '15221', '15222', '15223', '15224', '15225', '15226', '15227', '15228'],
+    // DK renumbered MLB subcategories alongside NBA. No captured seed ID
+    // yet — scan a wide range. The phase-1 probe will narrow it to live
+    // IDs quickly and only those get queried in phase 2.
+    propSubcategoryIds: Array.from({ length: 1401 }, (_, i) => String(15200 + i)),
   },
   {
     sport: 'ice_hockey', leagueId: '42133', leagueSlug: 'nhl', name: 'NHL', subcategoryId: '4515',
@@ -171,6 +173,26 @@ const DK_PROP_MAP: Record<string, string> = {
   'points + rebounds milestones': 'player_pts_reb',
   'points + assists milestones': 'player_pts_ast',
   'rebounds + assists milestones': 'player_ast_reb',
+  // MLB milestones (same threshold pattern)
+  'hits milestones': 'player_hits',
+  'total bases milestones': 'player_total_bases',
+  'home runs milestones': 'player_home_runs',
+  'rbis milestones': 'player_rbis',
+  'runs milestones': 'player_runs',
+  'strikeouts milestones': 'player_strikeouts_p',
+  'pitcher strikeouts milestones': 'player_strikeouts_p',
+  'walks milestones': 'player_walks',
+  'stolen bases milestones': 'player_stolen_bases',
+  'earned runs milestones': 'player_earned_runs',
+  'outs milestones': 'pitcher_outs',
+  'outs recorded milestones': 'pitcher_outs',
+  'hits allowed milestones': 'player_hits_allowed',
+  // NHL milestones
+  'goals milestones': 'player_goals',
+  'points milestones (nhl)': 'player_hockey_points',
+  'shots on goal milestones': 'player_shots_on_goal',
+  'saves milestones': 'player_saves',
+  'power play points milestones': 'player_power_play_pts',
   // Baseball
   'hits': 'player_hits',
   'total hits': 'player_hits',
@@ -469,22 +491,33 @@ async function fetchLeague(
 
     const firstEvent = eventIds[0]
     if (firstEvent) {
-      const probeResults = await Promise.all(
-        [...propSubcategoryIds].map(async (subId) => {
-          try {
-            const resp = await dkFetch(buildEventPropUrl(firstEvent, subId))
-            if (!resp.ok) return null
-            const data = await resp.json()
-            const markets = data.markets ?? []
-            if (markets.length === 0) return null
-            return { subId }
-          } catch { return null }
-        }),
-      )
+      // Chunked probe — up to PROBE_CHUNK concurrent per chunk so large
+      // scan ranges (e.g. 1400 candidate IDs for MLB) don't fire 1k+
+      // requests simultaneously and trigger DK rate limiting.
+      const PROBE_CHUNK = 100
+      const allIds = [...propSubcategoryIds]
       const liveIds = new Set<string>()
-      for (const r of probeResults) if (r) liveIds.add(r.subId)
+      for (let i = 0; i < allIds.length; i += PROBE_CHUNK) {
+        const slice = allIds.slice(i, i + PROBE_CHUNK)
+        const probeResults = await Promise.all(
+          slice.map(async (subId) => {
+            try {
+              const resp = await dkFetch(buildEventPropUrl(firstEvent, subId))
+              if (!resp.ok) return null
+              const data = await resp.json()
+              const markets = data.markets ?? []
+              if (markets.length === 0) return null
+              return subId
+            } catch { return null }
+          }),
+        )
+        for (const r of probeResults) if (r) liveIds.add(r)
+      }
       propSubcategoryIds.clear()
       for (const id of liveIds) propSubcategoryIds.add(id)
+      if (liveIds.size > 0 && (league.name === 'MLB' || league.name === 'NHL')) {
+        console.log(`[DK ${league.name}] live subcategory IDs:`, [...liveIds])
+      }
     }
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
