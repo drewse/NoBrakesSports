@@ -145,18 +145,32 @@ export async function GET(request: NextRequest) {
   // canonicalEventKey produces "{league}:{date}:{home}:{away}" — same format
   // as our pipeline adapters, so Odds API events merge with adapter events
   // into ONE events row per game instead of creating duplicates.
-  const eventsToUpsert = allGames.map(({ game, leagueId, leagueSlug }) => ({
-    external_id: canonicalEventKey({
-      leagueSlug,
-      homeTeam: game.home_team,
-      awayTeam: game.away_team,
-      startTime: game.commence_time,
-    }),
-    league_id: leagueId,
-    title: `${game.home_team} vs ${game.away_team}`,
-    start_time: game.commence_time,
-    status: 'scheduled',
-  }))
+  // Skip parlay / multi-game placeholders from the Odds API (e.g. the feed
+  // sometimes returns a row whose home_team is literally "Home Teams (4
+  // Games)" for a daily-parlay wager). They pollute the events table with
+  // fake matchups that break the duplicate-detection logic elsewhere.
+  const isPlaceholderTeam = (name: string | undefined): boolean => {
+    if (!name) return true
+    const t = name.trim()
+    if (/\(\d+\s*Games?\)/i.test(t)) return true
+    if (/^home teams?$/i.test(t) || /^away teams?$/i.test(t)) return true
+    if (/^home teams?\s/i.test(t) || /^away teams?\s/i.test(t)) return true
+    return false
+  }
+  const eventsToUpsert = allGames
+    .filter(({ game }) => !isPlaceholderTeam(game.home_team) && !isPlaceholderTeam(game.away_team))
+    .map(({ game, leagueId, leagueSlug }) => ({
+      external_id: canonicalEventKey({
+        leagueSlug,
+        homeTeam: game.home_team,
+        awayTeam: game.away_team,
+        startTime: game.commence_time,
+      }),
+      league_id: leagueId,
+      title: `${game.home_team} vs ${game.away_team}`,
+      start_time: game.commence_time,
+      status: 'scheduled',
+    }))
 
   const { data: upsertedEvents, error: eventsError } = await db
     .from('events')
