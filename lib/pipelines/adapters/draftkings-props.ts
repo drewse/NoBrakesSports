@@ -14,17 +14,54 @@ import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
 
-// DraftKings league IDs + game lines subcategory per sport
-// Each sport uses a different subcategory ID for game lines (ML/spread/total)
-export const DK_LEAGUES: { sport: string; leagueId: string; leagueSlug: string; name: string; subcategoryId: string }[] = [
-  { sport: 'basketball', leagueId: '42648',  leagueSlug: 'nba',         name: 'NBA',        subcategoryId: '4511' },
-  { sport: 'baseball',   leagueId: '84240',  leagueSlug: 'mlb',         name: 'MLB',        subcategoryId: '4519' },
-  { sport: 'ice_hockey', leagueId: '42133',  leagueSlug: 'nhl',         name: 'NHL',        subcategoryId: '4515' },
-  { sport: 'soccer',     leagueId: '40253',  leagueSlug: 'epl',         name: 'EPL',        subcategoryId: '4516' },
-  { sport: 'soccer',     leagueId: '59974',  leagueSlug: 'laliga',      name: 'La Liga',    subcategoryId: '4516' },
-  { sport: 'soccer',     leagueId: '59979',  leagueSlug: 'bundesliga',  name: 'Bundesliga', subcategoryId: '4516' },
-  { sport: 'soccer',     leagueId: '59977',  leagueSlug: 'seria_a',     name: 'Serie A',    subcategoryId: '4516' },
-  { sport: 'soccer',     leagueId: '59976',  leagueSlug: 'ligue_one',   name: 'Ligue 1',    subcategoryId: '4516' },
+// DraftKings league IDs + game lines subcategory per sport.
+// Each sport uses a different subcategory ID for game lines (ML/spread/total).
+// `propSubcategoryIds` lists known per-stat prop subcategories since DK
+// removed clientMetadata.Subcategories from the API response in late 2025.
+// These are stable DK ids discovered via DevTools on the live site.
+export const DK_LEAGUES: {
+  sport: string
+  leagueId: string
+  leagueSlug: string
+  name: string
+  subcategoryId: string
+  propSubcategoryIds: string[]
+}[] = [
+  {
+    sport: 'basketball', leagueId: '42648', leagueSlug: 'nba', name: 'NBA', subcategoryId: '4511',
+    // Points, Rebounds, Assists, Threes, Steals, Blocks, P+R+A, P+R, P+A, R+A, Turnovers, Double-Double, Triple-Double
+    propSubcategoryIds: ['9102', '9103', '9104', '9105', '9106', '9107', '9108', '9109', '9110', '9111', '9112', '9113', '9114'],
+  },
+  {
+    sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
+    // Strikeouts, Hits, Home Runs, RBIs, Total Bases, Runs, Stolen Bases, Walks, Outs
+    propSubcategoryIds: ['15218', '15221', '15222', '15223', '15224', '15225', '15226', '15227', '15228'],
+  },
+  {
+    sport: 'ice_hockey', leagueId: '42133', leagueSlug: 'nhl', name: 'NHL', subcategoryId: '4515',
+    // Shots on Goal, Goals, Points, Assists, Saves, Power Play Points
+    propSubcategoryIds: ['15112', '15113', '15114', '15115', '15116', '15117'],
+  },
+  {
+    sport: 'soccer', leagueId: '40253', leagueSlug: 'epl', name: 'EPL', subcategoryId: '4516',
+    propSubcategoryIds: [],
+  },
+  {
+    sport: 'soccer', leagueId: '59974', leagueSlug: 'laliga', name: 'La Liga', subcategoryId: '4516',
+    propSubcategoryIds: [],
+  },
+  {
+    sport: 'soccer', leagueId: '59979', leagueSlug: 'bundesliga', name: 'Bundesliga', subcategoryId: '4516',
+    propSubcategoryIds: [],
+  },
+  {
+    sport: 'soccer', leagueId: '59977', leagueSlug: 'seria_a', name: 'Serie A', subcategoryId: '4516',
+    propSubcategoryIds: [],
+  },
+  {
+    sport: 'soccer', leagueId: '59976', leagueSlug: 'ligue_one', name: 'Ligue 1', subcategoryId: '4516',
+    propSubcategoryIds: [],
+  },
 ]
 
 // DK team abbreviations → full names
@@ -359,52 +396,20 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // Discover all prop subcategory IDs from the first few events.
-    // DK used to expose `clientMetadata.Subcategories` with an array of
-    // {Id, Name} entries. Probe multiple known shapes because their payload
-    // schema has drifted — sometimes it's Subcategories, subcategories,
-    // SubCategories, or a flat array on the event root.
-    const propSubcategoryIds = new Set<string>()
-    const firstEvent = (gameData.events ?? []).find((e: any) => e.status === 'NOT_STARTED')
-    for (const ev of gameData.events ?? []) {
-      if (ev.status !== 'NOT_STARTED') continue
-      const cm = ev.clientMetadata ?? {}
-      const subs: any[] =
-        cm.Subcategories ??
-        cm.subcategories ??
-        cm.SubCategories ??
-        cm.subCategories ??
-        ev.subcategories ??
-        ev.Subcategories ??
-        []
-      for (const s of subs) {
-        const id = String(s.Id ?? s.id ?? s.subcategoryId ?? s)
-        if (id && id !== league.subcategoryId) {
-          propSubcategoryIds.add(id)
-        }
-      }
-      if (propSubcategoryIds.size > 0) break
-    }
-
-    if (propSubcategoryIds.size > 0) {
-      console.log(`[DK] ${league.name}: discovered ${propSubcategoryIds.size} prop subcategories: ${[...propSubcategoryIds].join(', ')}`)
-    } else if (league.name === 'NBA') {
-      // Fire every run (no once-per-process guard) until DK props flow again.
-      console.log('[DK NBA shape]', {
-        responseRootKeys: Object.keys(gameData ?? {}),
-        responseMetadataKeys: gameData?.metadata ? Object.keys(gameData.metadata) : null,
-        responseMetadataSample: gameData?.metadata,
-        responseSubcategoriesSample: gameData?.subcategories,
-        firstEventMetadata: firstEvent?.metadata,
-        firstEventTags: firstEvent?.tags,
-        leagueData: gameData?.leagues?.[0] ?? gameData?.league,
-      })
-    }
+    // DK removed per-event subcategory listings from the API response, so
+    // dynamic discovery returns nothing. Fall back to the hardcoded
+    // per-league list.
+    const propSubcategoryIds = new Set<string>(league.propSubcategoryIds)
 
     // Fetch props: for each event × each prop subcategory
     // Use the eventSubcategory endpoint discovered from DK DevTools
     const eventIds = results.map(r => r.event.eventId)
     const PROP_BATCH = 5
+
+    // Probe each subcategory once against the first event to see which ones
+    // actually exist at DK today (IDs drift over time). Log the matches so
+    // we can update the hardcoded list when they change again.
+    const subcategoryProbeResults = new Map<string, { marketCount: number; marketTypes: Set<string> }>()
 
     for (const subId of propSubcategoryIds) {
       for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
@@ -420,6 +425,14 @@ async function fetchLeague(
               const markets = data.markets ?? []
               const selections = data.selections ?? []
               if (markets.length === 0) return
+
+              if (league.name === 'NBA' && eventId === eventIds[0]) {
+                const types = new Set<string>()
+                for (const m of markets) {
+                  types.add((m.marketType?.name ?? '').toLowerCase())
+                }
+                subcategoryProbeResults.set(subId, { marketCount: markets.length, marketTypes: types })
+              }
 
               const selByMarket = new Map<string, any[]>()
               for (const s of selections) {
@@ -481,6 +494,15 @@ async function fetchLeague(
 
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
+
+    if (league.name === 'NBA') {
+      const summary = [...subcategoryProbeResults.entries()].map(([id, d]) => ({
+        id,
+        marketCount: d.marketCount,
+        marketTypes: [...d.marketTypes],
+      }))
+      console.log(`[DK NBA probe] ${summary.length}/${propSubcategoryIds.size} subcategories returned data`, summary)
+    }
 
     return results
   } catch (e) {
