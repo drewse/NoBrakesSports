@@ -550,37 +550,10 @@ async function fetchLeague(
     //   Phase 2 — fetch the surviving IDs × every event in parallel.
     const eventIds = results.map(r => r.event.eventId)
 
-    // Phase-1 probe (only when the candidate list is large) — fire chunked
-    // concurrent probes against the first event to narrow down to live IDs.
-    // Skipped for NBA where the list is already pre-trimmed.
-    if (propSubcategoryIds.size > 50 && eventIds.length > 0) {
-      const PROBE_CHUNK = 100
-      const allIds = [...propSubcategoryIds]
-      const liveIds = new Set<string>()
-      for (let i = 0; i < allIds.length; i += PROBE_CHUNK) {
-        const slice = allIds.slice(i, i + PROBE_CHUNK)
-        const probeResults = await Promise.all(
-          slice.map(async (subId) => {
-            try {
-              const resp = await dkFetch(buildEventPropUrl(eventIds[0], subId))
-              if (!resp.ok) return null
-              const data = await resp.json()
-              return (data.markets ?? []).length > 0 ? subId : null
-            } catch { return null }
-          }),
-        )
-        for (const r of probeResults) if (r) liveIds.add(r)
-      }
-      propSubcategoryIds.clear()
-      for (const id of liveIds) propSubcategoryIds.add(id)
-      if (league.name === 'MLB') {
-        console.log(`[DK MLB] live subcategory IDs after wide scan:`, [...liveIds])
-      }
-    }
-
-    // Diag: collect every MLB marketType we encounter with a running
-    // count of markets. Helps identify missing DK_PROP_MAP entries.
-    const mlbMarketTypeCounts = new Map<string, { mapped: boolean; count: number }>()
+    // propSubcategoryIds lists are pre-trimmed to known-live IDs so no
+    // probe is needed. Re-enable the chunked probe + [DK <league>] log
+    // if DK renumbers again — the missing IDs will start showing as
+    // gaps in the prop counts.
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
     const PROP_BATCH = 5
@@ -612,12 +585,6 @@ async function fetchLeague(
               for (const market of markets) {
                 const typeName = (market.marketType?.name ?? '').toLowerCase()
                 const propCategory = DK_PROP_MAP[typeName]
-                if (league.name === 'MLB') {
-                  const prev = mlbMarketTypeCounts.get(typeName) ?? { mapped: !!propCategory, count: 0 }
-                  prev.count++
-                  prev.mapped = !!propCategory
-                  mlbMarketTypeCounts.set(typeName, prev)
-                }
                 if (!propCategory) continue
 
                 const sels = selByMarket.get(market.id) ?? []
@@ -705,12 +672,6 @@ async function fetchLeague(
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     if (results.length > 0) {
       console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
-    }
-    if (league.name === 'MLB' && mlbMarketTypeCounts.size > 0) {
-      const sorted = [...mlbMarketTypeCounts.entries()]
-        .sort((a, b) => b[1].count - a[1].count)
-        .map(([n, d]) => `${d.mapped ? '✓' : '✗'} ${n} (${d.count})`)
-      console.log(`[DK MLB marketTypes]`, sorted)
     }
 
     return results
