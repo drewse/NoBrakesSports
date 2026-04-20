@@ -1,4 +1,4 @@
-// Every 15 minutes: pick a random +EV line (3–8% edge) and post to Discord.
+// Every 30 minutes: pick a random +EV line (3–8% edge) and post to Discord.
 // Uses a dedicated webhook (DISCORD_EV_WEBHOOK_URL) — falls back to the main
 // webhook if the dedicated one isn't configured.
 import { NextRequest, NextResponse } from 'next/server'

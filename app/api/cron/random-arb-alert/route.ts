@@ -1,4 +1,4 @@
-// Every 15 minutes: pick a random arb (0-5% profit) and post to Discord
+// Every 30 minutes: pick a random arb (1-5% profit) and post to Discord
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
