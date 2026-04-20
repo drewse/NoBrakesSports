@@ -34,18 +34,34 @@ export const DK_LEAGUES: {
 }[] = [
   {
     sport: 'basketball', leagueId: '42648', leagueSlug: 'nba', name: 'NBA', subcategoryId: '4511',
-    // Seeded from a live curl capture (subcategoryId 16477 confirmed
-    // active). DK renumbered NBA prop subcategories in late 2025 so the
-    // old 9102/.../9114 IDs are dead. Scan a range around the seed to
-    // pick up the adjacent prop subcategories (Points / Reb / Ast / etc.).
-    propSubcategoryIds: Array.from({ length: 41 }, (_, i) => String(16460 + i)),
+    // Live DK NBA prop milestone subcategory IDs. Dropped 16463/16464/
+    // 16471-16475 ("race to X", "most X") — those aren't per-player O/U
+    // props and don't map to a prop_category.
+    propSubcategoryIds: [
+      '16477', // points milestones
+      '16478', // assists milestones
+      '16479', // rebounds milestones
+      '16480', // three pointers made milestones
+      '16481', // points + assists milestones
+      '16482', // points + rebounds milestones
+      '16483', // points + rebounds + assists milestones
+      '16484', // blocks milestones
+      '16485', // steals milestones
+    ],
   },
   {
     sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
-    // DK renumbered MLB subcategories alongside NBA. No captured seed ID
-    // yet — scan a wide range. The phase-1 probe will narrow it to live
-    // IDs quickly and only those get queried in phase 2.
-    propSubcategoryIds: Array.from({ length: 1401 }, (_, i) => String(15200 + i)),
+    // Live DK MLB subcategory IDs captured by the phase-1 probe. Listed
+    // explicitly instead of a wide scan so we don't burn thousands of
+    // requests per cron cycle (which was timing out and triggering DK
+    // connection resets on other leagues).
+    propSubcategoryIds: [
+      '15219', '15221', '15418',
+      '15628', '15629', '15630', '15631', '15632',
+      '15891', '15892', '15893', '15972',
+      '16216', '16217', '16218', '16220', '16221', '16222', '16223',
+      '16261', '16262', '16263', '16264', '16265', '16266', '16268',
+    ],
   },
   {
     sport: 'ice_hockey', leagueId: '42133', leagueSlug: 'nhl', name: 'NHL', subcategoryId: '4515',
@@ -489,36 +505,9 @@ async function fetchLeague(
     //   Phase 2 — fetch the surviving IDs × every event in parallel.
     const eventIds = results.map(r => r.event.eventId)
 
-    const firstEvent = eventIds[0]
-    if (firstEvent) {
-      // Chunked probe — up to PROBE_CHUNK concurrent per chunk so large
-      // scan ranges (e.g. 1400 candidate IDs for MLB) don't fire 1k+
-      // requests simultaneously and trigger DK rate limiting.
-      const PROBE_CHUNK = 100
-      const allIds = [...propSubcategoryIds]
-      const liveIds = new Set<string>()
-      for (let i = 0; i < allIds.length; i += PROBE_CHUNK) {
-        const slice = allIds.slice(i, i + PROBE_CHUNK)
-        const probeResults = await Promise.all(
-          slice.map(async (subId) => {
-            try {
-              const resp = await dkFetch(buildEventPropUrl(firstEvent, subId))
-              if (!resp.ok) return null
-              const data = await resp.json()
-              const markets = data.markets ?? []
-              if (markets.length === 0) return null
-              return subId
-            } catch { return null }
-          }),
-        )
-        for (const r of probeResults) if (r) liveIds.add(r)
-      }
-      propSubcategoryIds.clear()
-      for (const id of liveIds) propSubcategoryIds.add(id)
-      if (liveIds.size > 0 && (league.name === 'MLB' || league.name === 'NHL')) {
-        console.log(`[DK ${league.name}] live subcategory IDs:`, [...liveIds])
-      }
-    }
+    // Phase-1 probe skipped — the propSubcategoryIds lists in DK_LEAGUES
+    // are already pre-trimmed to known-live IDs. Saves ~1.4k probe
+    // requests per cron cycle.
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
     const PROP_BATCH = 5
