@@ -65,20 +65,30 @@ function mapMarketType(eventClass: string): MarketType | null {
   return null
 }
 
+// Order matters: the mapPropCategory fuzzy-match returns the first key the
+// eventClass string contains, so more specific keys MUST appear before shorter
+// ones (e.g. 'player points + rebounds' before 'player points').
 const PROP_CATEGORY_MAP: Record<string, string> = {
-  // Basketball
-  'player points':              'player_points',
-  'player rebounds':            'player_rebounds',
-  'player assists':             'player_assists',
-  'player threes':              'player_threes',
-  'player three pointers made': 'player_threes',
-  'player steals':              'player_steals',
-  'player blocks':              'player_blocks',
-  'player turnovers':           'player_turnovers',
+  // Basketball — combos first so they beat the single-stat prefixes
+  'player pts + rebs + asts':   'player_pts_reb_ast',
   'player points + rebounds + assists': 'player_pts_reb_ast',
   'player points + rebounds':   'player_pts_reb',
   'player points + assists':    'player_pts_ast',
   'player rebounds + assists':  'player_ast_reb',
+  // Basketball — singles
+  'player 3-pointers made':     'player_threes',
+  'player three pointers made': 'player_threes',
+  'player threes':              'player_threes',
+  'alternate threes':           'player_threes',
+  'alternate points':           'player_points',
+  'alternate rebounds':         'player_rebounds',
+  'alternate assists':          'player_assists',
+  'player points':              'player_points',
+  'player rebounds':            'player_rebounds',
+  'player assists':             'player_assists',
+  'player steals':              'player_steals',
+  'player blocks':              'player_blocks',
+  'player turnovers':           'player_turnovers',
   // Baseball
   'batter hits':                'player_hits',
   'batter home runs':           'player_home_runs',
@@ -90,10 +100,10 @@ const PROP_CATEGORY_MAP: Record<string, string> = {
   'pitcher earned runs':        'player_earned_runs',
   'pitcher outs':               'pitcher_outs',
   // Hockey
-  'player goals':               'player_goals',
-  'player shots on goal':       'player_shots_on_goal',
-  'player saves':               'player_saves',
   'skater points':              'player_hockey_points',
+  'player shots on goal':       'player_shots_on_goal',
+  'player goals':               'player_goals',
+  'player saves':               'player_saves',
   // Soccer
   'player shots on target':     'player_shots_target',
 }
