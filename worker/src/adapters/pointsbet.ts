@@ -171,6 +171,7 @@ export const pointsbetAdapter: BookAdapter = {
 
       // 3. Fetch events for each competition (batched)
       const BATCH = 8
+      const unmappedClasses = new Set<string>()
       for (let i = 0; i < competitions.length; i += BATCH) {
         if (signal.aborted) break
         const batch = competitions.slice(i, i + BATCH)
@@ -178,14 +179,34 @@ export const pointsbetAdapter: BookAdapter = {
           const info = LEAGUE_MAP[comp.name.toLowerCase()]
           if (!info) return null // unknown league — skip
 
-          const data = await page.evaluate(async (url: string) => {
+          // Featured list gives game-level markets. For props, hit the per-event
+          // endpoint which returns the full special markets catalog.
+          const listData = await page.evaluate(async (url: string) => {
             const r = await fetch(url, { headers: { Accept: 'application/json' } })
             if (!r.ok) throw new Error(`HTTP ${r.status}`)
             return r.json()
           }, `${BASE_V3}/events/featured/competition/${comp.key}?page=1`)
 
-          const events = (data as any).events ?? []
-          return { info, events }
+          const events = (listData as any).events ?? []
+
+          // For each event, enrich with props from the detail endpoint.
+          const enriched = await Promise.all(events.map(async (ev: PBEvent) => {
+            if (ev.isLive || !ev.homeTeam || !ev.awayTeam) return ev
+            try {
+              const detail = await page.evaluate(async (url: string) => {
+                const r = await fetch(url, { headers: { Accept: 'application/json' } })
+                if (!r.ok) return null
+                return r.json()
+              }, `${BASE_V3}/events/${ev.key}`)
+              if (detail && (detail as any).specialFixedOddsMarkets) {
+                // Detail page has a much larger markets array — prefer it
+                ev.specialFixedOddsMarkets = (detail as any).specialFixedOddsMarkets
+              }
+            } catch { /* fall back to list-level markets */ }
+            return ev
+          }))
+
+          return { info, events: enriched }
         }))
 
         for (const r of batchResults) {
@@ -252,7 +273,13 @@ export const pointsbetAdapter: BookAdapter = {
               // Player props
               if (outcomes.length !== 2) continue
               const propCategory = mapPropCategory(m.eventClass ?? '')
-              if (!propCategory) continue
+              if (!propCategory) {
+                // Track for diagnostic logging below
+                if (m.eventClass && m.eventClass.toLowerCase().includes('player')) {
+                  unmappedClasses.add(m.eventClass)
+                }
+                continue
+              }
               const overOut = outcomes.find(o =>
                 (o.name ?? '').toLowerCase().startsWith('over') || (o.side ?? '').toLowerCase() === 'over'
               )
@@ -281,6 +308,13 @@ export const pointsbetAdapter: BookAdapter = {
             }
           }
         }
+      }
+
+      if (unmappedClasses.size > 0) {
+        log.info('unmapped eventClasses (update PROP_CATEGORY_MAP)', {
+          classes: [...unmappedClasses].slice(0, 30),
+          total: unmappedClasses.size,
+        })
       }
 
       return { events: scraped, errors }
