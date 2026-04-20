@@ -255,8 +255,14 @@ export const bet365Adapter: BookAdapter = {
         // Pre-register response listener for the three market type fetches
         // BEFORE navigating — pages issue these requests during render.
         const captured = new Map<'moneyline' | 'spread' | 'total', { status: number; text: string }>()
+        // Diag: also collect every response URL so we can see what bet365's
+        // SPA actually fetches once it renders.
+        const allResponseUrls: string[] = []
         const responseHandler = async (resp: import('playwright').Response) => {
           const url = resp.url()
+          if (url.includes('bet365') || url.includes('365.ca')) {
+            allResponseUrls.push(`${resp.status()} ${url.length > 150 ? url.slice(0, 150) + '...' : url}`)
+          }
           if (!url.includes('matchmarketscontentapi/markets')) return
           const eMatch = decodeURIComponent(url).match(/[#%23]E(\d+)[#%23]/)
           if (!eMatch) return
@@ -273,15 +279,28 @@ export const bet365Adapter: BookAdapter = {
 
         log.info('navigating to comp page', { comp: comp.name, url: targetUrl })
         try {
-          await page.goto(targetUrl, { waitUntil: 'networkidle', timeout: 60_000 })
+          // domcontentloaded instead of networkidle — bet365's SPA holds
+          // websockets open which keeps networkidle from ever firing.
+          await page.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 })
         } catch (e: any) {
           log.error('comp page nav failed', { comp: comp.name, message: e?.message ?? String(e) })
           errors.push(`${comp.name} nav: ${e?.message ?? e}`)
           page.off('response', responseHandler)
           continue
         }
-        await page.waitForTimeout(5_000)
+        // Long settle so the SPA's hash-router has time to render the
+        // league grid and fire the matchmarketscontentapi requests.
+        await page.waitForTimeout(15_000)
         page.off('response', responseHandler)
+
+        // Diag: dump the URLs the page actually hit so we can see the real
+        // endpoints if matchmarketscontentapi never fires.
+        log.info('all bet365 responses seen', {
+          comp: comp.name,
+          totalSeen: allResponseUrls.length,
+          sample: allResponseUrls.slice(0, 30),
+          marketsRequested: allResponseUrls.filter(u => u.includes('markets')).length,
+        })
 
         log.info('captured market responses', {
           comp: comp.name,
