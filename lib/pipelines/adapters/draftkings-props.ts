@@ -14,6 +14,10 @@ import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
 const DK_HOST = 'https://sportsbook-nash.draftkings.com'
+// Public DK sportsbook host — this is the domain the web UI hits for
+// /api/v5/ endpoints (publicly documented by community scrapers). The
+// Nashville CDN geofences /api/v5/ but the main host serves it.
+const DK_PUBLIC_HOST = 'https://sportsbook.draftkings.com'
 
 // DraftKings league IDs + game lines subcategory per sport.
 // Each sport uses a different subcategory ID for game lines (ML/spread/total).
@@ -217,27 +221,21 @@ function buildEventPropUrl(eventId: string, subcategoryId: string): string {
   return `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}%2C${subcategoryId}&marketsQuery=${encodeURIComponent(marketsQuery)}&entity=markets`
 }
 
-/** Probe URLs to discover which subcategory IDs DK uses today. The v5/v4
- *  eventgroup endpoints 403 the Vercel IP even with browser headers (likely
- *  Ontario-geofenced). Instead pivot to the working /controldata/ route but
- *  with broader query filters that request every market for the league. */
-function buildDiscoveryUrls(leagueId: string, eventId: string): string[] {
-  // Variants of the working endpoint without a subcategoryId filter.
-  const leagueOnly = `$filter=leagueId eq '${leagueId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
-  const eventOnly = `$filter=eventId eq '${eventId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
-  return [
-    // A: leagueSubcategory path, no subcategory in marketsQuery — sometimes
-    // returns the full market tree for the league.
-    `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&marketsQuery=${encodeURIComponent(leagueOnly)}&entity=markets`,
-    // B: leagueSubcategory path with templateVars=leagueId, but requesting
-    // include=Markets instead of Events.
-    `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(leagueOnly)}&marketsQuery=${encodeURIComponent(leagueOnly)}&include=Markets&entity=markets`,
-    // C: eventSubcategory path, event id only (no subcategory). DK may accept
-    // the partial templateVars if marketsQuery is complete.
-    `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}&marketsQuery=${encodeURIComponent(eventOnly)}&entity=markets`,
-    // D: previously-failing v5 variants as a last resort.
-    `${DK_HOST}/sites/CA-ON-SB/api/v5/eventgroups/${leagueId}/full?format=json`,
-  ]
+/** Probe URLs to discover which subcategory IDs DK uses today. The public
+ *  sportsbook host serves /api/v5/eventgroups/* — the community-documented
+ *  endpoint most DK scrapers use. We try multiple site codes because the
+ *  endpoint 404s/403s unless the site code matches where the leagueId lives. */
+function buildDiscoveryUrls(leagueId: string, _eventId: string): string[] {
+  const siteCodes = ['US-SB', 'US-NJ-SB', 'CA-ON-SB']
+  const urls: string[] = []
+  for (const site of siteCodes) {
+    urls.push(`${DK_PUBLIC_HOST}/sites/${site}/api/v5/eventgroups/${leagueId}?format=json`)
+    urls.push(`${DK_PUBLIC_HOST}/sites/${site}/api/v5/eventgroups/${leagueId}/full?format=json`)
+  }
+  // Flat paths some DK regions expose
+  urls.push(`${DK_PUBLIC_HOST}/api/v5/eventgroups/${leagueId}?format=json`)
+  urls.push(`${DK_PUBLIC_HOST}/api/v5/eventgroups/${leagueId}/full?format=json`)
+  return urls
 }
 
 
@@ -433,17 +431,52 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // DK props are currently not scrapable from Vercel:
-    //  1. /controldata/ routes require a subcategoryId in templateVars, and
-    //     DK removed the subcategory listing from the event payload so we
-    //     can no longer discover which IDs exist.
-    //  2. /api/v5/eventgroups/* returns 403 even with browser headers —
-    //     Ontario-geofenced behind the web UI's cookie.
-    // Solving this needs either a residential Ontario proxy for /api/v5/
-    // or HTML-scraping the event page. Both are bigger investments; until
-    // then we keep DK game lines (which still work via the subcategoryId
-    // filter) and skip props.
+    // Discover DK's current prop subcategory IDs via the public /api/v5/
+    // eventgroups endpoint on sportsbook.draftkings.com. /controldata/ only
+    // accepts subcategory-filtered queries and DK removed the subcategory
+    // list from event payloads, so this /api/v5/ path is the fallback.
     const propSubcategoryIds = new Set<string>(league.propSubcategoryIds)
+    const firstEventId = results[0]?.event.eventId
+    if (firstEventId) {
+      const urls = buildDiscoveryUrls(league.leagueId, firstEventId)
+      for (const probeUrl of urls) {
+        try {
+          const probeResp = await dkFetch(probeUrl, { withBrowserHeaders: true })
+          if (!probeResp.ok) {
+            if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${probeResp.status} ${probeUrl}`)
+            continue
+          }
+          const probeData = await probeResp.json()
+          const allSubIds = new Set<string>()
+          // /api/v5/ shape: eventGroup.offerCategories[].offerSubcategoryDescriptors[].subcategoryId
+          const eg = probeData.eventGroup ?? probeData
+          for (const oc of eg.offerCategories ?? []) {
+            for (const osd of oc.offerSubcategoryDescriptors ?? []) {
+              const id = osd.subcategoryId ?? osd.subCategoryId ?? osd.id
+              if (id) allSubIds.add(String(id))
+            }
+          }
+          if (allSubIds.size > 0) {
+            for (const sid of allSubIds) {
+              if (sid !== league.subcategoryId) propSubcategoryIds.add(sid)
+            }
+            if (league.name === 'NBA') {
+              console.log(`[DK NBA discover] OK: ${probeUrl}`, {
+                subcategoryIds: [...allSubIds],
+              })
+            }
+            break
+          } else if (league.name === 'NBA') {
+            console.log(`[DK NBA discover] 200 but empty: ${probeUrl}`, {
+              rootKeys: Object.keys(probeData ?? {}),
+              eventGroupKeys: probeData?.eventGroup ? Object.keys(probeData.eventGroup) : null,
+            })
+          }
+        } catch (e: any) {
+          if (league.name === 'NBA') console.log(`[DK NBA discover] error:`, e?.message ?? String(e))
+        }
+      }
+    }
 
     // Fetch props: for each event × each prop subcategory.
     // Currently a no-op because propSubcategoryIds is empty (see above).
