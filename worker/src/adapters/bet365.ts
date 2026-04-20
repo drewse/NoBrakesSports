@@ -230,29 +230,48 @@ export const bet365Adapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Cloudflare clearance: visit the page once so cf_clearance lands.
+      // Cloudflare clearance: visit the page and wait for networkidle so
+      // the CF challenge JavaScript completes and cf_clearance is set on
+      // document.cookie. The CF JS issues XHRs that change document.title
+      // / set the cookie before letting the real page render, so
+      // domcontentloaded fires WAY too early.
       log.info('seed visit', { url: SEED_URL })
       try {
-        const seedResp = await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        const seedResp = await page.goto(SEED_URL, { waitUntil: 'networkidle', timeout: 60_000 })
         log.info('seed loaded', { status: seedResp?.status() ?? null, url: page.url() })
+        // If the navigation status is 403, CF didn't let us through.
+        if (seedResp && seedResp.status() === 403) {
+          log.error('seed blocked by Cloudflare 403', { html: (await page.content()).slice(0, 200) })
+        }
       } catch (e: any) {
         log.error('seed nav failed', { message: e?.message ?? String(e) })
         errors.push(`seed nav: ${e?.message ?? e}`)
         return { events: [], errors }
       }
-      await page.waitForTimeout(2_000)
+      // Extra settle for CF cookie write
+      await page.waitForTimeout(3_000)
 
       for (const comp of COMPETITIONS) {
         if (signal.aborted) break
 
-        // Fetch all 3 market types in parallel for this competition.
+        // Fetch each market type from inside the page's JS context so the
+        // request inherits the page's session cookies + TLS fingerprint.
+        // page.request.get() uses a separate context and gets blocked by CF.
         const responses = await Promise.allSettled(
           MARKET_TYPE_IDS.map(async ({ id, type }) => {
             const url = buildUrl(comp, id)
-            const resp = await page.request.get(url, { headers: API_HEADERS })
-            const status = resp.status()
-            const text = await resp.text()
-            return { type, status, text, records: parseResponse(text), url }
+            const result = await page.evaluate(async ({ u, h }) => {
+              const r = await fetch(u, { headers: { Accept: '*/*', ...h }, credentials: 'include' })
+              const t = await r.text()
+              return { status: r.status, text: t }
+            }, { u: url, h: API_HEADERS })
+            return {
+              type,
+              status: result.status,
+              text: result.text,
+              records: parseResponse(result.text),
+              url,
+            }
           }),
         )
 
