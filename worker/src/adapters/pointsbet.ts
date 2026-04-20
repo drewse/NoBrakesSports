@@ -190,32 +190,46 @@ export const pointsbetAdapter: BookAdapter = {
           const events = (listData as any).events ?? []
 
           // For each event, enrich with props from the detail endpoint.
-          // Try the three URL shapes PointsBet uses; first one that works wins.
-          const detailCandidates = (key: string | number) => [
-            `${BASE_V3}/events/${key}`,
-            `${BASE_V3}/events/${key}/markets`,
-            `https://api.on.pointsbet.com/api/v2/events/${key}`,
-          ]
-
+          // PointsBet loads the full specialFixedOddsMarkets (including player
+          // props) from /v3/events/{key}.
+          let diagnosed = false
           const enriched = await Promise.all(events.map(async (ev: PBEvent) => {
             if (ev.isLive || !ev.homeTeam || !ev.awayTeam) return ev
-            for (const url of detailCandidates(ev.key)) {
-              try {
-                const detail = await page.evaluate(async (u: string) => {
-                  const r = await fetch(u, { headers: { Accept: 'application/json' } })
-                  return { ok: r.ok, status: r.status, body: r.ok ? await r.json() : null }
-                }, url)
-                if (detail.ok && detail.body) {
-                  const mkts = (detail.body as any).specialFixedOddsMarkets
-                    ?? (detail.body as any).markets
-                    ?? (detail.body as any).event?.specialFixedOddsMarkets
-                  if (Array.isArray(mkts) && mkts.length > (ev.specialFixedOddsMarkets?.length ?? 0)) {
-                    ev.specialFixedOddsMarkets = mkts
-                    break
-                  }
-                }
-              } catch { /* try next url */ }
-            }
+            const url = `${BASE_V3}/events/${ev.key}`
+            try {
+              const detail = await page.evaluate(async (u: string) => {
+                const r = await fetch(u, { headers: { Accept: 'application/json' } })
+                const text = r.ok ? await r.text() : null
+                return { ok: r.ok, status: r.status, body: text }
+              }, url)
+
+              if (!detail.ok || !detail.body) return ev
+              let parsed: any
+              try { parsed = JSON.parse(detail.body) } catch { return ev }
+
+              const mkts = parsed.specialFixedOddsMarkets
+                ?? parsed.markets
+                ?? parsed.event?.specialFixedOddsMarkets
+                ?? []
+
+              // Log the shape of the first event's response for diagnosis
+              if (!diagnosed) {
+                diagnosed = true
+                log.info('detail response sample', {
+                  url,
+                  status: detail.status,
+                  topLevelKeys: Object.keys(parsed ?? {}),
+                  marketsFound: Array.isArray(mkts) ? mkts.length : 'not-array',
+                  firstMarketKeys: Array.isArray(mkts) && mkts[0] ? Object.keys(mkts[0]) : [],
+                  firstMarketEventClass: Array.isArray(mkts) && mkts[0] ? mkts[0].eventClass : null,
+                  listedMarkets: ev.specialFixedOddsMarkets?.length ?? 0,
+                })
+              }
+
+              if (Array.isArray(mkts) && mkts.length > 0) {
+                ev.specialFixedOddsMarkets = mkts
+              }
+            } catch { /* fall back to list-level markets */ }
             return ev
           }))
 
