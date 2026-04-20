@@ -13,6 +13,7 @@ import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
 import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://sportsbook-nash.draftkings.com/sites/CA-ON-SB/api/sportscontent'
+const DK_HOST = 'https://sportsbook-nash.draftkings.com'
 
 // DraftKings league IDs + game lines subcategory per sport.
 // Each sport uses a different subcategory ID for game lines (ML/spread/total).
@@ -220,19 +221,16 @@ function buildEventPropUrl(eventId: string, subcategoryId: string): string {
  *  candidate hits a different endpoint variant; whichever returns 200 with
  *  a `markets` array gives us the live IDs via market.clientMetadata.subCategoryId. */
 function buildDiscoveryUrls(leagueId: string, eventId: string): string[] {
-  const eventMarketsQuery = `$filter=eventId eq '${eventId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
-  const leagueMarketsQuery = `$filter=leagueId eq '${leagueId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
   return [
-    // Event-scoped variants
-    `${BASE}/controldata/event/v1/markets?isBatchable=false&templateVars=${eventId}&marketsQuery=${encodeURIComponent(eventMarketsQuery)}&entity=markets`,
-    `${BASE}/controldata/event/eventCategory/v1/markets?isBatchable=false&templateVars=${eventId}&marketsQuery=${encodeURIComponent(eventMarketsQuery)}&entity=markets`,
-    `${BASE}/controldata/event/v1/markets?templateVars=${eventId}&entity=markets`,
-    // League-scoped: broader but returns the universe of markets
-    `${BASE}/controldata/league/v1/markets?isBatchable=false&templateVars=${leagueId}&marketsQuery=${encodeURIComponent(leagueMarketsQuery)}&entity=markets`,
-    `${BASE}/controldata/league/leagueCategory/v1/markets?isBatchable=false&templateVars=${leagueId}&marketsQuery=${encodeURIComponent(leagueMarketsQuery)}&entity=markets`,
-    // Subcategories list endpoints
-    `${BASE}/controldata/league/v1/subcategories?templateVars=${leagueId}`,
-    `${BASE}/controldata/league/subcategories/v1?templateVars=${leagueId}`,
+    // Older DK sportsbook v5 API — returns event group with all categories/subcategories
+    `${DK_HOST}/sites/CA-ON-SB/api/v5/eventgroups/${leagueId}/full?format=json`,
+    `${DK_HOST}/sites/CA-ON-SB/api/v5/eventgroups/${leagueId}?format=json`,
+    `${DK_HOST}/sites/CA-ON-SB/api/v4/eventgroups/${leagueId}/full?format=json`,
+    // DK's page-content endpoint used by the UI
+    `${DK_HOST}/sites/CA-ON-SB/api/sportsbook/v1/leagues/${leagueId}`,
+    `${DK_HOST}/sites/CA-ON-SB/api/sportsbook/v1/leagues/${leagueId}/categories`,
+    // Event-scoped via v5
+    `${DK_HOST}/sites/CA-ON-SB/api/v5/events/${eventId}/categories?format=json`,
   ]
 }
 
@@ -429,34 +427,50 @@ async function fetchLeague(
           const probeResp = await dkFetch(probeUrl)
           const status = probeResp.status
           if (!probeResp.ok) {
-            if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${status} ${probeUrl.slice(BASE.length, BASE.length + 80)}`)
+            if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${status} ${probeUrl.slice(0, 120)}`)
             continue
           }
           const probeData = await probeResp.json()
           const allSubIds = new Set<string>()
+          // Shape A: /controldata/ — markets[].clientMetadata.subCategoryId
           for (const m of probeData.markets ?? []) {
             const sid = m.clientMetadata?.subCategoryId
             if (sid) allSubIds.add(String(sid))
           }
-          // Some endpoints return subcategories directly, not markets.
+          // Shape B: /v5/ eventGroup.offerCategories[].offerSubcategoryDescriptors[].subcategoryId
+          const eg = probeData.eventGroup ?? probeData
+          for (const oc of eg.offerCategories ?? []) {
+            for (const osd of oc.offerSubcategoryDescriptors ?? []) {
+              const id = osd.subcategoryId ?? osd.subCategoryId ?? osd.id
+              if (id) allSubIds.add(String(id))
+            }
+          }
+          // Shape C: direct subcategories list
           for (const sc of probeData.subcategories ?? probeData.Subcategories ?? []) {
-            const id = sc.id ?? sc.Id ?? sc
+            const id = sc.id ?? sc.Id ?? sc.subcategoryId ?? sc
             if (id) allSubIds.add(String(id))
+          }
+          // Shape D: categories[].subcategories[]
+          for (const cat of probeData.categories ?? []) {
+            for (const sc of cat.subcategories ?? []) {
+              const id = sc.id ?? sc.Id ?? sc.subcategoryId
+              if (id) allSubIds.add(String(id))
+            }
           }
           if (allSubIds.size > 0) {
             for (const sid of allSubIds) {
               if (sid !== league.subcategoryId) propSubcategoryIds.add(sid)
             }
             if (league.name === 'NBA') {
-              console.log(`[DK NBA discover] OK via ${probeUrl.slice(BASE.length, BASE.length + 60)}`, {
-                marketsReturned: (probeData.markets ?? []).length,
+              console.log(`[DK NBA discover] OK: ${probeUrl.slice(0, 120)}`, {
                 subcategoryIds: [...allSubIds],
               })
             }
             break
           } else if (league.name === 'NBA') {
-            console.log(`[DK NBA discover] 200 but empty: ${probeUrl.slice(BASE.length, BASE.length + 60)}`, {
+            console.log(`[DK NBA discover] 200 but empty: ${probeUrl.slice(0, 120)}`, {
               rootKeys: Object.keys(probeData ?? {}),
+              eventGroupKeys: probeData?.eventGroup ? Object.keys(probeData.eventGroup) : null,
             })
           }
         } catch (e: any) {
