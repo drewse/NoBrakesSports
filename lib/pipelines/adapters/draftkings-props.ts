@@ -490,11 +490,44 @@ async function fetchLeague(
       }
     }
 
-    // Fetch props: for each event × each prop subcategory.
+    // Two-phase fetch to avoid Vercel timeout:
+    //   Phase 1 — probe all candidate subcategory IDs ONLY against the
+    //             first event. 40-50 concurrent probes finish in ~2s.
+    //             Keep only the IDs that returned ≥1 market.
+    //   Phase 2 — fetch the surviving IDs × every event in parallel.
     const eventIds = results.map(r => r.event.eventId)
-    const PROP_BATCH = 5
     const liveSubcategoryTypes = new Map<string, Set<string>>()
 
+    const firstEvent = eventIds[0]
+    if (firstEvent) {
+      const probeResults = await Promise.all(
+        [...propSubcategoryIds].map(async (subId) => {
+          try {
+            const resp = await dkFetch(buildEventPropUrl(firstEvent, subId))
+            if (!resp.ok) return null
+            const data = await resp.json()
+            const markets = data.markets ?? []
+            if (markets.length === 0) return null
+            const types = new Set<string>()
+            for (const m of markets) types.add((m.marketType?.name ?? '').toLowerCase())
+            return { subId, types }
+          } catch { return null }
+        }),
+      )
+      const liveIds = new Set<string>()
+      for (const r of probeResults) {
+        if (r) {
+          liveIds.add(r.subId)
+          if (league.name === 'NBA') liveSubcategoryTypes.set(r.subId, r.types)
+        }
+      }
+      // Replace full scan with just the surviving IDs.
+      propSubcategoryIds.clear()
+      for (const id of liveIds) propSubcategoryIds.add(id)
+    }
+
+    // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
+    const PROP_BATCH = 5
     for (const subId of propSubcategoryIds) {
       for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
         const batch = eventIds.slice(i, i + PROP_BATCH)
@@ -509,12 +542,6 @@ async function fetchLeague(
               const markets = data.markets ?? []
               const selections = data.selections ?? []
               if (markets.length === 0) return
-
-              if (league.name === 'NBA' && eventId === eventIds[0]) {
-                const t = liveSubcategoryTypes.get(subId) ?? new Set<string>()
-                for (const m of markets) t.add((m.marketType?.name ?? '').toLowerCase())
-                liveSubcategoryTypes.set(subId, t)
-              }
 
               const selByMarket = new Map<string, any[]>()
               for (const s of selections) {
