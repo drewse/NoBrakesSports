@@ -74,16 +74,16 @@ function mapMarketType(eventClass: string): MarketType | null {
   return null
 }
 
-// Order matters: the mapPropCategory fuzzy-match returns the first key the
-// eventClass string contains, so more specific keys MUST appear before shorter
-// ones (e.g. 'player points + rebounds' before 'player points').
 const PROP_CATEGORY_MAP: Record<string, string> = {
-  // Basketball — combos first so they beat the single-stat prefixes
-  'player pts + rebs + asts':   'player_pts_reb_ast',
+  // Basketball — combos
+  'player pts + rebs + asts':           'player_pts_reb_ast',
   'player points + rebounds + assists': 'player_pts_reb_ast',
-  'player points + rebounds':   'player_pts_reb',
-  'player points + assists':    'player_pts_ast',
-  'player rebounds + assists':  'player_ast_reb',
+  'player points + rebounds':           'player_pts_reb',
+  'player rebounds + points':           'player_pts_reb',
+  'player points + assists':            'player_pts_ast',
+  'player assists + points':            'player_pts_ast',
+  'player rebounds + assists':          'player_ast_reb',
+  'player assists + rebounds':          'player_ast_reb',
   // Basketball — singles
   'player 3-pointers made':     'player_threes',
   'player three pointers made': 'player_threes',
@@ -117,12 +117,20 @@ const PROP_CATEGORY_MAP: Record<string, string> = {
   'player shots on target':     'player_shots_target',
 }
 
+// Pre-compute fuzzy-match iteration order: longest keys first so combos like
+// "player assists + rebounds" beat the plain "player assists" substring.
+// Without this, PB's "Player Assists + Rebounds Over/Under" was falling
+// through to the plain 'player_assists' category, landing combo-line rows
+// (e.g. 17.5) inside the plain assists table and showing under 5+ rebounds
+// buckets the odds for 10+ rebounds etc.
+const PROP_CATEGORY_ENTRIES = Object.entries(PROP_CATEGORY_MAP)
+  .sort(([a], [b]) => b.length - a.length)
+
 function mapPropCategory(eventClass: string): string | null {
   const lower = (eventClass || '').toLowerCase().trim()
   const direct = PROP_CATEGORY_MAP[lower]
   if (direct) return direct
-  // Fuzzy containment
-  for (const [key, cat] of Object.entries(PROP_CATEGORY_MAP)) {
+  for (const [key, cat] of PROP_CATEGORY_ENTRIES) {
     if (lower.includes(key)) return cat
   }
   return null
