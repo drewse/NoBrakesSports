@@ -34,8 +34,11 @@ export const DK_LEAGUES: {
 }[] = [
   {
     sport: 'basketball', leagueId: '42648', leagueSlug: 'nba', name: 'NBA', subcategoryId: '4511',
-    // Points, Rebounds, Assists, Threes, Steals, Blocks, P+R+A, P+R, P+A, R+A, Turnovers, Double-Double, Triple-Double
-    propSubcategoryIds: ['9102', '9103', '9104', '9105', '9106', '9107', '9108', '9109', '9110', '9111', '9112', '9113', '9114'],
+    // Seeded from a live curl capture (subcategoryId 16477 confirmed
+    // active). DK renumbered NBA prop subcategories in late 2025 so the
+    // old 9102/.../9114 IDs are dead. Scan a range around the seed to
+    // pick up the adjacent prop subcategories (Points / Reb / Ast / etc.).
+    propSubcategoryIds: Array.from({ length: 41 }, (_, i) => String(16460 + i)),
   },
   {
     sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
@@ -239,20 +242,29 @@ function buildDiscoveryUrls(leagueId: string, _eventId: string): string[] {
 }
 
 
-/** Browser-like headers DK's /api/v5/ endpoints require (they 403 without). */
+/** Browser-like headers matching what DK's web UI sends for /controldata/
+ *  and /api/v5/ endpoints. Confirmed via a live curl capture on an Ontario
+ *  DK event-subcategory request. */
 const DK_BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+  'Accept': '*/*',
   'Accept-Language': 'en-US,en;q=0.9',
   'Origin': 'https://sportsbook.draftkings.com',
   'Referer': 'https://sportsbook.draftkings.com/',
+  'x-client-feature': 'eventSubcategory',
+  'x-client-name': 'web',
+  'x-client-page': 'event',
+  'x-client-version': '2616.4.1.4',
+  'x-client-widget-name': 'cms',
+  'x-client-widget-version': '2.10.9',
 }
 
-/** Helper: fetch a DK URL with direct + proxy fallback. */
-async function dkFetch(url: string, opts: { withBrowserHeaders?: boolean } = {}): Promise<Response> {
+/** Helper: fetch a DK URL with browser-like headers (required by the web
+ *  UI's backend) + proxy fallback. */
+async function dkFetch(url: string, _opts: { withBrowserHeaders?: boolean } = {}): Promise<Response> {
   const init: RequestInit = {
     signal: AbortSignal.timeout(12000),
-    headers: opts.withBrowserHeaders ? DK_BROWSER_HEADERS : undefined,
+    headers: DK_BROWSER_HEADERS,
   }
   try {
     const resp = await fetch(url, init)
@@ -479,11 +491,9 @@ async function fetchLeague(
     }
 
     // Fetch props: for each event × each prop subcategory.
-    // Currently a no-op because propSubcategoryIds is empty (see above).
-    // Left in place so that whenever we unblock prop discovery, the
-    // per-event fetch + parse already works.
     const eventIds = results.map(r => r.event.eventId)
     const PROP_BATCH = 5
+    const liveSubcategoryTypes = new Map<string, Set<string>>()
 
     for (const subId of propSubcategoryIds) {
       for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
@@ -499,6 +509,12 @@ async function fetchLeague(
               const markets = data.markets ?? []
               const selections = data.selections ?? []
               if (markets.length === 0) return
+
+              if (league.name === 'NBA' && eventId === eventIds[0]) {
+                const t = liveSubcategoryTypes.get(subId) ?? new Set<string>()
+                for (const m of markets) t.add((m.marketType?.name ?? '').toLowerCase())
+                liveSubcategoryTypes.set(subId, t)
+              }
 
               const selByMarket = new Map<string, any[]>()
               for (const s of selections) {
@@ -561,6 +577,10 @@ async function fetchLeague(
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
     if (results.length > 0) {
       console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
+    }
+
+    if (league.name === 'NBA' && liveSubcategoryTypes.size > 0) {
+      console.log(`[DK NBA live subcats]`, [...liveSubcategoryTypes.entries()].map(([id, types]) => ({ id, types: [...types] })))
     }
 
     return results
