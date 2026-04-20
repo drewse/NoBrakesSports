@@ -122,7 +122,7 @@ const FD_STAT_MAP: Record<string, string> = {
 // Tabs to fetch for player props — each returns different stat types.
 // Covers NBA, MLB, NHL, soccer. Unknown tabs return empty arrays safely.
 const FD_PROP_TABS = [
-  // NBA
+  // NBA main O/U
   'popular',
   'player-points',
   'player-rebounds',
@@ -130,6 +130,22 @@ const FD_PROP_TABS = [
   'player-threes',
   'player-combos',
   'player-defense',
+  // NBA alternate lines / threshold "To Record N+" markets
+  'player-points-alternate',
+  'player-rebounds-alternate',
+  'player-assists-alternate',
+  'player-threes-alternate',
+  'player-defense-alternate',
+  'alt-player-points',
+  'alt-player-rebounds',
+  'alt-player-assists',
+  'alt-player-threes',
+  'to-record-assists',
+  'to-record-points',
+  'to-record-rebounds',
+  'to-record-threes',
+  'to-record-steals',
+  'to-record-blocks',
   // MLB — batter/pitcher props
   'batter-hits',
   'batter-home-runs',
@@ -262,8 +278,13 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
       marketType.match(/^TO_RECORD_(\d+)\+_(.+)$/i) ??
       marketType.match(/^TO_HIT_(\d+)\+_(.+)$/i) ??
       marketType.match(/^TO_SCORE_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_MAKE_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_GRAB_(\d+)\+_(.+)$/i) ??
+      marketType.match(/^TO_DISH_(\d+)\+_(.+)$/i) ??
       marketType.match(/^(\d+)\+_MADE_(.+)$/i) ??
-      market.marketName?.match(/^(?:Player )?To (?:Record|Score|Hit) (\d+)\+\s+(.+)$/i)
+      marketType.match(/^ALT_PLAYER_(\d+)\+_(.+)$/i) ??
+      market.marketName?.match(/^(?:Player )?To (?:Record|Score|Hit|Make|Grab|Dish) (\d+)\+\s+(.+)$/i) ??
+      market.marketName?.match(/^(?:Player )?(\d+)\+\s+(.+)$/i)
     if (thresholdMatch && runners.length >= 1) {
       const threshold = parseInt(thresholdMatch[1], 10)
       const statRaw = thresholdMatch[2]

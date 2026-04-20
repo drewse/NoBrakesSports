@@ -127,6 +127,14 @@ function detectPropCategory(title: string, groupCName: string): string | null {
     return null
   }
 
+  // Title-based detection (group-independent): this handles markets Betway
+  // puts in non-standard group names or in merged "player props" containers.
+  if (lower.startsWith('total points -') || lower.startsWith('total points o')) return 'player_points'
+  if (lower.startsWith('total rebounds -') || lower.startsWith('total rebounds o')) return 'player_rebounds'
+  if (lower.startsWith('total assists -') || lower.startsWith('total assists o')) return 'player_assists'
+  if (lower.startsWith('total 3-pointers -') || lower.startsWith('total 3-pointers o')) return 'player_threes'
+  if (lower.startsWith('total three pointers') || lower.startsWith('total threes')) return 'player_threes'
+  // Group-qualified variants (redundant safety net)
   if (groupCName === 'points' && lower.startsWith('total points')) return 'player_points'
   if (groupCName === 'rebounds' && lower.startsWith('total rebounds')) return 'player_rebounds'
   if (groupCName === 'assists' && lower.startsWith('total assists')) return 'player_assists'
@@ -323,10 +331,15 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               evOutcomeMap.set(o.Id, o)
             }
 
-            // Build set of prop market IDs from MarketGroups
-            const propGroups = ['points', 'rebounds', 'assists', '3-pointers', 'combos', 'defense',
+            // Build set of prop market IDs from MarketGroups. Also build a
+            // fallback set of ALL group IDs so title-matched prop markets
+            // that live under non-standard group names aren't dropped.
+            const propGroups = ['points', 'rebounds', 'assists', '3-pointers', 'threes', 'combos', 'defense',
+              'player-points', 'player-rebounds', 'player-assists', 'player-threes', 'player-combos', 'player-defense',
+              'player-props', 'player props', 'props',
               'hits', 'home-runs', 'rbis', 'strikeouts', 'pitcher-strikeouts', 'total-bases',
-              'runs', 'stolen-bases', 'goals', 'shots-on-goal', 'saves', 'shots-on-target']
+              'runs', 'stolen-bases', 'goals', 'shots-on-goal', 'saves', 'shots-on-target',
+              'batter-props', 'pitcher-props']
             const propMarketIds = new Set<number>()
             const marketGroupMap = new Map<number, string>()
             const groups = evData.Event?.MarketGroups ?? {}
@@ -335,6 +348,17 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               for (const id of ids) {
                 propMarketIds.add(id)
                 marketGroupMap.set(id, gName)
+              }
+            }
+            // Secondary pass: treat any market whose title starts with
+            // "Total <stat> -" as a prop even if its group wasn't in the
+            // known list. This rescues markets like "Total Assists - Daniss
+            // Jenkins O/U 3.5" when Betway files them under a group slug we
+            // don't recognize.
+            for (const m of evData.Markets ?? []) {
+              const t = ((m.Title ?? '') as string).toLowerCase()
+              if (/^total (points|rebounds|assists|3-pointers|threes|three pointers|blocks|steals|turnovers|hits|home runs?|rbis?|strikeouts|total bases|runs|stolen bases|walks|earned runs|outs|goals|shots on goal|saves|shots on target|power play points)\b.*\s-\s/.test(t)) {
+                propMarketIds.add(m.Id)
               }
             }
 
