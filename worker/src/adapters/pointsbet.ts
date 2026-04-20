@@ -348,24 +348,41 @@ export const pointsbetAdapter: BookAdapter = {
               // Game-level
               const gameType = mapMarketType(m.eventClass ?? '')
               if (gameType) {
-                const normHome = event.homeTeam.toLowerCase()
-                const normAway = event.awayTeam.toLowerCase()
-                // Soccer Match Result outcomes use team names (and no
-                // side='home'/'away'). Fallback to matching outcome name
-                // against the event's home/away team labels.
-                const home = outcomes.find(o =>
-                  (o.side ?? '').toLowerCase() === 'home'
-                  || (o.name ?? '').toLowerCase() === normHome
-                )
-                const away = outcomes.find(o =>
-                  (o.side ?? '').toLowerCase() === 'away'
-                  || (o.name ?? '').toLowerCase() === normAway
+                const normTeam = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+                const normHome = normTeam(event.homeTeam)
+                const normAway = normTeam(event.awayTeam)
+                const homeLast = normHome.split(' ').pop() ?? ''
+                const awayLast = normAway.split(' ').pop() ?? ''
+
+                const nameMatchesTeam = (n: string, full: string, last: string) => {
+                  if (!n) return false
+                  return n === full || n.includes(full) || full.includes(n) || (last.length > 2 && n.endsWith(last))
+                }
+
+                // Soccer Match Result outcomes at PB carry the team name in
+                // `name` (no 'side' marker) and 'Draw' for the draw. Be
+                // defensive: fuzzy-match the name against the event's home/
+                // away labels so nickname/suffix drift (e.g. "Napoli" vs
+                // "SSC Napoli") still pairs correctly.
+                const home = outcomes.find(o => (o.side ?? '').toLowerCase() === 'home')
+                  ?? outcomes.find(o => nameMatchesTeam(normTeam(o.name ?? ''), normHome, homeLast))
+                const away = outcomes.find(o => (o.side ?? '').toLowerCase() === 'away')
+                  ?? outcomes.find(o => nameMatchesTeam(normTeam(o.name ?? ''), normAway, awayLast))
+                const draw = outcomes.find(o =>
+                  (o.side ?? '').toLowerCase() === 'draw'
+                  || (o.name ?? '').toLowerCase() === 'draw'
+                  || (o.name ?? '').toLowerCase() === 'tie'
                 )
                 const over = outcomes.find(o => (o.name ?? '').toLowerCase().startsWith('over'))
                 const under = outcomes.find(o => (o.name ?? '').toLowerCase().startsWith('under'))
-                const draw = outcomes.find(o => (o.name ?? '').toLowerCase() === 'draw')
 
                 if (gameType === 'moneyline') {
+                  // Safety: must resolve distinct home/away outcomes. If we
+                  // can't, better to skip than to write wrong data. 3-way
+                  // (soccer) requires a draw too.
+                  if (!home || !away || home === away) continue
+                  const is3Way = info.sport === 'soccer'
+                  if (is3Way && !draw) continue
                   gameMarkets.push({
                     marketType: 'moneyline',
                     homePrice: home?.price ? decimalToAmerican(home.price) : null,
