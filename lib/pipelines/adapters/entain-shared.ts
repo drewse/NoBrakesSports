@@ -278,12 +278,48 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
     if (options.length === 2 && market.attr != null) {
       const marketName = market.name?.value ?? ''
       const parsed = parsePlayerName(marketName)
-      // Fallback: if market name is just the player name (no "- Stat" suffix),
-      // use the templateCategory name to determine the stat type.
-      // e.g., catName="Player Steals", market name="Victor Wembanyama"
+
+      // Detect combo stat from the market name itself. Entain sometimes
+      // files combo markets ("Rebounds + Assists - LeBron James",
+      // "Jayson Tatum - Points + Rebounds + Assists") inside a single-stat
+      // category tab, so relying on catName alone mis-classifies them as
+      // the plain single stat. Check the market name for " + " combos first.
+      const comboFromName = (name: string): string | null => {
+        const lower = name.toLowerCase()
+        if (!lower.includes('+')) return null
+        const hasPts = /\bpoints?\b|\bpts\b/.test(lower)
+        const hasReb = /\brebounds?\b|\brebs?\b/.test(lower)
+        const hasAst = /\bassists?\b|\basts?\b/.test(lower)
+        if (hasPts && hasReb && hasAst) return 'player_pts_reb_ast'
+        if (hasPts && hasReb) return 'player_pts_reb'
+        if (hasPts && hasAst) return 'player_pts_ast'
+        if (hasReb && hasAst) return 'player_ast_reb'
+        const hasStl = /\bsteals?\b/.test(lower)
+        const hasBlk = /\bblocks?\b/.test(lower)
+        if (hasStl && hasBlk) return 'player_steals_blocks'
+        return null
+      }
+
+      // Extract player name from a market name that's "Stat Combo - Player"
+      // or "Player - Stat Combo" by picking the side without stat keywords.
+      const extractPlayerFromCombo = (name: string): string => {
+        const dashIdx = name.lastIndexOf(' - ')
+        const candidates = dashIdx > 0 ? [name.slice(0, dashIdx), name.slice(dashIdx + 3)] : [name]
+        const isStatSide = (s: string) => /\+|points?|rebounds?|assists?|steals?|blocks?|pts|rebs|asts/i.test(s)
+        const playerSide = candidates.find(s => !isStatSide(s)) ?? candidates[candidates.length - 1]
+        return playerSide.replace(/\s*\([A-Z]{2,5}\)\s*$/, '').trim()
+      }
+
       let category: string | undefined
       let playerName: string | undefined
-      if (parsed) {
+
+      // 1) Combo-name detection overrides everything — fixes single-stat
+      //    categories that contain combo markets.
+      const comboCat = comboFromName(marketName)
+      if (comboCat) {
+        category = comboCat
+        playerName = extractPlayerFromCombo(marketName)
+      } else if (parsed) {
         category = PROP_MAP[parsed.statType]
         playerName = parsed.playerName
       } else if (catName) {
