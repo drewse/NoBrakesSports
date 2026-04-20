@@ -388,20 +388,31 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
             const result = resultsByEventId.get(eventId)
             if (!result) return
 
-            // Targeted diag: for every NBA event, log its title once per cron
-            // + dump any markets whose title matches "assists" (so we can see
-            // if Daniss Jenkins / any player assists markets are actually in
-            // the feed for a given event).
+            // Targeted diag: for the Pistons game, dump ALL assists titles so
+            // we can confirm Daniss Jenkins is in Betway's feed. For other
+            // NBA events, just log counts.
             if (league.leagueSlug === 'nba') {
+              const isPistons = /pistons/i.test(result.event.homeName) || /pistons/i.test(result.event.awayName)
               const assistMatches = (evData.Markets ?? []).filter((m: any) =>
                 /assist/i.test(m.Title ?? '')
               )
-              console.log(`[BW NBA] ${result.event.awayName} @ ${result.event.homeName}`, {
-                eventId,
-                totalMarkets: (evData.Markets ?? []).length,
-                assistMarketCount: assistMatches.length,
-                firstAssistTitles: assistMatches.slice(0, 10).map((m: any) => m.Title),
-              })
+              if (isPistons) {
+                console.log(`[BW NBA Pistons] ${result.event.awayName} @ ${result.event.homeName}`, {
+                  eventId,
+                  allAssistTitles: assistMatches.map((m: any) => ({
+                    title: m.Title,
+                    handicap: m.Handicap,
+                    hasOver: m.Headers?.includes('Over'),
+                    inPropSet: propMarketIds.has(m.Id),
+                  })),
+                })
+              } else {
+                console.log(`[BW NBA] ${result.event.awayName} @ ${result.event.homeName}`, {
+                  eventId,
+                  totalMarkets: (evData.Markets ?? []).length,
+                  assistMarketCount: assistMatches.length,
+                })
+              }
             }
 
             for (const market of evData.Markets) {
