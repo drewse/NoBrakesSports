@@ -155,58 +155,72 @@ export default async function ArbitragePage() {
     // For 3-way markets, require draw data from at least one book
     if (shape === '3way' && withDraw.length === 0) continue
 
-    const bestHome = withHome.reduce((b: any, s: any) =>
-      s.home_price! > b.home_price! ? s : b
-    )
-    const bestAway = withAway.reduce((b: any, s: any) =>
-      s.away_price! > b.away_price! ? s : b
-    )
+    // Dedup per source (keep best price per book)
+    const homeBySource = new Map<string, any>()
+    for (const s of withHome) {
+      const ex = homeBySource.get(s.source_id)
+      if (!ex || s.home_price! > ex.home_price!) homeBySource.set(s.source_id, s)
+    }
+    const awayBySource = new Map<string, any>()
+    for (const s of withAway) {
+      const ex = awayBySource.get(s.source_id)
+      if (!ex || s.away_price! > ex.away_price!) awayBySource.set(s.source_id, s)
+    }
+    // Best draw per book (only used for 3-way; we pick the best overall draw per pair)
     const bestDrawSnap =
       withDraw.length > 0
         ? withDraw.reduce((b: any, s: any) =>
             s.draw_price! > b.draw_price! ? s : b
           )
         : null
-
-    // For 3-way, we need a draw price to compute a valid arb
     if (shape === '3way' && bestDrawSnap == null) continue
 
-    // Final guard: home and away must come from different books
-    if ((bestHome as any).source_id === (bestAway as any).source_id) continue
+    const lastUpdated = snaps.reduce(
+      (max: string, s: any) =>
+        s.snapshot_time > max ? s.snapshot_time : max,
+      snaps[0].snapshot_time,
+    )
+    const pairSeen = new Set<string>()
 
-    const homeProb = americanToImpliedProb(bestHome.home_price!)
-    const awayProb = americanToImpliedProb(bestAway.away_price!)
-    const drawProb =
-      bestDrawSnap != null
-        ? americanToImpliedProb(bestDrawSnap.draw_price!)
-        : null
+    // Enumerate every (home_book, away_book) pair, emit a row per positive arb.
+    for (const homeSnap of homeBySource.values()) {
+      for (const awaySnap of awayBySource.values()) {
+        if ((homeSnap as any).source_id === (awaySnap as any).source_id) continue
 
-    const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
+        const homeProb = americanToImpliedProb(homeSnap.home_price!)
+        const awayProb = americanToImpliedProb(awaySnap.away_price!)
+        const drawProb =
+          bestDrawSnap != null
+            ? americanToImpliedProb(bestDrawSnap.draw_price!)
+            : null
 
-    const profitPct = (1 / combinedProb - 1) * 100
-    // Only include positive arbs
-    if (profitPct <= 0) continue
-    arbs.push({
-      eventTitle: event?.title ?? '—',
-      league: leagueAbbrev || '—',
-      shape,
-      bestHomePrice: bestHome.home_price!,
-      bestHomeSource: (bestHome as any).source?.name ?? '—',
-      bestDrawPrice: bestDrawSnap?.draw_price ?? null,
-      bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
-      bestAwayPrice: bestAway.away_price!,
-      bestAwaySource: (bestAway as any).source?.name ?? '—',
-      homeProb,
-      drawProb,
-      awayProb,
-      combinedProb,
-      profitPct,
-      lastUpdated: snaps.reduce(
-        (max: string, s: any) =>
-          s.snapshot_time > max ? s.snapshot_time : max,
-        snaps[0].snapshot_time
-      ),
-    })
+        const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
+        const profitPct = (1 / combinedProb - 1) * 100
+        if (profitPct <= 0) continue
+
+        const pairKey = `${(homeSnap as any).source_id}|${(awaySnap as any).source_id}`
+        if (pairSeen.has(pairKey)) continue
+        pairSeen.add(pairKey)
+
+        arbs.push({
+          eventTitle: event?.title ?? '—',
+          league: leagueAbbrev || '—',
+          shape,
+          bestHomePrice: homeSnap.home_price!,
+          bestHomeSource: (homeSnap as any).source?.name ?? '—',
+          bestDrawPrice: bestDrawSnap?.draw_price ?? null,
+          bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
+          bestAwayPrice: awaySnap.away_price!,
+          bestAwaySource: (awaySnap as any).source?.name ?? '—',
+          homeProb,
+          drawProb,
+          awayProb,
+          combinedProb,
+          profitPct,
+          lastUpdated,
+        })
+      }
+    }
   }
 
   arbs.sort((a, b) => b.profitPct - a.profitPct)
@@ -244,56 +258,76 @@ export default async function ArbitragePage() {
       propGroups.get(key)!.push(p)
     }
 
-    // Find arbs: best over from one book vs best under from another
+    // Find arbs: enumerate ALL (over_book, under_book) pairs that produce a
+    // positive arb. This surfaces multiple opportunities per market (e.g.,
+    // LeBron Pts 25.5 arbs at 5% with bet365/FanDuel AND 4% with DK/FanDuel).
     for (const group of propGroups.values()) {
       if (group.length < 2) continue // need 2+ books
 
-      // Filter to rows with the relevant price populated on each side
       const withOver = group.filter((p: any) => p.over_price != null)
       const withUnder = group.filter((p: any) => p.under_price != null)
       if (withOver.length === 0 || withUnder.length === 0) continue
 
-      const bestOver = withOver.reduce((best: any, p: any) =>
-        p.over_price > best.over_price ? p : best
+      // Dedup: keep best over_price per source, best under_price per source
+      // (avoids duplicate rows from the same book with different snapshots).
+      const bestOverBySource = new Map<string, any>()
+      for (const p of withOver) {
+        const existing = bestOverBySource.get(p.source_id)
+        if (!existing || p.over_price > existing.over_price) bestOverBySource.set(p.source_id, p)
+      }
+      const bestUnderBySource = new Map<string, any>()
+      for (const p of withUnder) {
+        const existing = bestUnderBySource.get(p.source_id)
+        if (!existing || p.under_price > existing.under_price) bestUnderBySource.set(p.source_id, p)
+      }
+
+      const latestUpdated = group.reduce(
+        (max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max,
+        group[0].snapshot_time,
       )
-      const bestUnder = withUnder.reduce((best: any, p: any) =>
-        p.under_price > best.under_price ? p : best
-      )
 
-      // Must come from different books
-      if (bestOver.source_id === bestUnder.source_id) continue
+      // Dedup arbs with the same book-pair (keep highest profit)
+      const pairSeen = new Set<string>()
 
-      const overProb = americanToImpliedProb(bestOver.over_price)
-      const underProb = americanToImpliedProb(bestUnder.under_price)
-      const combinedProb = overProb + underProb
+      for (const overRow of bestOverBySource.values()) {
+        for (const underRow of bestUnderBySource.values()) {
+          // Must come from different books
+          if (overRow.source_id === underRow.source_id) continue
 
-      // Skip if either implied prob is invalid (NaN/Infinity from null prices)
-      if (!isFinite(overProb) || !isFinite(underProb) || combinedProb <= 0) continue
+          const overProb = americanToImpliedProb(overRow.over_price)
+          const underProb = americanToImpliedProb(underRow.under_price)
+          const combinedProb = overProb + underProb
 
-      const profitPct = (1 / combinedProb - 1) * 100
-      if (!isFinite(profitPct)) continue
-      // Only include positive arbs, cap at 20% to filter mismatched-line artifacts
-      if (profitPct <= 0 || profitPct > 20) continue
-      const ev = (bestOver as any).event
-      propArbs.push({
-        eventTitle: ev?.title ?? '—',
-        league: ev?.league?.abbreviation ?? '—',
-        propCategory: bestOver.prop_category,
-        playerName: bestOver.player_name,
-        lineValue: bestOver.line_value,
-        bestOverPrice: bestOver.over_price,
-        bestOverSource: (bestOver as any).source?.name ?? '—',
-        bestUnderPrice: bestUnder.under_price,
-        bestUnderSource: (bestUnder as any).source?.name ?? '—',
-        overProb,
-        underProb,
-        combinedProb,
-        profitPct,
-        lastUpdated: group.reduce(
-          (max: string, p: any) => p.snapshot_time > max ? p.snapshot_time : max,
-          group[0].snapshot_time,
-        ),
-      })
+          if (!isFinite(overProb) || !isFinite(underProb) || combinedProb <= 0) continue
+
+          const profitPct = (1 / combinedProb - 1) * 100
+          if (!isFinite(profitPct)) continue
+          // Only include positive arbs, cap at 20% to filter mismatched-line artifacts
+          if (profitPct <= 0 || profitPct > 20) continue
+
+          const pairKey = `${overRow.source_id}|${underRow.source_id}`
+          if (pairSeen.has(pairKey)) continue
+          pairSeen.add(pairKey)
+
+          const ev = (overRow as any).event
+          propArbs.push({
+            eventTitle: ev?.title ?? '—',
+            league: ev?.league?.abbreviation ?? '—',
+            propCategory: overRow.prop_category,
+            playerName: overRow.player_name,
+            lineValue: overRow.line_value,
+            bestOverPrice: overRow.over_price,
+            bestOverSource: (overRow as any).source?.name ?? '—',
+            bestUnderPrice: underRow.under_price,
+            bestUnderSource: (underRow as any).source?.name ?? '—',
+            overProb,
+            underProb,
+            combinedProb,
+            profitPct,
+            lastUpdated: latestUpdated,
+          })
+        }
+      }
     }
 
     propArbs.sort((a, b) => b.profitPct - a.profitPct)
