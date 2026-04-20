@@ -17,16 +17,20 @@ import {
 const BASE = 'https://sbapi.on.sportsbook.fanduel.ca/api'
 const API_KEY = 'FhMFpcPWXMeyZxOx'
 
-// FanDuel uses CUSTOM pages for major sports
-export const FD_PAGES: { pageId: string; sport: string; leagueSlug: string; competitionId?: number }[] = [
+// FanDuel uses CUSTOM pages for major sports. The page slugs can be a
+// single key (e.g. "nba") or slash-prefixed (e.g. "soccer/epl"). FanDuel
+// occasionally rename the soccer page slugs — the adapter tries each
+// candidate in order until one returns HTTP 200.
+export const FD_PAGES: { pageId: string | string[]; sport: string; leagueSlug: string; competitionId?: number }[] = [
   { pageId: 'nba',  sport: 'basketball', leagueSlug: 'nba' },
   { pageId: 'mlb',  sport: 'baseball',   leagueSlug: 'mlb' },
   { pageId: 'nhl',  sport: 'ice_hockey', leagueSlug: 'nhl' },
-  { pageId: 'soccer/epl', sport: 'soccer', leagueSlug: 'epl' },
-  { pageId: 'soccer/laliga', sport: 'soccer', leagueSlug: 'laliga' },
-  { pageId: 'soccer/bundesliga', sport: 'soccer', leagueSlug: 'bundesliga' },
-  { pageId: 'soccer/serie-a', sport: 'soccer', leagueSlug: 'seria_a' },
-  { pageId: 'soccer/ligue-1', sport: 'soccer', leagueSlug: 'ligue_one' },
+  // Soccer: try newer flat slugs first, then older nested ones.
+  { pageId: ['premier-league', 'soccer/premier-league', 'soccer/epl', 'english-premier-league'], sport: 'soccer', leagueSlug: 'epl' },
+  { pageId: ['la-liga', 'soccer/la-liga', 'soccer/laliga', 'spain-primera-division'], sport: 'soccer', leagueSlug: 'laliga' },
+  { pageId: ['bundesliga', 'soccer/bundesliga', 'germany-bundesliga'], sport: 'soccer', leagueSlug: 'bundesliga' },
+  { pageId: ['serie-a', 'soccer/serie-a', 'italy-serie-a'], sport: 'soccer', leagueSlug: 'seria_a' },
+  { pageId: ['ligue-1', 'soccer/ligue-1', 'france-ligue-1'], sport: 'soccer', leagueSlug: 'ligue_one' },
 ]
 
 // Market type mapping
@@ -332,14 +336,31 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
  * Fetch all events + game markets for a FanDuel sport page.
  */
 async function fetchPage(page: typeof FD_PAGES[number]): Promise<FDResult[]> {
-  const url = `${BASE}/content-managed-page?page=CUSTOM&customPageId=${page.pageId}&_ak=${API_KEY}&timezone=America%2FToronto`
-  try {
-    const resp = await fetch(url, { signal: AbortSignal.timeout(12000) })
-    if (!resp.ok) {
-      console.error(`FanDuel ${page.pageId}: HTTP ${resp.status}`)
-      return []
+  // Try each candidate pageId in order until one returns HTTP 200.
+  const candidates = Array.isArray(page.pageId) ? page.pageId : [page.pageId]
+  let data: any = null
+  let successSlug: string | null = null
+  for (const slug of candidates) {
+    const url = `${BASE}/content-managed-page?page=CUSTOM&customPageId=${slug}&_ak=${API_KEY}&timezone=America%2FToronto`
+    try {
+      const resp = await fetch(url, { signal: AbortSignal.timeout(12000) })
+      if (resp.ok) {
+        data = await resp.json()
+        successSlug = slug
+        break
+      }
+    } catch {
+      continue
     }
-    const data = await resp.json()
+  }
+  if (!data) {
+    console.error(`FanDuel ${page.leagueSlug}: all ${candidates.length} slugs failed (${candidates.join(', ')})`)
+    return []
+  }
+  if (successSlug !== candidates[0]) {
+    console.log(`[FanDuel] ${page.leagueSlug}: fallback slug "${successSlug}" worked`)
+  }
+  try {
 
     const rawEvents = data.attachments?.events ?? {}
     const rawMarkets = data.attachments?.markets ?? {}
@@ -449,7 +470,7 @@ async function fetchPage(page: typeof FD_PAGES[number]): Promise<FDResult[]> {
     }
     return results
   } catch (e) {
-    console.error(`FanDuel ${page.pageId} error:`, e)
+    console.error(`FanDuel ${page.leagueSlug} (slug=${successSlug}) error:`, e)
     return []
   }
 }

@@ -359,22 +359,47 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // Discover all prop subcategory IDs from the first few events
+    // Discover all prop subcategory IDs from the first few events.
+    // DK used to expose `clientMetadata.Subcategories` with an array of
+    // {Id, Name} entries. Probe multiple known shapes because their payload
+    // schema has drifted — sometimes it's Subcategories, subcategories,
+    // SubCategories, or a flat array on the event root.
     const propSubcategoryIds = new Set<string>()
+    const firstEvent = (gameData.events ?? []).find((e: any) => e.status === 'NOT_STARTED')
     for (const ev of gameData.events ?? []) {
       if (ev.status !== 'NOT_STARTED') continue
-      const subs: any[] = ev.clientMetadata?.Subcategories ?? []
+      const cm = ev.clientMetadata ?? {}
+      const subs: any[] =
+        cm.Subcategories ??
+        cm.subcategories ??
+        cm.SubCategories ??
+        cm.subCategories ??
+        ev.subcategories ??
+        ev.Subcategories ??
+        []
       for (const s of subs) {
-        const id = String(s.Id ?? s.id ?? s)
-        if (id && id !== league.subcategoryId) { // exclude game lines subcategory
+        const id = String(s.Id ?? s.id ?? s.subcategoryId ?? s)
+        if (id && id !== league.subcategoryId) {
           propSubcategoryIds.add(id)
         }
       }
-      if (propSubcategoryIds.size > 0) break // all events share the same subcategories
+      if (propSubcategoryIds.size > 0) break
     }
 
     if (propSubcategoryIds.size > 0) {
       console.log(`[DK] ${league.name}: discovered ${propSubcategoryIds.size} prop subcategories: ${[...propSubcategoryIds].join(', ')}`)
+    } else if (league.name === 'NBA') {
+      // Diagnostic: first-run-per-deploy dump of the DK response shape so we
+      // can see where subcategories actually live now.
+      if (!(globalThis as any).__DK_NBA_SHAPE_LOGGED__) {
+        ;(globalThis as any).__DK_NBA_SHAPE_LOGGED__ = true
+        console.log('[DK NBA] subcategory discovery returned 0 — dumping first event shape', {
+          eventKeys: firstEvent ? Object.keys(firstEvent) : null,
+          clientMetadataKeys: firstEvent?.clientMetadata ? Object.keys(firstEvent.clientMetadata) : null,
+          clientMetadataSample: firstEvent?.clientMetadata,
+          topLevelCategoriesField: firstEvent?.categories ? Object.keys(firstEvent.categories) : null,
+        })
+      }
     }
 
     // Fetch props: for each event × each prop subcategory
