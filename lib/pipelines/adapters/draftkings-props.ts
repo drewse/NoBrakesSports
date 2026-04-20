@@ -433,80 +433,24 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // DK removed clientMetadata.Subcategories from event payloads AND
-    // renumbered their subcategory IDs. Try several discovery endpoints in
-    // order until one returns markets whose clientMetadata.subCategoryId we
-    // can harvest.
+    // DK props are currently not scrapable from Vercel:
+    //  1. /controldata/ routes require a subcategoryId in templateVars, and
+    //     DK removed the subcategory listing from the event payload so we
+    //     can no longer discover which IDs exist.
+    //  2. /api/v5/eventgroups/* returns 403 even with browser headers —
+    //     Ontario-geofenced behind the web UI's cookie.
+    // Solving this needs either a residential Ontario proxy for /api/v5/
+    // or HTML-scraping the event page. Both are bigger investments; until
+    // then we keep DK game lines (which still work via the subcategoryId
+    // filter) and skip props.
     const propSubcategoryIds = new Set<string>(league.propSubcategoryIds)
-    const firstEventId = results[0]?.event.eventId
-    if (firstEventId) {
-      const urls = buildDiscoveryUrls(league.leagueId, firstEventId)
-      for (const probeUrl of urls) {
-        try {
-          const probeResp = await dkFetch(probeUrl, { withBrowserHeaders: true })
-          const status = probeResp.status
-          if (!probeResp.ok) {
-            if (league.name === 'NBA') console.log(`[DK NBA discover] HTTP ${status} ${probeUrl.slice(0, 120)}`)
-            continue
-          }
-          const probeData = await probeResp.json()
-          const allSubIds = new Set<string>()
-          // Shape A: /controldata/ — markets[].clientMetadata.subCategoryId
-          for (const m of probeData.markets ?? []) {
-            const sid = m.clientMetadata?.subCategoryId
-            if (sid) allSubIds.add(String(sid))
-          }
-          // Shape B: /v5/ eventGroup.offerCategories[].offerSubcategoryDescriptors[].subcategoryId
-          const eg = probeData.eventGroup ?? probeData
-          for (const oc of eg.offerCategories ?? []) {
-            for (const osd of oc.offerSubcategoryDescriptors ?? []) {
-              const id = osd.subcategoryId ?? osd.subCategoryId ?? osd.id
-              if (id) allSubIds.add(String(id))
-            }
-          }
-          // Shape C: direct subcategories list
-          for (const sc of probeData.subcategories ?? probeData.Subcategories ?? []) {
-            const id = sc.id ?? sc.Id ?? sc.subcategoryId ?? sc
-            if (id) allSubIds.add(String(id))
-          }
-          // Shape D: categories[].subcategories[]
-          for (const cat of probeData.categories ?? []) {
-            for (const sc of cat.subcategories ?? []) {
-              const id = sc.id ?? sc.Id ?? sc.subcategoryId
-              if (id) allSubIds.add(String(id))
-            }
-          }
-          if (allSubIds.size > 0) {
-            for (const sid of allSubIds) {
-              if (sid !== league.subcategoryId) propSubcategoryIds.add(sid)
-            }
-            if (league.name === 'NBA') {
-              console.log(`[DK NBA discover] OK: ${probeUrl.slice(0, 120)}`, {
-                subcategoryIds: [...allSubIds],
-              })
-            }
-            break
-          } else if (league.name === 'NBA') {
-            console.log(`[DK NBA discover] 200 but empty: ${probeUrl.slice(0, 120)}`, {
-              rootKeys: Object.keys(probeData ?? {}),
-              eventGroupKeys: probeData?.eventGroup ? Object.keys(probeData.eventGroup) : null,
-            })
-          }
-        } catch (e: any) {
-          if (league.name === 'NBA') console.log(`[DK NBA discover] error:`, e?.message ?? String(e))
-        }
-      }
-    }
 
-    // Fetch props: for each event × each prop subcategory
-    // Use the eventSubcategory endpoint discovered from DK DevTools
+    // Fetch props: for each event × each prop subcategory.
+    // Currently a no-op because propSubcategoryIds is empty (see above).
+    // Left in place so that whenever we unblock prop discovery, the
+    // per-event fetch + parse already works.
     const eventIds = results.map(r => r.event.eventId)
     const PROP_BATCH = 5
-
-    // Probe each subcategory once against the first event to see which ones
-    // actually exist at DK today (IDs drift over time). Log the matches so
-    // we can update the hardcoded list when they change again.
-    const subcategoryProbeResults = new Map<string, { marketCount: number; marketTypes: Set<string> }>()
 
     for (const subId of propSubcategoryIds) {
       for (let i = 0; i < eventIds.length; i += PROP_BATCH) {
@@ -522,14 +466,6 @@ async function fetchLeague(
               const markets = data.markets ?? []
               const selections = data.selections ?? []
               if (markets.length === 0) return
-
-              if (league.name === 'NBA' && eventId === eventIds[0]) {
-                const types = new Set<string>()
-                for (const m of markets) {
-                  types.add((m.marketType?.name ?? '').toLowerCase())
-                }
-                subcategoryProbeResults.set(subId, { marketCount: markets.length, marketTypes: types })
-              }
 
               const selByMarket = new Map<string, any[]>()
               for (const s of selections) {
@@ -590,15 +526,8 @@ async function fetchLeague(
     }
 
     const propCount = results.reduce((s, r) => s + r.props.length, 0)
-    console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
-
-    if (league.name === 'NBA') {
-      const summary = [...subcategoryProbeResults.entries()].map(([id, d]) => ({
-        id,
-        marketCount: d.marketCount,
-        marketTypes: [...d.marketTypes],
-      }))
-      console.log(`[DK NBA probe] ${summary.length}/${propSubcategoryIds.size} subcategories returned data`, summary)
+    if (results.length > 0) {
+      console.log(`[DK] ${league.name}: ${propCount} player props from ${results.length} events`)
     }
 
     return results
