@@ -59,14 +59,18 @@ function decimalToAmerican(decimal: number): number {
 
 function mapMarketType(eventClass: string): MarketType | null {
   const c = eventClass.toLowerCase()
-  // Skip alternate-line variants: the writer dedups game markets to one row per
-  // (event, source, market_type, line_value=0), so an alt line would otherwise
-  // overwrite the main line with whichever got pushed last. We only want the
-  // main handicap/total for cross-book comparison.
+  // Skip alternate-line variants and team-level splits: the writer dedups
+  // game markets to one row per (event, source, market_type, line_value=0),
+  // so any alt / team / period variant would overwrite the main line with
+  // whichever got pushed last (e.g. Rockies team total 5.5 clobbering the
+  // game total 11.5 at Coors). We only want the main game-level line.
   if (c.startsWith('alternate ')) return null
+  if (c.includes('awayteam') || c.includes('hometeam')) return null
+  if (c.includes('1st half') || c.includes('2nd half') || c.includes('1st period') || c.includes('2nd period') || c.includes('3rd period')) return null
   if (c.includes('moneyline') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher')) return 'moneyline'
-  if (c.includes('spread') && !c.includes('player') && !c.includes('alternate')) return 'spread'
-  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher') && !c.includes('alternate') && !c.includes('bands') && !c.includes('exact') && !c.includes('odd/even') && !c.includes('3-way') && !c.includes('1st half') && !c.includes('2nd half')) return 'total'
+  if (c.includes('spread') && !c.includes('player')) return 'spread'
+  if (c === 'run line' || c === 'run line of') return 'spread'
+  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher') && !c.includes('bands') && !c.includes('exact') && !c.includes('odd/even') && !c.includes('3-way')) return 'total'
   return null
 }
 

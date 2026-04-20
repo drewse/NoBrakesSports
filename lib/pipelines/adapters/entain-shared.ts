@@ -254,7 +254,11 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
           yesPrice: null, noPrice: null, isBinary: false,
         })
       }
-    } else if (catName === 'Totals' && !gameMarkets.some(gm => gm.marketType === 'total')) {
+    } else if (catName === 'Totals' && market.isMain !== false && !gameMarkets.some(gm => gm.marketType === 'total')) {
+      // market.isMain filters out alt totals — without it, if the Entain feed
+      // orders an alt (e.g. Under 15.5 at +1850) before the main line, the
+      // guard below would lock in the alt and block the real main from ever
+      // writing, producing nonsense +EV/arb against other books' main totals.
       const overOpt = options.find((o: any) => o.totalsPrefix === 'Over')
       const underOpt = options.find((o: any) => o.totalsPrefix === 'Under')
       const totalVal = parseFloat(market.attr ?? '0')
