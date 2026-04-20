@@ -7,12 +7,13 @@ import { getSupabase } from './lib/supabase.js'
 // Registered adapters. Add more here as you port/build them.
 import { pointsbetAdapter } from './adapters/pointsbet.js'
 import { pinnacleAdapter } from './adapters/pinnacle.js'
+import { bet365Adapter } from './adapters/bet365.js'
 
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
+  bet365Adapter,
   // Add more here:
-  // bet365Adapter,
   // caesarsAdapter,
 ]
 
