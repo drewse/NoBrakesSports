@@ -43,11 +43,19 @@ export function getSupabase(): SupabaseClient {
       fetch: (input, init) => {
         const ctrl = new AbortController()
         const timeout = setTimeout(() => ctrl.abort(), 20_000)
+        const urlStr = typeof input === 'string' ? input : (input instanceof URL ? input.toString() : String(input))
         return fetch(input, { ...init, signal: ctrl.signal })
-          .catch((err) => {
+          .catch((err: any) => {
+            // Node's fetch wraps the real network error in err.cause
+            const cause = err?.cause
             log.error('fetch failed against supabase', {
-              url: typeof input === 'string' ? input : String(input),
-              message: (err as Error)?.message ?? String(err),
+              url: urlStr,
+              message: err?.message ?? String(err),
+              causeCode: cause?.code ?? null,
+              causeMessage: cause?.message ?? null,
+              causeHostname: cause?.hostname ?? null,
+              causeErrno: cause?.errno ?? null,
+              causeSyscall: cause?.syscall ?? null,
             })
             throw err
           })
