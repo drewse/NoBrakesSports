@@ -51,22 +51,20 @@ export const DK_LEAGUES: {
   },
   {
     sport: 'baseball', leagueId: '84240', leagueSlug: 'mlb', name: 'MLB', subcategoryId: '4519',
-    // Known-live IDs from the initial scan + wider candidate range to
-    // catch missing batter stats (hits/runs/rbis/stolen bases/walks/Ks)
-    // that must live in IDs outside the 15200-16600 window we first tried.
-    // Phase-1 probe will trim this to the actual live set.
+    // 57 confirmed-live MLB subcategory IDs from the wide-scan run.
+    // Listed explicitly so we don't burn ~2,600 probe requests every cron.
     propSubcategoryIds: [
-      // Confirmed live from last run
+      '13736', '13739', '13740', '13741', '13742', '13743', '13744', '13745',
       '15219', '15221', '15418',
       '15628', '15629', '15630', '15631', '15632',
       '15891', '15892', '15893', '15972',
       '16216', '16217', '16218', '16220', '16221', '16222', '16223',
       '16261', '16262', '16263', '16264', '16265', '16266', '16268',
-      // Wider unexplored ranges
-      ...Array.from({ length: 1000 }, (_, i) => String(13500 + i)), // 13500-14499
-      ...Array.from({ length: 700 }, (_, i) => String(14500 + i)),  // 14500-15199
-      ...Array.from({ length: 400 }, (_, i) => String(16600 + i)),  // 16600-16999
-      ...Array.from({ length: 500 }, (_, i) => String(17000 + i)),  // 17000-17499
+      '17319', '17320', '17321', '17322', '17323', '17336',
+      '17406', '17407', '17408', '17409', '17410', '17411', '17412', '17413',
+      '17416', '17417', '17418',
+      '17457', '17458', '17459',
+      '17463', '17464', '17465',
     ],
   },
   {
@@ -240,6 +238,16 @@ const DK_PROP_MAP: Record<string, string> = {
   'triples o/u': 'player_triples',
   'total extra base hits': 'player_extra_base_hits',
   'extra base hits o/u': 'player_extra_base_hits',
+  // Real per-player MLB markets surfaced by the wide scan
+  'runs o/u': 'player_runs',
+  'walks (batter) o/u': 'player_walks',
+  'earned runs allowed o/u': 'player_earned_runs',
+  'outs o/u': 'pitcher_outs',
+  'strikeouts thrown milestones': 'player_strikeouts_p',
+  // Single-batter triple-stat combo (Hits + Runs + RBIs)
+  'hits + runs + rbis o/u': 'player_hits_runs_rbis',
+  'h+r+rbi o/u': 'player_hits_runs_rbis',
+  'total hits + runs + rbis': 'player_hits_runs_rbis',
   // NHL milestones
   'goals milestones': 'player_goals',
   'points milestones (nhl)': 'player_hockey_points',
