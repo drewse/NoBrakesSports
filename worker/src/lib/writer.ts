@@ -69,35 +69,48 @@ export async function writeBookResults(
 
   // ── 3. Upcoming events lookup — fetch everything starting in the next few days ──
   const lookBack = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  const normTeam = (s: string) =>
+    s.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+  const homeTeamsMatch = (a: string, b: string): boolean => normTeam(a) === normTeam(b)
+
   const { data: dbEvents } = await db
     .from('events')
     .select('id, title, start_time, external_id, league_id, league:leagues(slug)')
     .gt('start_time', lookBack)
-  const eventByExtId = new Map<string, { id: string; homeTeam: string }>()
-  const eventByMatchKey = new Map<string, { id: string; homeTeam: string }>()
+  // Store both title parts per event so we can decide which one the CURRENT
+  // adapter treats as home at lookup time. Historic events in the DB were
+  // created under mixed title conventions ("Home vs Away" from sync-odds,
+  // "Away vs Home" from sync-props cron and the worker), so there is no
+  // single position we can trust universally.
+  const eventByExtId = new Map<string, { id: string; titleParts: [string, string] }>()
+  const eventByMatchKey = new Map<string, { id: string; titleParts: [string, string] }>()
   for (const e of (dbEvents ?? []) as any[]) {
     const slug = e.league?.slug ?? ''
     if (!slug || !e.title) continue
-    // Event title is "Away vs Home"
     const parts = (e.title as string).split(' vs ')
     if (parts.length !== 2) continue
-    const dbHome = parts[1].trim()
-    const dbAway = parts[0].trim()
-    const entry = { id: e.id as string, homeTeam: dbHome }
+    const entry = { id: e.id as string, titleParts: [parts[0].trim(), parts[1].trim()] as [string, string] }
     if (e.external_id) eventByExtId.set(e.external_id, entry)
+    // Canonical key sorts teams, so the same key works for either ordering.
     const key = canonicalEventKey({
       leagueSlug: slug, startTime: e.start_time,
-      homeTeam: dbHome, awayTeam: dbAway,
+      homeTeam: parts[0].trim(), awayTeam: parts[1].trim(),
     })
     eventByMatchKey.set(key, entry)
   }
 
-  // canonicalEventKey sorts team names alphabetically, so adapters with a
-  // different home/away convention will still match. We must swap prices
-  // when the adapter's home team doesn't line up with the DB event's home.
-  const homeTeamsMatch = (a: string, b: string): boolean => {
-    const norm = (s: string) => s.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
-    return norm(a) === norm(b)
+  /** Figure out the DB event's home team from the title parts by looking for
+   *  the adapter's team names inside them. Works with either "Home vs Away"
+   *  or "Away vs Home" stored-title conventions. Falls back to the adapter's
+   *  home team (no swap) when neither name matches (different labeling). */
+  function resolveDbHome(parts: [string, string], adapterHome: string, adapterAway: string): string {
+    const p0 = normTeam(parts[0])
+    const p1 = normTeam(parts[1])
+    const h = normTeam(adapterHome)
+    const a = normTeam(adapterAway)
+    if (p0 === h || p1 === a) return parts[0]
+    if (p1 === h || p0 === a) return parts[1]
+    return adapterHome
   }
 
   // ── 4. Per-event processing ──
@@ -127,11 +140,14 @@ export async function writeBookResults(
 
     const matched = eventByExtId.get(extId) ?? eventByMatchKey.get(extId)
     let eventId = matched?.id
-    let dbHomeTeam = matched?.homeTeam ?? event.homeTeam
+    let dbHomeTeam = matched
+      ? resolveDbHome(matched.titleParts, event.homeTeam, event.awayTeam)
+      : event.homeTeam
     if (!eventId) {
       // Auto-create the event. If another client (Vercel sync) inserted the
       // same event concurrently, use upsert semantics via select-on-conflict.
-      const title = `${event.awayTeam} vs ${event.homeTeam}`
+      // "Home vs Away" convention going forward (matches main app display).
+      const title = `${event.homeTeam} vs ${event.awayTeam}`
       const { data: newEvent, error } = await db
         .from('events')
         .insert({
@@ -154,7 +170,7 @@ export async function writeBookResults(
             .maybeSingle()
           if (existing?.id) {
             eventId = existing.id
-            eventByExtId.set(extId, { id: eventId!, homeTeam: event.homeTeam })
+            eventByExtId.set(extId, { id: eventId!, titleParts: [event.homeTeam, event.awayTeam] })
             dbHomeTeam = event.homeTeam
             eventsMatched++
           } else {
@@ -167,7 +183,7 @@ export async function writeBookResults(
         }
       } else if (newEvent) {
         eventId = newEvent.id
-        eventByExtId.set(extId, { id: eventId!, homeTeam: event.homeTeam })
+        eventByExtId.set(extId, { id: eventId!, titleParts: [event.homeTeam, event.awayTeam] })
         dbHomeTeam = event.homeTeam
         eventsCreated++
       } else {
