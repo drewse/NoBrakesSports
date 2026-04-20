@@ -231,7 +231,15 @@ export const bet365Adapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
 
       // Cloudflare clearance: visit the page once so cf_clearance lands.
-      await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      log.info('seed visit', { url: SEED_URL })
+      try {
+        const seedResp = await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+        log.info('seed loaded', { status: seedResp?.status() ?? null, url: page.url() })
+      } catch (e: any) {
+        log.error('seed nav failed', { message: e?.message ?? String(e) })
+        errors.push(`seed nav: ${e?.message ?? e}`)
+        return { events: [], errors }
+      }
       await page.waitForTimeout(2_000)
 
       for (const comp of COMPETITIONS) {
@@ -242,11 +250,9 @@ export const bet365Adapter: BookAdapter = {
           MARKET_TYPE_IDS.map(async ({ id, type }) => {
             const url = buildUrl(comp, id)
             const resp = await page.request.get(url, { headers: API_HEADERS })
-            if (!resp.ok()) {
-              throw new Error(`HTTP ${resp.status()} ${type}`)
-            }
+            const status = resp.status()
             const text = await resp.text()
-            return { type, records: parseResponse(text) }
+            return { type, status, text, records: parseResponse(text), url }
           }),
         )
 
@@ -257,15 +263,46 @@ export const bet365Adapter: BookAdapter = {
           const t = MARKET_TYPE_IDS[i].type
           if (r.status === 'rejected') {
             errors.push(`${comp.name} ${t}: ${r.reason?.message ?? r.reason}`)
+            log.error('fetch rejected', { comp: comp.name, type: t, error: r.reason?.message ?? String(r.reason) })
             continue
           }
-          recordsByType.set(t, r.value.records)
-          allRecords.push(...r.value.records)
+          const v = r.value
+          // Detailed per-fetch diag: HTTP status, body length, record types
+          // and counts. Tells us in one log line whether bet365 served us
+          // markets or a Cloudflare page.
+          const typeCounts: Record<string, number> = {}
+          for (const rec of v.records) typeCounts[rec.type] = (typeCounts[rec.type] ?? 0) + 1
+          log.info('fetch result', {
+            comp: comp.name,
+            type: t,
+            status: v.status,
+            bodyLen: v.text.length,
+            recordCount: v.records.length,
+            typeCounts,
+            firstRecord: v.records[0] ?? null,
+            sampleBody: v.text.slice(0, 200),
+          })
+          if (v.status >= 400) {
+            errors.push(`${comp.name} ${t}: HTTP ${v.status}`)
+            continue
+          }
+          recordsByType.set(t, v.records)
+          allRecords.push(...v.records)
         }
 
-        if (allRecords.length === 0) continue
+        if (allRecords.length === 0) {
+          log.warn('no records — skipping comp', { comp: comp.name })
+          continue
+        }
 
         const fixtures = extractFixtures(allRecords)
+        log.info('fixtures extracted', { comp: comp.name, fixtureCount: fixtures.size })
+        if (fixtures.size === 0) {
+          // Dump a sample of PA records to see why fixture extraction
+          // failed (typically NA/N2/BC fields missing).
+          const paSample = allRecords.filter(r => r.type === 'PA').slice(0, 3)
+          log.warn('zero fixtures — PA sample', { sample: paSample })
+        }
 
         // Per-event bucket: { event, gameMarkets, props }
         const bucket = new Map<string, { event: NormalizedEvent; gameMarkets: GameMarket[] }>()
