@@ -34,13 +34,29 @@ export async function shutdownBrowser(): Promise<void> {
   }
 }
 
-/** Open an isolated context with sane anti-bot defaults. Caller must close it. */
+/** Open an isolated context with sane anti-bot defaults. Caller must close it.
+ *  Pass `useProxy: true` to route this context through PROXY_URL (residential
+ *  proxy, required for sites that hard-block the Railway IP via CF). */
 export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
   extraHeaders?: Record<string, string>
+  useProxy?: boolean
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
+  let proxy: { server: string; username?: string; password?: string } | undefined
+  if (opts.useProxy && process.env.PROXY_URL) {
+    try {
+      const u = new URL(process.env.PROXY_URL)
+      proxy = {
+        server: `${u.protocol}//${u.host}`,
+        username: u.username || undefined,
+        password: u.password || undefined,
+      }
+    } catch {
+      log.warn('PROXY_URL invalid — falling back to direct')
+    }
+  }
   return browser.newContext({
     viewport: opts.viewport ?? { width: 1440, height: 900 },
     userAgent: opts.userAgent ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -48,6 +64,7 @@ export async function openContext(opts: {
     timezoneId: 'America/Toronto',
     extraHTTPHeaders: opts.extraHeaders,
     bypassCSP: true,
+    ...(proxy ? { proxy } : {}),
   })
 }
 

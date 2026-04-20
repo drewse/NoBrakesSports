@@ -226,6 +226,15 @@ export const bet365Adapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
+    // bet365 hard-blocks the Railway IP at Cloudflare. The challenge HTML
+    // is served immediately with no JS to wait through. Until a residential
+    // proxy is configured (PROXY_URL env var), short-circuit to avoid
+    // burning a Chromium context every poll cycle.
+    if (!process.env.PROXY_URL) {
+      log.info('skipped — no PROXY_URL configured (CF hard-blocks Railway IP)')
+      return { events: [], errors: [] }
+    }
+
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
@@ -239,9 +248,11 @@ export const bet365Adapter: BookAdapter = {
       try {
         const seedResp = await page.goto(SEED_URL, { waitUntil: 'networkidle', timeout: 60_000 })
         log.info('seed loaded', { status: seedResp?.status() ?? null, url: page.url() })
-        // If the navigation status is 403, CF didn't let us through.
         if (seedResp && seedResp.status() === 403) {
-          log.error('seed blocked by Cloudflare 403', { html: (await page.content()).slice(0, 200) })
+          log.error('seed blocked by Cloudflare 403 — proxy may need rotation', {
+            html: (await page.content()).slice(0, 200),
+          })
+          return { events: [], errors: ['CF 403 on seed'] }
         }
       } catch (e: any) {
         log.error('seed nav failed', { message: e?.message ?? String(e) })
@@ -378,6 +389,6 @@ export const bet365Adapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    })
+    }, { useProxy: true })
   },
 }
