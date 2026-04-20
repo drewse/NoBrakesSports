@@ -393,6 +393,7 @@ export const pointsbetAdapter: BookAdapter = {
                   propDrops.noLineValue++
                   continue
                 }
+                if (o.price == null) continue
                 const key = `${shape.player}|${line}`
                 const g = groups.get(key) ?? { player: shape.player, line }
                 const american = decimalToAmerican(o.price)
