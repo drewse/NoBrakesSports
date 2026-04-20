@@ -197,23 +197,45 @@ export default async function TopEvLinesPage({
     .limit(10000)
 
   const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  const eventStartCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const PROP_PAGE = 1000
-  const PROP_MAX = 50000
-  const propBatchPromises = Promise.all(Array.from(
-    { length: PROP_MAX / PROP_PAGE },
-    (_, i) => supabase
-      .from('prop_odds')
-      .select(`
-        event_id, source_id, prop_category, player_name, line_value,
-        over_price, under_price, snapshot_time,
-        event:events!inner(id, title, start_time, league:leagues(abbreviation)),
-        source:market_sources(id, name, slug)
-      `)
-      .gt('snapshot_time', propCutoff)
-      .gt('event.start_time', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
-      .or('over_price.not.is.null,under_price.not.is.null')
-      .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
-  ))
+  const PROP_PARALLEL = 10
+  // Unbounded paging: fire PROP_PARALLEL batches at a time; keep going until
+  // the last batch in a group returns short (the tail of the result set).
+  const fetchAllProps = async (): Promise<any[]> => {
+    const all: any[] = []
+    let startOffset = 0
+    const HARD_STOP = 500_000
+    while (startOffset < HARD_STOP) {
+      const chunk = await Promise.all(
+        Array.from({ length: PROP_PARALLEL }, (_, i) =>
+          supabase
+            .from('prop_odds')
+            .select(`
+              event_id, source_id, prop_category, player_name, line_value,
+              over_price, under_price, snapshot_time,
+              event:events!inner(id, title, start_time, league:leagues(abbreviation)),
+              source:market_sources(id, name, slug)
+            `)
+            .gt('snapshot_time', propCutoff)
+            .gt('event.start_time', eventStartCutoff)
+            .or('over_price.not.is.null,under_price.not.is.null')
+            .range(startOffset + i * PROP_PAGE, startOffset + (i + 1) * PROP_PAGE - 1),
+        ),
+      )
+      let lastBatchFull = false
+      for (let i = 0; i < chunk.length; i++) {
+        const batch = chunk[i].data
+        if (!batch || batch.length === 0) continue
+        all.push(...batch)
+        if (i === chunk.length - 1 && batch.length === PROP_PAGE) lastBatchFull = true
+      }
+      if (!lastBatchFull) break
+      startOffset += PROP_PARALLEL * PROP_PAGE
+    }
+    return all
+  }
+  const propBatchPromises = fetchAllProps()
 
   // Await game-level snapshots (prop batches are running in parallel)
   const { data: snapshots } = await snapshotsPromise
@@ -371,12 +393,7 @@ export default async function TopEvLinesPage({
   // Query prop_odds, group by (event, category, player, line), compute fair prob
   // from sharpest book (most balanced O/U), then find +EV across all books.
   // Await prop batches (fired earlier, running in parallel with game EV processing)
-  const propBatchResults = await propBatchPromises
-  const propOddsRaw: any[] = []
-  for (const { data: batch } of propBatchResults) {
-    if (!batch || batch.length === 0) break
-    propOddsRaw.push(...batch)
-  }
+  const propOddsRaw: any[] = await propBatchPromises
 
   if (propOddsRaw && propOddsRaw.length > 0) {
     // Filter by enabled books + upcoming events
