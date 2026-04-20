@@ -100,11 +100,23 @@ function parseSpecialDesc(desc: string): { playerName: string; stat: string } | 
 }
 
 async function gql(page: import('playwright').Page, url: string): Promise<any> {
-  return page.evaluate(async ({ url, headers }) => {
-    const r = await fetch(url, { headers, credentials: 'include' })
-    if (!r.ok) throw new Error(`HTTP ${r.status}`)
-    return r.json()
+  const result = await page.evaluate(async ({ url, headers }) => {
+    try {
+      const r = await fetch(url, { headers, credentials: 'include' })
+      const text = await r.text()
+      return { ok: r.ok, status: r.status, body: text }
+    } catch (e: any) {
+      return { ok: false, status: 0, body: `fetch threw: ${e?.message ?? e}` }
+    }
   }, { url, headers: HEADERS })
+  if (!result.ok) {
+    throw new Error(`HTTP ${result.status}: ${String(result.body).slice(0, 200)}`)
+  }
+  try {
+    return JSON.parse(result.body)
+  } catch {
+    throw new Error(`bad JSON: ${result.body.slice(0, 200)}`)
+  }
 }
 
 export const pinnacleAdapter: BookAdapter = {

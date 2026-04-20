@@ -87,6 +87,11 @@ async function runOnce(state: RunnerState): Promise<void> {
       durMs,
       adapterErrors: result.errors.length,
     })
+    if (result.errors.length > 0) {
+      for (const err of result.errors.slice(0, 12)) {
+        state.log.error('adapter error', { message: err })
+      }
+    }
   } catch (err: any) {
     state.lastError = err?.message ?? String(err)
     state.consecutiveFailures += 1
