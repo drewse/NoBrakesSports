@@ -217,20 +217,26 @@ function buildEventPropUrl(eventId: string, subcategoryId: string): string {
   return `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}%2C${subcategoryId}&marketsQuery=${encodeURIComponent(marketsQuery)}&entity=markets`
 }
 
-/** Probe URLs to discover which subcategory IDs DK uses today. Each
- *  candidate hits a different endpoint variant; whichever returns 200 with
- *  a `markets` array gives us the live IDs via market.clientMetadata.subCategoryId. */
+/** Probe URLs to discover which subcategory IDs DK uses today. The v5/v4
+ *  eventgroup endpoints 403 the Vercel IP even with browser headers (likely
+ *  Ontario-geofenced). Instead pivot to the working /controldata/ route but
+ *  with broader query filters that request every market for the league. */
 function buildDiscoveryUrls(leagueId: string, eventId: string): string[] {
+  // Variants of the working endpoint without a subcategoryId filter.
+  const leagueOnly = `$filter=leagueId eq '${leagueId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
+  const eventOnly = `$filter=eventId eq '${eventId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
   return [
-    // Older DK sportsbook v5 API — returns event group with all categories/subcategories
+    // A: leagueSubcategory path, no subcategory in marketsQuery — sometimes
+    // returns the full market tree for the league.
+    `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&marketsQuery=${encodeURIComponent(leagueOnly)}&entity=markets`,
+    // B: leagueSubcategory path with templateVars=leagueId, but requesting
+    // include=Markets instead of Events.
+    `${BASE}/controldata/league/leagueSubcategory/v1/markets?isBatchable=false&templateVars=${leagueId}&eventsQuery=${encodeURIComponent(leagueOnly)}&marketsQuery=${encodeURIComponent(leagueOnly)}&include=Markets&entity=markets`,
+    // C: eventSubcategory path, event id only (no subcategory). DK may accept
+    // the partial templateVars if marketsQuery is complete.
+    `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}&marketsQuery=${encodeURIComponent(eventOnly)}&entity=markets`,
+    // D: previously-failing v5 variants as a last resort.
     `${DK_HOST}/sites/CA-ON-SB/api/v5/eventgroups/${leagueId}/full?format=json`,
-    `${DK_HOST}/sites/CA-ON-SB/api/v5/eventgroups/${leagueId}?format=json`,
-    `${DK_HOST}/sites/CA-ON-SB/api/v4/eventgroups/${leagueId}/full?format=json`,
-    // DK's page-content endpoint used by the UI
-    `${DK_HOST}/sites/CA-ON-SB/api/sportsbook/v1/leagues/${leagueId}`,
-    `${DK_HOST}/sites/CA-ON-SB/api/sportsbook/v1/leagues/${leagueId}/categories`,
-    // Event-scoped via v5
-    `${DK_HOST}/sites/CA-ON-SB/api/v5/events/${eventId}/categories?format=json`,
   ]
 }
 
