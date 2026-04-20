@@ -16,6 +16,7 @@ import {
 import { isUpcomingEvent } from '@/lib/queries'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 import { BookLogo } from '@/components/shared/book-logo'
+import { EvCalculatorClient } from './ev-calculator-client'
 
 export const metadata = { title: 'Top EV Lines' }
 
@@ -531,24 +532,30 @@ export default async function TopEvLinesPage({
     return type
   }
 
-  return (
-    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1400px]">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-lg font-bold text-white">Top EV Lines</h1>
-          <Badge variant="pro">PRO</Badge>
-        </div>
-        <p className="text-xs text-nb-400">
-          Pre-game price vs consensus market line ·{' '}
-          <span className="text-white font-medium">{positiveCount}</span> positive opportunities
-          across <span className="text-white font-medium">{new Set(filtered.map(l => l.eventTitle)).size}</span> events
-        </p>
-      </div>
+  // Only positive EV lines flow into the calculator client
+  const clientLines = visibleLines
+    .filter(l => l.evPct > 0)
+    .map(l => ({
+      eventId: l.eventId,
+      eventTitle: l.eventTitle,
+      eventStart: l.eventStart,
+      leagueAbbrev: l.leagueAbbrev,
+      marketType: l.marketType,
+      outcomeLabel: l.outcomeLabel,
+      lineValue: l.lineValue,
+      bestPrice: l.bestPrice,
+      bestSource: l.bestSource,
+      evPct: l.evPct,
+      fairProb: l.fairProb,
+      kellyPct: l.kellyPct,
+      allSources: l.allSources,
+      lastUpdated: l.lastUpdated,
+    }))
 
-      {/* Filter bar */}
-      <div className="flex flex-wrap items-center gap-3">
-        {/* League filter */}
+  return (
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1600px]">
+      {/* Filter bar (compact — full header lives inside the client) */}
+      <div className="hidden lg:flex flex-wrap items-center gap-3">
         <form method="GET" className="flex items-center">
           <input type="hidden" name="market" value={marketFilter} />
           <select
@@ -562,9 +569,7 @@ export default async function TopEvLinesPage({
             ))}
           </select>
         </form>
-
-        {/* Market type tabs */}
-        <form method="GET" className="flex items-center gap-1.5">
+        <form method="GET" className="flex items-center gap-1.5 flex-wrap">
           <input type="hidden" name="league" value={leagueFilter} />
           {(['all', 'moneyline', 'spread', 'total', 'prop'] as const).map(m => (
             <button
@@ -585,6 +590,14 @@ export default async function TopEvLinesPage({
         </form>
       </div>
 
+      <ProGate isPro={isPro} featureName="Top EV Lines" blur={false}>
+        <EvCalculatorClient
+          lines={clientLines}
+          totalEvents={new Set(clientLines.map(l => l.eventTitle)).size}
+        />
+      </ProGate>
+      {/* Legacy layout retained below behind a dummy false — replaced by client component. */}
+      {false && (
       <ProGate isPro={isPro} featureName="Top EV Lines" blur={false}>
 
         {/* ── Top 3 Podium ─────────────────────────────────────────────────── */}
@@ -819,6 +832,7 @@ export default async function TopEvLinesPage({
           Informational only. Not financial or betting advice.
         </p>
       </ProGate>
+      )}
     </div>
   )
 }
