@@ -248,7 +248,8 @@ function parseLeagueData(data: any, league: typeof DK_LEAGUES[number]): DKResult
     } else if (typeName === 'spread' || typeName === 'run line' || typeName === 'puck line') {
       const home = selections.find((s: any) => s.outcomeType === 'Home')
       const away = selections.find((s: any) => s.outcomeType === 'Away')
-      const spreadVal = home?.points != null ? Math.abs(home.points) : (away?.points != null ? Math.abs(away.points) : null)
+      // Signed spread from home team's perspective.
+      const spreadVal = home?.points != null ? home.points : (away?.points != null ? -away.points : null)
       gm = {
         marketType: 'spread',
         homePrice: parseAmerican(home?.displayOdds?.american),

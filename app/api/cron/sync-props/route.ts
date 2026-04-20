@@ -260,13 +260,15 @@ export async function GET(req: NextRequest) {
   }
 
   /** Apply home/away swap to a game market row if the adapter's notion of
-   *  home differs from the DB event's canonical parts[0] home. */
+   *  home differs from the DB event's canonical parts[0] home. Swapping sides
+   *  also flips the spread sign (home favorite becomes home underdog). */
   function orientGM(gm: any, eventId: string, adapterHome: string, adapterAway: string): any {
     if (!needsSwap(eventId, adapterHome, adapterAway)) return gm
     return {
       ...gm,
       homePrice: gm.awayPrice ?? null,
       awayPrice: gm.homePrice ?? null,
+      spreadValue: gm.spreadValue != null ? -gm.spreadValue : null,
     }
   }
 

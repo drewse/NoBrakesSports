@@ -379,7 +379,12 @@ export const pointsbetAdapter: BookAdapter = {
                     homePrice: home?.price ? decimalToAmerican(home.price) : null,
                     awayPrice: away?.price ? decimalToAmerican(away.price) : null,
                     drawPrice: null,
-                    spreadValue: home?.points != null ? Math.abs(home.points) : null,
+                    // Signed spread from home team's perspective: Astros -1.5
+                    // stored as -1.5, Astros +1.5 as +1.5. Display relies on
+                    // this sign to show the correct side.
+                    spreadValue: home?.points != null
+                      ? home.points
+                      : (away?.points != null ? -away.points : null),
                     totalValue: null, overPrice: null, underPrice: null,
                   })
                 } else if (gameType === 'total') {

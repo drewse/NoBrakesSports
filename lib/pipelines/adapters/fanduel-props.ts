@@ -401,7 +401,8 @@ async function fetchPage(page: typeof FD_PAGES[number]): Promise<FDResult[]> {
           homePrice: home?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
           awayPrice: away?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
           drawPrice: null,
-          spreadValue: Math.abs(home?.handicap ?? away?.handicap ?? 0),
+          // Signed spread from home team's perspective.
+          spreadValue: home?.handicap != null ? home.handicap : (away?.handicap != null ? -away.handicap : 0),
           totalValue: null, overPrice: null, underPrice: null,
         }
       } else if (marketType === 'total') {

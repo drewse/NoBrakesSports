@@ -233,7 +233,10 @@ export const pinnacleAdapter: BookAdapter = {
                     bestSpreadBalance = balance
                     bestSpread = {
                       home: h, away: a,
-                      handicap: home?.points != null ? Math.abs(home.points) : undefined,
+                      // Signed handicap from home team's perspective.
+                      handicap: home?.points != null
+                        ? home.points
+                        : (away?.points != null ? -away.points : undefined),
                     }
                   }
                 } else if (m.type === 'total') {

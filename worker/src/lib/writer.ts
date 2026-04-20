@@ -190,18 +190,17 @@ export async function writeBookResults(
     }
 
     // If the adapter's home/away assignment differs from the DB event's, swap
-    // prices so they always land on the correct side. Critical: spread_value
-    // also flips sign semantically, but we store it as Math.abs() already, so
-    // only prices need swapping.
+    // prices AND flip the spread sign (home/away swap flips favorite/dog).
     const needsSwap = !homeTeamsMatch(event.homeTeam, dbHomeTeam)
 
     // Game markets — one row per (event, source, market_type) using line_value=0 (NULL breaks unique constraints)
     for (const gm of gameMarkets) {
       const homePrice = needsSwap ? gm.awayPrice : gm.homePrice
       const awayPrice = needsSwap ? gm.homePrice : gm.awayPrice
+      const spreadValue = needsSwap && gm.spreadValue != null ? -gm.spreadValue : gm.spreadValue
       const oddsHash = computeOddsHash({
         home_price: homePrice, away_price: awayPrice, draw_price: gm.drawPrice,
-        spread_value: gm.spreadValue, total_value: gm.totalValue,
+        spread_value: spreadValue, total_value: gm.totalValue,
         over_price: gm.overPrice, under_price: gm.underPrice,
       })
       gameRows.push({
@@ -213,7 +212,7 @@ export async function writeBookResults(
         home_price: homePrice,
         away_price: awayPrice,
         draw_price: gm.drawPrice,
-        spread_value: gm.spreadValue,
+        spread_value: spreadValue,
         total_value: gm.totalValue,
         over_price: gm.overPrice,
         under_price: gm.underPrice,

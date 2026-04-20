@@ -228,9 +228,10 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
     } else if (catName === 'Spread' && market.isMain !== false && !gameMarkets.some(gm => gm.marketType === 'spread')) {
       if (options.length >= 2) {
         const opt1 = options[0], opt2 = options[1]
-        const spreadVal = Math.abs(parseFloat(opt1.attr ?? '0'))
         const homeOpt = opt1.name?.value?.includes(homeName.split(' ').pop()) ? opt1 : opt2
         const awayOpt = homeOpt === opt1 ? opt2 : opt1
+        // Signed spread from home team's perspective (home -1.5 vs home +1.5).
+        const spreadVal = parseFloat(homeOpt?.attr ?? '0')
         gameMarkets.push({
           marketType: 'spread',
           homePrice: homeOpt?.price?.americanOdds ?? null,
