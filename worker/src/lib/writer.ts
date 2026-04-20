@@ -73,21 +73,31 @@ export async function writeBookResults(
     .from('events')
     .select('id, title, start_time, external_id, league_id, league:leagues(slug)')
     .gt('start_time', lookBack)
-  const eventByExtId = new Map<string, string>()
-  const eventByMatchKey = new Map<string, string>()
+  const eventByExtId = new Map<string, { id: string; homeTeam: string }>()
+  const eventByMatchKey = new Map<string, { id: string; homeTeam: string }>()
   for (const e of (dbEvents ?? []) as any[]) {
-    if (e.external_id) eventByExtId.set(e.external_id, e.id)
     const slug = e.league?.slug ?? ''
-    if (slug && e.title) {
-      const parts = (e.title as string).split(' vs ')
-      if (parts.length === 2) {
-        const key = canonicalEventKey({
-          leagueSlug: slug, startTime: e.start_time,
-          homeTeam: parts[1].trim(), awayTeam: parts[0].trim(),
-        })
-        eventByMatchKey.set(key, e.id)
-      }
-    }
+    if (!slug || !e.title) continue
+    // Event title is "Away vs Home"
+    const parts = (e.title as string).split(' vs ')
+    if (parts.length !== 2) continue
+    const dbHome = parts[1].trim()
+    const dbAway = parts[0].trim()
+    const entry = { id: e.id as string, homeTeam: dbHome }
+    if (e.external_id) eventByExtId.set(e.external_id, entry)
+    const key = canonicalEventKey({
+      leagueSlug: slug, startTime: e.start_time,
+      homeTeam: dbHome, awayTeam: dbAway,
+    })
+    eventByMatchKey.set(key, entry)
+  }
+
+  // canonicalEventKey sorts team names alphabetically, so adapters with a
+  // different home/away convention will still match. We must swap prices
+  // when the adapter's home team doesn't line up with the DB event's home.
+  const homeTeamsMatch = (a: string, b: string): boolean => {
+    const norm = (s: string) => s.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
+    return norm(a) === norm(b)
   }
 
   // ── 4. Per-event processing ──
@@ -115,7 +125,9 @@ export async function writeBookResults(
       awayTeam: event.awayTeam,
     })
 
-    let eventId = eventByExtId.get(extId) ?? eventByMatchKey.get(extId)
+    const matched = eventByExtId.get(extId) ?? eventByMatchKey.get(extId)
+    let eventId = matched?.id
+    let dbHomeTeam = matched?.homeTeam ?? event.homeTeam
     if (!eventId) {
       // Auto-create the event. If another client (Vercel sync) inserted the
       // same event concurrently, use upsert semantics via select-on-conflict.
@@ -142,7 +154,8 @@ export async function writeBookResults(
             .maybeSingle()
           if (existing?.id) {
             eventId = existing.id
-            eventByExtId.set(extId, eventId!)
+            eventByExtId.set(extId, { id: eventId!, homeTeam: event.homeTeam })
+            dbHomeTeam = event.homeTeam
             eventsMatched++
           } else {
             errors.push(`event conflict but no row: ${extId}`)
@@ -154,7 +167,8 @@ export async function writeBookResults(
         }
       } else if (newEvent) {
         eventId = newEvent.id
-        eventByExtId.set(extId, eventId!)
+        eventByExtId.set(extId, { id: eventId!, homeTeam: event.homeTeam })
+        dbHomeTeam = event.homeTeam
         eventsCreated++
       } else {
         errors.push(`event insert "${title}": no data returned`)
@@ -164,10 +178,18 @@ export async function writeBookResults(
       eventsMatched++
     }
 
+    // If the adapter's home/away assignment differs from the DB event's, swap
+    // prices so they always land on the correct side. Critical: spread_value
+    // also flips sign semantically, but we store it as Math.abs() already, so
+    // only prices need swapping.
+    const needsSwap = !homeTeamsMatch(event.homeTeam, dbHomeTeam)
+
     // Game markets — one row per (event, source, market_type) using line_value=0 (NULL breaks unique constraints)
     for (const gm of gameMarkets) {
+      const homePrice = needsSwap ? gm.awayPrice : gm.homePrice
+      const awayPrice = needsSwap ? gm.homePrice : gm.awayPrice
       const oddsHash = computeOddsHash({
-        home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: gm.drawPrice,
+        home_price: homePrice, away_price: awayPrice, draw_price: gm.drawPrice,
         spread_value: gm.spreadValue, total_value: gm.totalValue,
         over_price: gm.overPrice, under_price: gm.underPrice,
       })
@@ -177,15 +199,15 @@ export async function writeBookResults(
         market_type: gm.marketType,
         line_value: 0,
         odds_hash: oddsHash,
-        home_price: gm.homePrice,
-        away_price: gm.awayPrice,
+        home_price: homePrice,
+        away_price: awayPrice,
         draw_price: gm.drawPrice,
         spread_value: gm.spreadValue,
         total_value: gm.totalValue,
         over_price: gm.overPrice,
         under_price: gm.underPrice,
-        home_implied_prob: gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null,
-        away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
+        home_implied_prob: homePrice != null ? round4(americanToImpliedProb(homePrice)) : null,
+        away_implied_prob: awayPrice != null ? round4(americanToImpliedProb(awayPrice)) : null,
         movement_direction: 'flat',
         snapshot_time: now,
         changed_at: now,

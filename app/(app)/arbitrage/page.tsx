@@ -196,7 +196,8 @@ export default async function ArbitragePage() {
 
         const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
         const profitPct = (1 / combinedProb - 1) * 100
-        if (profitPct <= 0) continue
+        // Game arbs above 15% are virtually always home/away-swap bugs or stale feeds.
+        if (profitPct <= 0 || profitPct > 15) continue
 
         const pairKey = `${(homeSnap as any).source_id}|${(awaySnap as any).source_id}`
         if (pairSeen.has(pairKey)) continue

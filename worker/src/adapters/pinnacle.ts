@@ -13,6 +13,7 @@
  */
 
 import { withPage } from '../lib/browser.js'
+import { americanToImpliedProb } from '../lib/canonical.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, NormalizedEvent, GameMarket, NormalizedProp } from '../lib/types.js'
 
@@ -194,40 +195,92 @@ export const pinnacleAdapter: BookAdapter = {
             try {
               const markets: PinnacleMarket[] = await gql(page, `${BASE}/matchups/${id}/markets/related/straight`)
               const bucket = gameMap.get(id)!
+
+              // Pinnacle bundles many alt spreads / alt totals in the same
+              // response. The writer dedups game markets to one row per
+              // (event, source, market_type), so we MUST pick the main line
+              // here — otherwise a random alt (e.g. Astros -7 @ -560) wins
+              // the dedup and poisons cross-book comparisons. Use balance
+              // (prices closest to 50/50) as the main-line heuristic —
+              // Pinnacle's main lines are always near -110/-110.
+              type Pin = { home?: number; away?: number; over?: number; under?: number; handicap?: number }
+              const mlCandidates: Pin[] = []
+              let bestSpread: Pin | null = null
+              let bestSpreadBalance = Infinity
+              let bestTotal: Pin | null = null
+              let bestTotalBalance = Infinity
+
               for (const m of markets) {
-                const mainPeriod = m.key?.includes('s;0;') // full-game markets
-                if (!mainPeriod) continue
+                if (m.key && !m.key.includes('s;0;')) continue
                 const home = m.prices?.find(p => p.designation === 'home')
                 const away = m.prices?.find(p => p.designation === 'away')
                 const over = m.prices?.find(p => p.designation === 'over')
                 const under = m.prices?.find(p => p.designation === 'under')
 
                 if (m.type === 'moneyline') {
-                  bucket.gameMarkets.push({
-                    marketType: 'moneyline',
-                    homePrice: normalizePinnaclePrice(home?.price),
-                    awayPrice: normalizePinnaclePrice(away?.price),
-                    drawPrice: null,
-                    spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+                  mlCandidates.push({
+                    home: normalizePinnaclePrice(home?.price) ?? undefined,
+                    away: normalizePinnaclePrice(away?.price) ?? undefined,
                   })
                 } else if (m.type === 'spread') {
-                  bucket.gameMarkets.push({
-                    marketType: 'spread',
-                    homePrice: normalizePinnaclePrice(home?.price),
-                    awayPrice: normalizePinnaclePrice(away?.price),
-                    drawPrice: null,
-                    spreadValue: home?.points != null ? Math.abs(home.points) : null,
-                    totalValue: null, overPrice: null, underPrice: null,
-                  })
+                  const h = normalizePinnaclePrice(home?.price)
+                  const a = normalizePinnaclePrice(away?.price)
+                  if (h == null || a == null) continue
+                  const hProb = americanToImpliedProb(h)
+                  const aProb = americanToImpliedProb(a)
+                  const balance = Math.abs(hProb - aProb)
+                  if (balance < bestSpreadBalance) {
+                    bestSpreadBalance = balance
+                    bestSpread = {
+                      home: h, away: a,
+                      handicap: home?.points != null ? Math.abs(home.points) : undefined,
+                    }
+                  }
                 } else if (m.type === 'total') {
-                  bucket.gameMarkets.push({
-                    marketType: 'total',
-                    homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
-                    totalValue: over?.points ?? under?.points ?? null,
-                    overPrice: normalizePinnaclePrice(over?.price),
-                    underPrice: normalizePinnaclePrice(under?.price),
-                  })
+                  const o = normalizePinnaclePrice(over?.price)
+                  const u = normalizePinnaclePrice(under?.price)
+                  if (o == null || u == null) continue
+                  const oProb = americanToImpliedProb(o)
+                  const uProb = americanToImpliedProb(u)
+                  const balance = Math.abs(oProb - uProb)
+                  if (balance < bestTotalBalance) {
+                    bestTotalBalance = balance
+                    bestTotal = {
+                      over: o, under: u,
+                      handicap: over?.points ?? under?.points ?? undefined,
+                    }
+                  }
                 }
+              }
+
+              if (mlCandidates.length > 0) {
+                const ml = mlCandidates[0]
+                bucket.gameMarkets.push({
+                  marketType: 'moneyline',
+                  homePrice: ml.home ?? null,
+                  awayPrice: ml.away ?? null,
+                  drawPrice: null,
+                  spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+                })
+              }
+              if (bestSpread) {
+                bucket.gameMarkets.push({
+                  marketType: 'spread',
+                  homePrice: bestSpread.home ?? null,
+                  awayPrice: bestSpread.away ?? null,
+                  drawPrice: null,
+                  spreadValue: bestSpread.handicap ?? null,
+                  totalValue: null, overPrice: null, underPrice: null,
+                })
+              }
+              if (bestTotal) {
+                bucket.gameMarkets.push({
+                  marketType: 'total',
+                  homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
+                  totalValue: bestTotal.handicap ?? null,
+                  overPrice: bestTotal.over ?? null,
+                  underPrice: bestTotal.under ?? null,
+                })
               }
             } catch (e: any) {
               errors.push(`game markets ${id}: ${e.message}`)

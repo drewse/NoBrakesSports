@@ -59,9 +59,14 @@ function decimalToAmerican(decimal: number): number {
 
 function mapMarketType(eventClass: string): MarketType | null {
   const c = eventClass.toLowerCase()
+  // Skip alternate-line variants: the writer dedups game markets to one row per
+  // (event, source, market_type, line_value=0), so an alt line would otherwise
+  // overwrite the main line with whichever got pushed last. We only want the
+  // main handicap/total for cross-book comparison.
+  if (c.startsWith('alternate ')) return null
   if (c.includes('moneyline') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher')) return 'moneyline'
-  if (c.includes('spread') && !c.includes('player')) return 'spread'
-  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher')) return 'total'
+  if (c.includes('spread') && !c.includes('player') && !c.includes('alternate')) return 'spread'
+  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher') && !c.includes('alternate') && !c.includes('bands') && !c.includes('exact') && !c.includes('odd/even') && !c.includes('3-way') && !c.includes('1st half') && !c.includes('2nd half')) return 'total'
   return null
 }
 
