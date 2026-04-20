@@ -216,6 +216,13 @@ function buildEventPropUrl(eventId: string, subcategoryId: string): string {
   return `${BASE}/controldata/event/eventSubcategory/v1/markets?isBatchable=false&templateVars=${eventId}%2C${subcategoryId}&marketsQuery=${encodeURIComponent(marketsQuery)}&entity=markets`
 }
 
+/** Fetch ALL markets for an event without a subcategory filter. Used to
+ *  discover which subcategory IDs DK is currently using. */
+function buildAllEventMarketsUrl(eventId: string): string {
+  const marketsQuery = `$filter=eventId eq '${eventId}' AND tags/all(t: t ne 'SportcastBetBuilder')`
+  return `${BASE}/controldata/event/v1/markets?isBatchable=false&templateVars=${eventId}&marketsQuery=${encodeURIComponent(marketsQuery)}&entity=markets`
+}
+
 
 /** Helper: fetch a DK URL with direct + proxy fallback */
 async function dkFetch(url: string): Promise<Response> {
@@ -396,10 +403,39 @@ async function fetchLeague(
     const resultsByEventId = new Map<string, DKResult>()
     for (const r of results) resultsByEventId.set(r.event.eventId, r)
 
-    // DK removed per-event subcategory listings from the API response, so
-    // dynamic discovery returns nothing. Fall back to the hardcoded
-    // per-league list.
+    // DK removed clientMetadata.Subcategories from event payloads AND
+    // renumbered their subcategory IDs. Discover the currently-active IDs
+    // by fetching all markets for the first event (no subcategory filter)
+    // and collecting unique clientMetadata.subCategoryId values from the
+    // returned markets.
     const propSubcategoryIds = new Set<string>(league.propSubcategoryIds)
+    const firstEventId = results[0]?.event.eventId
+    if (firstEventId) {
+      try {
+        const probeUrl = buildAllEventMarketsUrl(firstEventId)
+        const probeResp = await dkFetch(probeUrl)
+        if (probeResp.ok) {
+          const probeData = await probeResp.json()
+          const allSubIds = new Set<string>()
+          for (const m of probeData.markets ?? []) {
+            const sid = m.clientMetadata?.subCategoryId
+            if (sid) allSubIds.add(String(sid))
+          }
+          for (const sid of allSubIds) {
+            if (sid !== league.subcategoryId) propSubcategoryIds.add(sid)
+          }
+          if (league.name === 'NBA') {
+            console.log(`[DK NBA discover] fetched ${(probeData.markets ?? []).length} markets, found subcategoryIds:`, [...allSubIds])
+          }
+        } else if (league.name === 'NBA') {
+          console.log(`[DK NBA discover] probe HTTP ${probeResp.status}`)
+        }
+      } catch (e: any) {
+        if (league.name === 'NBA') {
+          console.log(`[DK NBA discover] probe error:`, e?.message ?? String(e))
+        }
+      }
+    }
 
     // Fetch props: for each event × each prop subcategory
     // Use the eventSubcategory endpoint discovered from DK DevTools
