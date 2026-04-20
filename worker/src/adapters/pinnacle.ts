@@ -261,6 +261,11 @@ export const pinnacleAdapter: BookAdapter = {
               const byLine = new Map<number, { over?: number; under?: number }>()
               for (const m of markets) {
                 if (m.type !== 'total') continue
+                // Only full-game markets. Pinnacle keys like 's;0;ou;X.Y;' are
+                // full-game totals; period variants use 's;1;', 's;2;', etc.
+                // Without this filter we were mixing per-period prices with
+                // full-game lines and producing nonsense fair probs.
+                if (m.key && !m.key.includes('s;0;')) continue
                 for (const p of m.prices ?? []) {
                   if (p.points == null || p.price == null) continue
                   const american = normalizePinnaclePrice(p.price)

@@ -302,8 +302,9 @@ export default async function ArbitragePage() {
 
           const profitPct = (1 / combinedProb - 1) * 100
           if (!isFinite(profitPct)) continue
-          // Only include positive arbs, cap at 20% to filter mismatched-line artifacts
-          if (profitPct <= 0 || profitPct > 20) continue
+          // Only include positive arbs, cap at 10% — prop arbs above this
+          // are virtually always mismatched-line or stale-feed artifacts.
+          if (profitPct <= 0 || profitPct > 10) continue
 
           const pairKey = `${overRow.source_id}|${underRow.source_id}`
           if (pairSeen.has(pairKey)) continue

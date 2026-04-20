@@ -419,8 +419,24 @@ export const pointsbetAdapter: BookAdapter = {
               }
             }
 
-            if (gameMarkets.length > 0 || props.length > 0) {
-              scraped.push({ event, gameMarkets, props })
+            // Dedup props across markets for this event. PB often exposes
+            // the same (player, line) through BOTH a main "Over/Under" market
+            // AND an "Alternate <stat>" market; if both pushed, the writer's
+            // upsert kept whichever wrote last, sometimes overwriting a proper
+            // two-sided row with a one-sided alt threshold. Prefer two-sided.
+            const propByKey = new Map<string, NormalizedProp>()
+            for (const p of props) {
+              const k = `${p.propCategory}|${p.playerName}|${p.lineValue}`
+              const existing = propByKey.get(k)
+              if (!existing) { propByKey.set(k, p); continue }
+              const existingBoth = existing.overPrice != null && existing.underPrice != null
+              const newBoth = p.overPrice != null && p.underPrice != null
+              if (newBoth && !existingBoth) propByKey.set(k, p)
+            }
+            const dedupedProps = [...propByKey.values()]
+
+            if (gameMarkets.length > 0 || dedupedProps.length > 0) {
+              scraped.push({ event, gameMarkets, props: dedupedProps })
             }
           }
         }
