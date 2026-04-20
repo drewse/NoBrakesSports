@@ -384,23 +384,6 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               propMarketIds.add(m.Id)
             }
 
-            // One-time sample log per cron run to help diagnose coverage gaps.
-            // Dumps the first NBA event's market titles + group names so we
-            // can see exactly how Betway is labeling prop markets.
-            if (league.leagueSlug === 'nba' && !(globalThis as any).__BW_NBA_SAMPLED__) {
-              ;(globalThis as any).__BW_NBA_SAMPLED__ = true
-              const groupNames = Object.keys(groups)
-              const sampleTitles = (evData.Markets ?? [])
-                .slice(0, 80)
-                .map((m: any) => ({ id: m.Id, title: m.Title, group: marketGroupMap.get(m.Id) ?? null, hasHandicap: m.Handicap != null }))
-              console.log('[Betway NBA sample]', {
-                eventId,
-                marketGroups: groupNames,
-                totalMarkets: (evData.Markets ?? []).length,
-                propMarketIdsCount: propMarketIds.size,
-                sample: sampleTitles.filter((t: any) => /assist|points|rebound|three|block|steal/i.test(t.title ?? '')),
-              })
-            }
 
             const result = resultsByEventId.get(eventId)
             if (!result) return
