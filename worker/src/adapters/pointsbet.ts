@@ -207,10 +207,15 @@ export const pointsbetAdapter: BookAdapter = {
               let parsed: any
               try { parsed = JSON.parse(detail.body) } catch { return ev }
 
-              const mkts = parsed.specialFixedOddsMarkets
-                ?? parsed.markets
-                ?? parsed.event?.specialFixedOddsMarkets
-                ?? []
+              // PointsBet detail response has markets split across three arrays:
+              // - fixedOddsMarkets: game-level (ML/spread/total)
+              // - specialFixedOddsMarkets: props + alt lines
+              // - markets: sometimes a combined list
+              // Merge all three so we don't lose any eventClass coverage.
+              const a = Array.isArray(parsed.fixedOddsMarkets) ? parsed.fixedOddsMarkets : []
+              const b = Array.isArray(parsed.specialFixedOddsMarkets) ? parsed.specialFixedOddsMarkets : []
+              const c = Array.isArray(parsed.markets) ? parsed.markets : []
+              const combined = [...a, ...b, ...c]
 
               // Log the shape of the first event's response for diagnosis
               if (!diagnosed) {
@@ -218,16 +223,17 @@ export const pointsbetAdapter: BookAdapter = {
                 log.info('detail response sample', {
                   url,
                   status: detail.status,
-                  topLevelKeys: Object.keys(parsed ?? {}),
-                  marketsFound: Array.isArray(mkts) ? mkts.length : 'not-array',
-                  firstMarketKeys: Array.isArray(mkts) && mkts[0] ? Object.keys(mkts[0]) : [],
-                  firstMarketEventClass: Array.isArray(mkts) && mkts[0] ? mkts[0].eventClass : null,
-                  listedMarkets: ev.specialFixedOddsMarkets?.length ?? 0,
+                  fixedOddsMarkets: a.length,
+                  specialFixedOddsMarkets: b.length,
+                  markets: c.length,
+                  combined: combined.length,
+                  firstEventClass: combined[0]?.eventClass ?? null,
+                  sampleEventClasses: [...new Set(combined.slice(0, 20).map((m: any) => m.eventClass).filter(Boolean))],
                 })
               }
 
-              if (Array.isArray(mkts) && mkts.length > 0) {
-                ev.specialFixedOddsMarkets = mkts
+              if (combined.length > 0) {
+                ev.specialFixedOddsMarkets = combined
               }
             } catch { /* fall back to list-level markets */ }
             return ev
