@@ -132,7 +132,7 @@ export interface DKResult {
 
 // DK market type name → canonical prop category
 const DK_PROP_MAP: Record<string, string> = {
-  // Basketball
+  // Basketball — main O/U
   'points': 'player_points',
   'total points': 'player_points',
   'rebounds': 'player_rebounds',
@@ -159,6 +159,18 @@ const DK_PROP_MAP: Record<string, string> = {
   'pts + asts': 'player_pts_ast',
   'rebounds + assists': 'player_ast_reb',
   'rebs + asts': 'player_ast_reb',
+  // Basketball — DK's current "milestones" threshold markets
+  'points milestones': 'player_points',
+  'rebounds milestones': 'player_rebounds',
+  'assists milestones': 'player_assists',
+  'three pointers made milestones': 'player_threes',
+  'threes milestones': 'player_threes',
+  'blocks milestones': 'player_blocks',
+  'steals milestones': 'player_steals',
+  'points + rebounds + assists milestones': 'player_pts_reb_ast',
+  'points + rebounds milestones': 'player_pts_reb',
+  'points + assists milestones': 'player_pts_ast',
+  'rebounds + assists milestones': 'player_ast_reb',
   // Baseball
   'hits': 'player_hits',
   'total hits': 'player_hits',
@@ -499,6 +511,7 @@ async function fetchLeague(
     const liveSubcategoryTypes = new Map<string, Set<string>>()
 
     const firstEvent = eventIds[0]
+    let milestoneSample: any = null
     if (firstEvent) {
       const probeResults = await Promise.all(
         [...propSubcategoryIds].map(async (subId) => {
@@ -510,6 +523,21 @@ async function fetchLeague(
             if (markets.length === 0) return null
             const types = new Set<string>()
             for (const m of markets) types.add((m.marketType?.name ?? '').toLowerCase())
+            // Capture the first Points-Milestones market shape for diag.
+            if (league.name === 'NBA' && !milestoneSample) {
+              const pm = markets.find((m: any) => /points milestones/i.test(m.marketType?.name ?? ''))
+              if (pm) {
+                const sels = (data.selections ?? []).filter((s: any) => s.marketId === pm.id)
+                milestoneSample = {
+                  marketType: pm.marketType?.name,
+                  marketName: pm.name,
+                  marketKeys: Object.keys(pm),
+                  selectionCount: sels.length,
+                  selectionKeys: sels[0] ? Object.keys(sels[0]) : null,
+                  firstThreeSelections: sels.slice(0, 3),
+                }
+              }
+            }
             return { subId, types }
           } catch { return null }
         }),
@@ -521,9 +549,11 @@ async function fetchLeague(
           if (league.name === 'NBA') liveSubcategoryTypes.set(r.subId, r.types)
         }
       }
-      // Replace full scan with just the surviving IDs.
       propSubcategoryIds.clear()
       for (const id of liveIds) propSubcategoryIds.add(id)
+      if (league.name === 'NBA' && milestoneSample) {
+        console.log('[DK NBA milestone sample]', milestoneSample)
+      }
     }
 
     // Phase 2: fetch live IDs × all events. PROP_BATCH=5 caps concurrency.
