@@ -77,6 +77,8 @@ export async function writeBookResults(
   // ── 4. Per-event processing ──
   let eventsCreated = 0
   let eventsMatched = 0
+  let skippedNoLeague = 0
+  const missingLeagues = new Set<string>()
 
   // Batched rows for bulk upsert
   const gameRows: any[] = []
@@ -86,7 +88,8 @@ export async function writeBookResults(
     const { event, gameMarkets, props } = result
     const leagueId = leagueIdBySlug.get(event.leagueSlug)
     if (!leagueId) {
-      errors.push(`unknown league: ${event.leagueSlug}`)
+      missingLeagues.add(event.leagueSlug)
+      skippedNoLeague++
       continue
     }
     const extId = canonicalEventKey({
@@ -98,7 +101,8 @@ export async function writeBookResults(
 
     let eventId = eventByExtId.get(extId) ?? eventByMatchKey.get(extId)
     if (!eventId) {
-      // Auto-create the event
+      // Auto-create the event. If another client (Vercel sync) inserted the
+      // same event concurrently, use upsert semantics via select-on-conflict.
       const title = `${event.awayTeam} vs ${event.homeTeam}`
       const { data: newEvent, error } = await db
         .from('events')
@@ -111,13 +115,35 @@ export async function writeBookResults(
         })
         .select('id')
         .single()
-      if (error || !newEvent) {
-        errors.push(`event insert "${title}": ${error?.message ?? 'unknown'}`)
+      if (error) {
+        // 23505 = unique_violation. Another process beat us to the insert —
+        // look it up by external_id and use that row.
+        if (error.code === '23505') {
+          const { data: existing } = await db
+            .from('events')
+            .select('id')
+            .eq('external_id', extId)
+            .maybeSingle()
+          if (existing?.id) {
+            eventId = existing.id
+            eventByExtId.set(extId, eventId!)
+            eventsMatched++
+          } else {
+            errors.push(`event conflict but no row: ${extId}`)
+            continue
+          }
+        } else {
+          errors.push(`event insert "${title}": ${error.message}`)
+          continue
+        }
+      } else if (newEvent) {
+        eventId = newEvent.id
+        eventByExtId.set(extId, eventId!)
+        eventsCreated++
+      } else {
+        errors.push(`event insert "${title}": no data returned`)
         continue
       }
-      eventId = newEvent.id
-      eventByExtId.set(extId, eventId!)
-      eventsCreated++
     } else {
       eventsMatched++
     }
@@ -225,10 +251,20 @@ export async function writeBookResults(
 
   log.info('write complete', {
     source: ctx.sourceSlug,
-    eventsCreated, eventsMatched,
-    gameMarketsUpserted, propsUpserted,
-    errors: errors.length,
+    eventsTotal: results.length,
+    eventsCreated,
+    eventsMatched,
+    skippedNoLeague,
+    missingLeagues: [...missingLeagues],
+    gameMarketsQueued: gameRows.length,
+    gameMarketsUpserted,
+    propsQueued: propRows.length,
+    propsUpserted,
+    errorsCount: errors.length,
   })
+  if (errors.length > 0) {
+    for (const e of errors.slice(0, 10)) log.error('write error', { message: e })
+  }
 
   return { eventsCreated, eventsMatched, gameMarketsUpserted, propsUpserted, errors }
 }
