@@ -389,15 +389,16 @@ async function fetchLeague(
     if (propSubcategoryIds.size > 0) {
       console.log(`[DK] ${league.name}: discovered ${propSubcategoryIds.size} prop subcategories: ${[...propSubcategoryIds].join(', ')}`)
     } else if (league.name === 'NBA') {
-      // Diagnostic: first-run-per-deploy dump of the DK response shape so we
-      // can see where subcategories actually live now.
       if (!(globalThis as any).__DK_NBA_SHAPE_LOGGED__) {
         ;(globalThis as any).__DK_NBA_SHAPE_LOGGED__ = true
-        console.log('[DK NBA] subcategory discovery returned 0 — dumping first event shape', {
-          eventKeys: firstEvent ? Object.keys(firstEvent) : null,
-          clientMetadataKeys: firstEvent?.clientMetadata ? Object.keys(firstEvent.clientMetadata) : null,
-          clientMetadataSample: firstEvent?.clientMetadata,
-          topLevelCategoriesField: firstEvent?.categories ? Object.keys(firstEvent.categories) : null,
+        console.log('[DK NBA] subcategory discovery returned 0 — deep dump', {
+          responseRootKeys: Object.keys(gameData ?? {}),
+          responseMetadataKeys: gameData?.metadata ? Object.keys(gameData.metadata) : null,
+          responseMetadataSample: gameData?.metadata,
+          responseSubcategoriesSample: gameData?.subcategories,
+          firstEventMetadata: firstEvent?.metadata,
+          firstEventTags: firstEvent?.tags,
+          leagueData: gameData?.leagues?.[0] ?? gameData?.league,
         })
       }
     }

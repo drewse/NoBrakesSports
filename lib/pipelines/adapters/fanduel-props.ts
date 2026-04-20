@@ -17,20 +17,13 @@ import {
 const BASE = 'https://sbapi.on.sportsbook.fanduel.ca/api'
 const API_KEY = 'FhMFpcPWXMeyZxOx'
 
-// FanDuel uses CUSTOM pages for major sports. The page slugs can be a
-// single key (e.g. "nba") or slash-prefixed (e.g. "soccer/epl"). FanDuel
-// occasionally rename the soccer page slugs — the adapter tries each
-// candidate in order until one returns HTTP 200.
+// FanDuel Ontario (sbapi.on.sportsbook.fanduel.ca) offers NBA/MLB/NHL but
+// does NOT publish per-league soccer pages — all our slug candidates 404.
+// Soccer is dropped from FD_PAGES until/unless FD Ontario adds coverage.
 export const FD_PAGES: { pageId: string | string[]; sport: string; leagueSlug: string; competitionId?: number }[] = [
   { pageId: 'nba',  sport: 'basketball', leagueSlug: 'nba' },
   { pageId: 'mlb',  sport: 'baseball',   leagueSlug: 'mlb' },
   { pageId: 'nhl',  sport: 'ice_hockey', leagueSlug: 'nhl' },
-  // Soccer: try newer flat slugs first, then older nested ones.
-  { pageId: ['premier-league', 'soccer/premier-league', 'soccer/epl', 'english-premier-league'], sport: 'soccer', leagueSlug: 'epl' },
-  { pageId: ['la-liga', 'soccer/la-liga', 'soccer/laliga', 'spain-primera-division'], sport: 'soccer', leagueSlug: 'laliga' },
-  { pageId: ['bundesliga', 'soccer/bundesliga', 'germany-bundesliga'], sport: 'soccer', leagueSlug: 'bundesliga' },
-  { pageId: ['serie-a', 'soccer/serie-a', 'italy-serie-a'], sport: 'soccer', leagueSlug: 'seria_a' },
-  { pageId: ['ligue-1', 'soccer/ligue-1', 'france-ligue-1'], sport: 'soccer', leagueSlug: 'ligue_one' },
 ]
 
 // Market type mapping
