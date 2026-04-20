@@ -119,6 +119,29 @@ function mapPropCategory(eventClass: string): string | null {
   return null
 }
 
+/**
+ * PointsBet groups all player/line variants for a stat under a single market
+ * (e.g. "Alternate Assists" with 25 outcomes covering multiple players × lines).
+ * Each outcome's .name encodes player + side; .points is the numeric line.
+ * Returns { player, side } or null if the outcome name doesn't match a known shape.
+ */
+function parseOutcomeShape(name: string): { player: string; side: 'over' | 'under' } | null {
+  if (!name) return null
+  // "Player Over 25.5 Points" / "Player Under 25.5 Points"
+  let m = name.match(/^(.+?)\s+(Over|Under)\s+[\d.]+/i)
+  if (m) return { player: m[1].trim(), side: m[2].toLowerCase() as 'over' | 'under' }
+  // "Player Over 25.5" / "Player Under 25.5"
+  m = name.match(/^(.+?)\s+(Over|Under)\s/i)
+  if (m) return { player: m[1].trim(), side: m[2].toLowerCase() as 'over' | 'under' }
+  // "Player To Get/Score/Record/Have/Make N+ <Stat>" → over-only threshold
+  m = name.match(/^(.+?)\s+To\s+(?:Get|Score|Record|Have|Make|Throw|Hit)\s+\d+\+/i)
+  if (m) return { player: m[1].trim(), side: 'over' }
+  // "Player N+ <Stat>"
+  m = name.match(/^(.+?)\s+\d+\+\s+/i)
+  if (m) return { player: m[1].trim(), side: 'over' }
+  return null
+}
+
 function parsePlayerName(marketName: string): string | null {
   // PointsBet markets: "Player Name — Stat" or "Player Name"
   const dash = marketName.match(/^(.+?)\s*[-—]\s*/)
@@ -341,50 +364,58 @@ export const pointsbetAdapter: BookAdapter = {
                   })),
                 }
               }
-              if (outcomes.length !== 2) {
-                if (isPlayerClass) propDrops.notTwoOutcomes++
-                continue
-              }
               const propCategory = mapPropCategory(m.eventClass ?? '')
               if (!propCategory) {
-                // Track for diagnostic logging below
                 if (isPlayerClass) {
                   propDrops.unmappedCategory++
                   if (m.eventClass) unmappedClasses.add(m.eventClass)
                 }
                 continue
               }
-              const overOut = outcomes.find(o =>
-                (o.name ?? '').toLowerCase().startsWith('over') || (o.side ?? '').toLowerCase() === 'over'
-              )
-              const underOut = outcomes.find(o =>
-                (o.name ?? '').toLowerCase().startsWith('under') || (o.side ?? '').toLowerCase() === 'under'
-              )
-              if (!overOut && !underOut) {
-                propDrops.noOverUnder++
-                continue
+
+              // PointsBet groups all players × lines under one market. Iterate
+              // outcomes, parse (player, side) from the outcome name, and group
+              // by (player, line) so over/under prices pair up.
+              const groups = new Map<string, {
+                player: string
+                line: number
+                over?: number
+                under?: number
+              }>()
+              for (const o of outcomes) {
+                const shape = parseOutcomeShape(o.name ?? '')
+                if (!shape) {
+                  propDrops.noPlayerName++
+                  continue
+                }
+                const line = o.points
+                if (line == null) {
+                  propDrops.noLineValue++
+                  continue
+                }
+                const key = `${shape.player}|${line}`
+                const g = groups.get(key) ?? { player: shape.player, line }
+                const american = decimalToAmerican(o.price)
+                if (shape.side === 'over') g.over = american
+                else g.under = american
+                groups.set(key, g)
               }
 
-              const playerName = parsePlayerName(m.name ?? '')
-              if (!playerName) {
-                propDrops.noPlayerName++
-                continue
+              for (const g of groups.values()) {
+                if (g.over == null && g.under == null) {
+                  propDrops.noOverUnder++
+                  continue
+                }
+                propDrops.kept++
+                props.push({
+                  propCategory,
+                  playerName: g.player,
+                  lineValue: g.line,
+                  overPrice: g.over ?? null,
+                  underPrice: g.under ?? null,
+                  yesPrice: null, noPrice: null, isBinary: false,
+                })
               }
-              const lineValue = overOut?.points ?? underOut?.points ?? null
-              if (lineValue == null) {
-                propDrops.noLineValue++
-                continue
-              }
-
-              propDrops.kept++
-              props.push({
-                propCategory,
-                playerName,
-                lineValue,
-                overPrice: overOut?.price ? decimalToAmerican(overOut.price) : null,
-                underPrice: underOut?.price ? decimalToAmerican(underOut.price) : null,
-                yesPrice: null, noPrice: null, isBinary: false,
-              })
             }
 
             if (gameMarkets.length > 0 || props.length > 0) {
