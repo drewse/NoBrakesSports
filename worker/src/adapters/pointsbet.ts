@@ -59,18 +59,31 @@ function decimalToAmerican(decimal: number): number {
 
 function mapMarketType(eventClass: string): MarketType | null {
   const c = eventClass.toLowerCase()
-  // Skip alternate-line variants and team-level splits: the writer dedups
+  // Reject anything that isn't the main full-game line. The writer dedups
   // game markets to one row per (event, source, market_type, line_value=0),
-  // so any alt / team / period variant would overwrite the main line with
-  // whichever got pushed last (e.g. Rockies team total 5.5 clobbering the
-  // game total 11.5 at Coors). We only want the main game-level line.
+  // so any alt/team/period variant would clobber the main line.
+  // Partial-game (inning/quarter/half/period), race-to, and any team-specific
+  // or alt variants get filtered out here.
   if (c.startsWith('alternate ')) return null
   if (c.includes('awayteam') || c.includes('hometeam')) return null
-  if (c.includes('1st half') || c.includes('2nd half') || c.includes('1st period') || c.includes('2nd period') || c.includes('3rd period')) return null
+  // Partial game
+  if (c.includes('inning')) return null
+  if (c.includes('quarter')) return null
+  if (c.includes('half')) return null
+  if (c.includes('period')) return null
+  if (c.includes('1st 5') || c.includes('first 5') || c.includes('1st 7') || c.includes('first 7')) return null
+  // Non-standard market types that can share substrings with main
+  if (c.includes('race to')) return null
+  if (c.includes('bands') || c.includes('exact') || c.includes('odd/even') || c.includes('3-way') || c.includes('3 way')) return null
+  if (c.includes('double') || c.includes('no runs') || c.includes('no-run') || c.includes('to win')) return null
+  if (c.includes('overtime') || c.includes('ot ') || c === 'ot') return null
+  if (c.includes('winning margin')) return null
+
   if (c.includes('moneyline') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher')) return 'moneyline'
+  if (c === 'match result' || c === 'match result of') return 'moneyline'
   if (c.includes('spread') && !c.includes('player')) return 'spread'
-  if (c === 'run line' || c === 'run line of') return 'spread'
-  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher') && !c.includes('bands') && !c.includes('exact') && !c.includes('odd/even') && !c.includes('3-way')) return 'total'
+  if (c === 'run line' || c === 'run line of' || c === 'puck line' || c === 'puck line of') return 'spread'
+  if (c.includes('total') && !c.includes('player') && !c.includes('batter') && !c.includes('pitcher')) return 'total'
   return null
 }
 
@@ -335,8 +348,19 @@ export const pointsbetAdapter: BookAdapter = {
               // Game-level
               const gameType = mapMarketType(m.eventClass ?? '')
               if (gameType) {
-                const home = outcomes.find(o => (o.side ?? '').toLowerCase() === 'home')
-                const away = outcomes.find(o => (o.side ?? '').toLowerCase() === 'away')
+                const normHome = event.homeTeam.toLowerCase()
+                const normAway = event.awayTeam.toLowerCase()
+                // Soccer Match Result outcomes use team names (and no
+                // side='home'/'away'). Fallback to matching outcome name
+                // against the event's home/away team labels.
+                const home = outcomes.find(o =>
+                  (o.side ?? '').toLowerCase() === 'home'
+                  || (o.name ?? '').toLowerCase() === normHome
+                )
+                const away = outcomes.find(o =>
+                  (o.side ?? '').toLowerCase() === 'away'
+                  || (o.name ?? '').toLowerCase() === normAway
+                )
                 const over = outcomes.find(o => (o.name ?? '').toLowerCase().startsWith('over'))
                 const under = outcomes.find(o => (o.name ?? '').toLowerCase().startsWith('under'))
                 const draw = outcomes.find(o => (o.name ?? '').toLowerCase() === 'draw')
