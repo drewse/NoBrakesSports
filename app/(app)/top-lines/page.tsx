@@ -401,36 +401,22 @@ export default async function TopEvLinesPage({
       const twoSidedBooks = group.filter(p => p.over_price != null && p.under_price != null)
       if (twoSidedBooks.length === 0) continue
 
-      // Reject obvious data errors: a two-sided book whose combined implied prob
-      // is < 90% (impossible negative vig) or > 130% (~30% vig ≈ broken feed).
-      const validTwoSided = twoSidedBooks.filter(p => {
-        const combined = americanToImpliedProb(p.over_price) + americanToImpliedProb(p.under_price)
-        return combined >= 0.9 && combined <= 1.3
-      })
-      if (validTwoSided.length === 0) continue
+      // Compute fair prob: power-devig the most balanced two-sided book (closest to -110/-110)
+      let bestBalance = Infinity
+      let fairOver = 0.5
+      let fairUnder = 0.5
 
-      // Compute MEDIAN fair prob across all valid two-sided books. Using a
-      // single book's devig (even "most balanced") makes every prop EV
-      // hostage to that one feed — if Pinnacle is momentarily wrong, every
-      // other book looks like huge +EV. Median is robust to one bad book.
-      const fairOvers: number[] = []
-      for (const p of validTwoSided) {
+      for (const p of twoSidedBooks) {
         const overProb = americanToImpliedProb(p.over_price)
         const underProb = americanToImpliedProb(p.under_price)
-        const devigged = powerDevig([overProb, underProb])
-        fairOvers.push(devigged[0])
+        const balance = Math.abs(overProb - underProb)
+        if (balance < bestBalance) {
+          bestBalance = balance
+          const devigged = powerDevig([overProb, underProb])
+          fairOver = devigged[0]
+          fairUnder = devigged[1]
+        }
       }
-      fairOvers.sort((a, b) => a - b)
-      const mid = Math.floor(fairOvers.length / 2)
-      const fairOver = fairOvers.length % 2 === 0
-        ? (fairOvers[mid - 1] + fairOvers[mid]) / 2
-        : fairOvers[mid]
-      const fairUnder = 1 - fairOver
-
-      // Skip if the fair probability is wildly inconsistent across books
-      // (spread between min & max > 30%) — indicates a mismatched-line or
-      // miscategorized row poisoned the group.
-      if (fairOvers.length >= 2 && (fairOvers[fairOvers.length - 1] - fairOvers[0]) > 0.30) continue
 
       const ev = group[0].event
       const leagueAbbrev = ev?.league?.abbreviation ?? '—'
@@ -471,9 +457,7 @@ export default async function TopEvLinesPage({
         allSources.sort((a, b) => b.evPct - a.evPct)
 
         const best = allSources[0]
-        // Cap at 30% — anything higher is almost always a stale/mis-paired
-        // row rather than a real edge.
-        if (best.evPct > 0 && best.evPct <= 30 && isFinite(best.evPct)) {
+        if (best.evPct > 0 && isFinite(best.evPct)) {
           evLines.push({
             eventId: group[0].event_id,
             eventTitle: ev?.title ?? '—',
