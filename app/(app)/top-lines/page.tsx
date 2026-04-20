@@ -198,7 +198,7 @@ export default async function TopEvLinesPage({
 
   const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
   const PROP_PAGE = 1000
-  const PROP_MAX = 10000
+  const PROP_MAX = 50000
   const propBatchPromises = Promise.all(Array.from(
     { length: PROP_MAX / PROP_PAGE },
     (_, i) => supabase
@@ -206,10 +206,11 @@ export default async function TopEvLinesPage({
       .select(`
         event_id, source_id, prop_category, player_name, line_value,
         over_price, under_price, snapshot_time,
-        event:events(id, title, start_time, league:leagues(abbreviation)),
+        event:events!inner(id, title, start_time, league:leagues(abbreviation)),
         source:market_sources(id, name, slug)
       `)
       .gt('snapshot_time', propCutoff)
+      .gt('event.start_time', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
       .or('over_price.not.is.null,under_price.not.is.null')
       .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
   ))

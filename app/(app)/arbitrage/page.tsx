@@ -57,7 +57,11 @@ export default async function ArbitragePage() {
   // Fire prop batch requests NOW (don't await yet) — they run while we process game arbs.
   const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
   const PROP_PAGE = 1000
-  const PROP_MAX = 10000
+  // With Betway+PB+Pinnacle+Kambi+MGM+bwin+PP all landing props, the active
+  // row count easily exceeds 25k at peak. 50k keeps the full feed reachable
+  // so arbs on less-popular players (e.g. Daniss Jenkins assists) don't get
+  // truncated off the tail of the result set.
+  const PROP_MAX = 50000
   const propBatchPromises = Promise.all(Array.from(
     { length: PROP_MAX / PROP_PAGE },
     (_, i) => supabase
@@ -65,10 +69,11 @@ export default async function ArbitragePage() {
       .select(`
         event_id, source_id, prop_category, player_name, line_value,
         over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
-        event:events(id, title, start_time, league:leagues(abbreviation)),
+        event:events!inner(id, title, start_time, league:leagues(abbreviation)),
         source:market_sources(id, name, slug)
       `)
       .gt('snapshot_time', propStaleCutoff)
+      .gt('event.start_time', new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString())
       .or('over_price.not.is.null,under_price.not.is.null')
       .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
   ))
