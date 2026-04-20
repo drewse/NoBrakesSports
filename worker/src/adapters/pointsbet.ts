@@ -148,6 +148,16 @@ export const pointsbetAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
+      const propDrops = {
+        noOutcomesOpen: 0,
+        notTwoOutcomes: 0,
+        unmappedCategory: 0,
+        noOverUnder: 0,
+        noPlayerName: 0,
+        noLineValue: 0,
+        kept: 0,
+      }
+      let propSample: any = null
 
       // 1. Visit once to earn CF clearance cookies
       log.debug('visiting seed url for cf_bm cookie')
@@ -273,7 +283,14 @@ export const pointsbetAdapter: BookAdapter = {
 
             for (const m of ev.specialFixedOddsMarkets ?? []) {
               const outcomes = (m.outcomes ?? []).filter(o => !o.isHidden && o.isOpenForBetting)
-              if (outcomes.length === 0) continue
+              const isPlayerClass = (m.eventClass ?? '').toLowerCase().includes('player')
+                || (m.eventClass ?? '').toLowerCase().startsWith('alternate ')
+                || (m.eventClass ?? '').toLowerCase().includes('batter')
+                || (m.eventClass ?? '').toLowerCase().includes('pitcher')
+              if (outcomes.length === 0) {
+                if (isPlayerClass) propDrops.noOutcomesOpen++
+                continue
+              }
 
               // Game-level
               const gameType = mapMarketType(m.eventClass ?? '')
@@ -314,12 +331,26 @@ export const pointsbetAdapter: BookAdapter = {
               }
 
               // Player props
-              if (outcomes.length !== 2) continue
+              if (!propSample && isPlayerClass) {
+                propSample = {
+                  eventClass: m.eventClass,
+                  name: m.name,
+                  outcomeCount: outcomes.length,
+                  outcomes: outcomes.slice(0, 4).map(o => ({
+                    name: o.name, side: o.side, points: o.points, price: o.price,
+                  })),
+                }
+              }
+              if (outcomes.length !== 2) {
+                if (isPlayerClass) propDrops.notTwoOutcomes++
+                continue
+              }
               const propCategory = mapPropCategory(m.eventClass ?? '')
               if (!propCategory) {
                 // Track for diagnostic logging below
-                if (m.eventClass && m.eventClass.toLowerCase().includes('player')) {
-                  unmappedClasses.add(m.eventClass)
+                if (isPlayerClass) {
+                  propDrops.unmappedCategory++
+                  if (m.eventClass) unmappedClasses.add(m.eventClass)
                 }
                 continue
               }
@@ -329,13 +360,23 @@ export const pointsbetAdapter: BookAdapter = {
               const underOut = outcomes.find(o =>
                 (o.name ?? '').toLowerCase().startsWith('under') || (o.side ?? '').toLowerCase() === 'under'
               )
-              if (!overOut && !underOut) continue
+              if (!overOut && !underOut) {
+                propDrops.noOverUnder++
+                continue
+              }
 
               const playerName = parsePlayerName(m.name ?? '')
-              if (!playerName) continue
+              if (!playerName) {
+                propDrops.noPlayerName++
+                continue
+              }
               const lineValue = overOut?.points ?? underOut?.points ?? null
-              if (lineValue == null) continue
+              if (lineValue == null) {
+                propDrops.noLineValue++
+                continue
+              }
 
+              propDrops.kept++
               props.push({
                 propCategory,
                 playerName,
@@ -359,6 +400,8 @@ export const pointsbetAdapter: BookAdapter = {
           total: unmappedClasses.size,
         })
       }
+
+      log.info('prop parse counters', { ...propDrops, propSample })
 
       // Diagnostic summary
       const totalProps = scraped.reduce((s, r) => s + r.props.length, 0)
