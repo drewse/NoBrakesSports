@@ -252,13 +252,12 @@ export const bet365Adapter: BookAdapter = {
         // waitForResponse rather than trying to forge our own request.
         const targetUrl = `${BASE}/${comp.pageFragment}`
 
-        // Pre-register response listeners for the three market type fetches
+        // Pre-register response listener for the three market type fetches
         // BEFORE navigating — pages issue these requests during render.
         const captured = new Map<'moneyline' | 'spread' | 'total', { status: number; text: string }>()
-        const listenerOff = page.on('response', async (resp) => {
+        const responseHandler = async (resp: import('playwright').Response) => {
           const url = resp.url()
           if (!url.includes('matchmarketscontentapi/markets')) return
-          // Parse market type from URL pd parameter (E=NNN)
           const eMatch = decodeURIComponent(url).match(/[#%23]E(\d+)[#%23]/)
           if (!eMatch) return
           const eId = parseInt(eMatch[1], 10)
@@ -269,7 +268,8 @@ export const bet365Adapter: BookAdapter = {
             const text = await resp.text()
             captured.set(mt.type, { status: resp.status(), text })
           } catch { /* response stream may have closed */ }
-        })
+        }
+        page.on('response', responseHandler)
 
         log.info('navigating to comp page', { comp: comp.name, url: targetUrl })
         try {
@@ -277,13 +277,11 @@ export const bet365Adapter: BookAdapter = {
         } catch (e: any) {
           log.error('comp page nav failed', { comp: comp.name, message: e?.message ?? String(e) })
           errors.push(`${comp.name} nav: ${e?.message ?? e}`)
+          page.off('response', responseHandler)
           continue
         }
-        // Give bet365's market loader extra time to finish issuing requests.
         await page.waitForTimeout(5_000)
-
-        // Stop the listener for this comp.
-        ;(page as unknown as { off: typeof page.on }).off?.('response', listenerOff as any)
+        page.off('response', responseHandler)
 
         log.info('captured market responses', {
           comp: comp.name,
