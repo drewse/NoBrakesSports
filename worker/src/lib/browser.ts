@@ -4,26 +4,41 @@ import { createLogger } from './logger.js'
 const log = createLogger('browser')
 
 let _browser: Browser | null = null
+let _launching: Promise<Browser> | null = null
 
 /** Lazily-started shared Chromium. One process-wide instance; each adapter
- *  opens its own isolated BrowserContext so cookies/sessions don't leak. */
+ *  opens its own isolated BrowserContext so cookies/sessions don't leak.
+ *
+ *  Concurrent callers share a single launch — otherwise the scheduler's
+ *  simultaneous boot fires N chromium.launch() calls, some of which
+ *  immediately disconnect each other and leave in-flight newContext()
+ *  calls with "Target page, context or browser has been closed". */
 export async function getBrowser(): Promise<Browser> {
   if (_browser && _browser.isConnected()) return _browser
-  log.info('launching chromium')
-  _browser = await chromium.launch({
-    headless: true,
-    args: [
-      '--no-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-features=IsolateOrigins,site-per-process',
-    ],
-  })
-  _browser.on('disconnected', () => {
-    log.warn('chromium disconnected')
-    _browser = null
-  })
-  return _browser
+  if (_launching) return _launching
+  _launching = (async () => {
+    log.info('launching chromium')
+    const browser = await chromium.launch({
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+        '--disable-features=IsolateOrigins,site-per-process',
+      ],
+    })
+    browser.on('disconnected', () => {
+      log.warn('chromium disconnected')
+      _browser = null
+    })
+    _browser = browser
+    return browser
+  })()
+  try {
+    return await _launching
+  } finally {
+    _launching = null
+  }
 }
 
 export async function shutdownBrowser(): Promise<void> {
@@ -36,21 +51,33 @@ export async function shutdownBrowser(): Promise<void> {
 
 /** Open an isolated context with sane anti-bot defaults. Caller must close it.
  *  Pass `useProxy: true` to route this context through PROXY_URL (residential
- *  proxy, required for sites that hard-block the Railway IP via CF). */
+ *  proxy, required for sites that hard-block the Railway IP via CF).
+ *  Pass `rotateSession: true` to append a random token to the proxy username
+ *  — forces the upstream residential provider to hand out a fresh exit IP
+ *  (tested pattern: Oxylabs/Bright Data/Smartproxy all accept `-session-X`). */
 export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
   extraHeaders?: Record<string, string>
   useProxy?: boolean
+  rotateSession?: boolean
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
   let proxy: { server: string; username?: string; password?: string } | undefined
   if (opts.useProxy && process.env.PROXY_URL) {
     try {
       const u = new URL(process.env.PROXY_URL)
+      let username = u.username || undefined
+      if (username && opts.rotateSession) {
+        const token = Math.random().toString(36).slice(2, 10)
+        // Most residential providers take -session-<id> in the username to
+        // pin to a fresh exit. Providers that don't use this syntax just
+        // treat it as part of the user id — no harm done.
+        username = `${username}-session-${token}`
+      }
       proxy = {
         server: `${u.protocol}//${u.host}`,
-        username: u.username || undefined,
+        username,
         password: u.password || undefined,
       }
     } catch {

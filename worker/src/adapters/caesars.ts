@@ -621,6 +621,6 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: true })
+    }, { useProxy: true, rotateSession: true })
   },
 }

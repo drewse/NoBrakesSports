@@ -29,6 +29,12 @@ const runners = new Map<string, RunnerState>()
 /** Kick off a forever-loop for each adapter. Crashes in one adapter do not
  *  affect the others. Returns a shutdown() function. */
 export function startScheduler(adapters: BookAdapter[]): () => Promise<void> {
+  // Stagger first runs so N adapters don't race to newContext() on the same
+  // Chromium the millisecond it launches. Browser-using adapters get ~4s
+  // apart, others go immediately. This was the root cause of 8/9 discovery
+  // adapters failing with "Target page, context or browser has been closed"
+  // on the first cycle after deploy.
+  let browserIdx = 0
   for (const adapter of adapters) {
     const state: RunnerState = {
       adapter,
@@ -42,7 +48,10 @@ export function startScheduler(adapters: BookAdapter[]): () => Promise<void> {
       currentCtrl: null,
     }
     runners.set(adapter.slug, state)
-    scheduleNext(state, 1_000)  // first run shortly after boot
+    const delay = adapter.needsBrowser
+      ? 1_000 + (browserIdx++ * 4_000)
+      : 1_000
+    scheduleNext(state, delay)
   }
 
   return async () => {

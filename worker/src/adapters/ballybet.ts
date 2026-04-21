@@ -1,15 +1,17 @@
 /**
  * Bally Bet (Ontario) — discovery-mode adapter.
  *
- * Bally Bet CA front-end at ballybet.ca. Platform: formerly Kambi, rebuilt
- * on White Hat / custom stack for CA-ON. Discovery captures XHR shapes.
+ * ballybet.ca is casino-only (Gamesys static bundle) — confirmed on first
+ * cycle, all 44 XHRs were JS chunks, zero sportsbook API calls. The CA
+ * sportsbook lives at sports.ballybet.ca (or ballybetca.com, which
+ * redirects). Discovery captures XHR shapes.
  */
 
 import { withPage } from '../lib/browser.js'
 import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
-const SEED_URL = 'https://ballybet.ca/sports'
+const SEED_URL = 'https://sports.ballybet.ca/en/sports'
 
 export const ballybetAdapter: BookAdapter = {
   slug: 'ballybet',
@@ -23,7 +25,10 @@ export const ballybetAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const { captured, detach } = attachXhrCapture(page, log, {
-        hostIncludes: ['ballybet.ca', 'ballybet.com', 'kambi.com', 'kambicdn.com'],
+        hostIncludes: [
+          'ballybet.ca', 'ballybet.com', 'ballybetca.com',
+          'kambi.com', 'kambicdn.com',
+        ],
         bookSlug: 'ballybet',
         maxBodyBytes: 300,
       })
@@ -42,7 +47,7 @@ export const ballybetAdapter: BookAdapter = {
       for (const path of ['basketball/nba', 'baseball/mlb', 'ice-hockey/nhl']) {
         if (signal.aborted) break
         try {
-          await page.goto(`https://ballybet.ca/sports/${path}`, {
+          await page.goto(`https://sports.ballybet.ca/en/sports/${path}`, {
             waitUntil: 'domcontentloaded', timeout: 30_000,
           })
           await page.waitForTimeout(6_000)
