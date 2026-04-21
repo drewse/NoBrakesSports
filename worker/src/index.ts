@@ -8,13 +8,13 @@ import { getSupabase } from './lib/supabase.js'
 import { pointsbetAdapter } from './adapters/pointsbet.js'
 import { pinnacleAdapter } from './adapters/pinnacle.js'
 import { bet365Adapter } from './adapters/bet365.js'
+import { caesarsAdapter } from './adapters/caesars.js'
 
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
   bet365Adapter,
-  // Add more here:
-  // caesarsAdapter,
+  caesarsAdapter,
 ]
 
 const log = createLogger('main')
