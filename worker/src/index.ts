@@ -13,6 +13,15 @@ import { betmgmAdapter } from './adapters/betmgm.js'
 import { fanduelAdapter } from './adapters/fanduel.js'
 import { betriversAdapter } from './adapters/betrivers.js'
 import { prolineAdapter } from './adapters/proline.js'
+import { thescoreAdapter } from './adapters/thescore.js'
+import { betvictorAdapter } from './adapters/betvictor.js'
+import { bet99Adapter } from './adapters/bet99.js'
+import { eightyEightSportAdapter } from './adapters/eightyeightsport.js'
+import { betanoAdapter } from './adapters/betano.js'
+import { tonybetAdapter } from './adapters/tonybet.js'
+import { casumoAdapter } from './adapters/casumo.js'
+import { ballybetAdapter } from './adapters/ballybet.js'
+import { jackpotbetAdapter } from './adapters/jackpotbet.js'
 
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
@@ -23,6 +32,15 @@ const ALL_ADAPTERS: BookAdapter[] = [
   fanduelAdapter,
   betriversAdapter,
   prolineAdapter,
+  thescoreAdapter,
+  betvictorAdapter,
+  bet99Adapter,
+  eightyEightSportAdapter,
+  betanoAdapter,
+  tonybetAdapter,
+  casumoAdapter,
+  ballybetAdapter,
+  jackpotbetAdapter,
 ]
 
 const log = createLogger('main')
