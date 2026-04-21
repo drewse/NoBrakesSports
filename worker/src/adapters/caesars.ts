@@ -70,6 +70,60 @@ function extractCompUuids(menu: any): Map<string, string> {
   return out
 }
 
+/** Find the subtree for a given competition in the sports-menu so we can
+ *  inspect what structure Caesars ships (events inline? only links?). */
+function findCompSubtree(menu: any, compUuid: string): any | null {
+  let found: any = null
+  const walk = (node: any) => {
+    if (found || !node || typeof node !== 'object') return
+    if (Array.isArray(node)) { for (const n of node) walk(n); return }
+    const id = node.id ?? node.uuid ?? node.competitionId
+    if (id === compUuid) { found = node; return }
+    for (const v of Object.values(node)) walk(v)
+  }
+  walk(menu)
+  return found
+}
+
+/** Mine event-shaped objects (have id + competitors or participants + startTime)
+ *  from the sports-menu body. Some Liberty/SGP deployments ship a flattened
+ *  events array inside the menu — if so, we never need the events-list
+ *  endpoint (which AWS WAF blocks for us). Filtered to a specific
+ *  competition UUID if the node tree references it via a parent link. */
+function extractEventsFromMenu(menu: any, compUuid: string): CaesarsEvent[] {
+  const sub = findCompSubtree(menu, compUuid)
+  const root = sub ?? menu
+  const out: CaesarsEvent[] = []
+  const seen = new Set<string>()
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) { for (const n of node) walk(n); return }
+    const id = node.id ?? node.eventId
+    const startTime = node.startTime ?? node.scheduledStartTime ?? node.eventDate
+    const name = node.name ?? node.eventName
+    const parts = node.competitors ?? node.participants ?? node.teams
+    if (id && startTime && Array.isArray(parts) && parts.length >= 2 && !seen.has(String(id))) {
+      const competitors: CaesarsEvent['competitors'] = []
+      for (const p of parts) {
+        const pName = p?.name ?? p?.teamName ?? p?.shortName
+        if (!pName) continue
+        competitors.push({
+          id: p?.id,
+          name: String(pName),
+          home: p?.home === true || p?.isHome === true || p?.side === 'home' || p?.role === 'home',
+        })
+      }
+      if (competitors.length >= 2 && typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) {
+        seen.add(id)
+        out.push({ id, name: String(name ?? ''), startTime: String(startTime), competitors })
+      }
+    }
+    for (const v of Object.values(node)) walk(v)
+  }
+  walk(root)
+  return out
+}
+
 /** Price object shapes Caesars has used: { a: "-110" }, { american: -110 },
  *  or a nested selection.price.d (decimal). Try them all. */
 function extractAmerican(price: any): number | null {
@@ -453,10 +507,29 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       const compUuids = extractCompUuids(menuBody)
+      const nbaSample = compUuids.get('NBA')
+      const mlbSample = compUuids.get('MLB')
+      const nhlSample = compUuids.get('NHL')
       log.info('caesars sports-menu parsed', {
         totalUuids: compUuids.size,
-        sample: Array.from(compUuids.entries()).slice(0, 10),
+        hasNBA: !!nbaSample, hasMLB: !!mlbSample, hasNHL: !!nhlSample,
+        sample: Array.from(compUuids.entries()).slice(0, 20),
       })
+
+      // Dump the subtree for one known comp so we can see what fields Caesars
+      // ships in the sports-menu. If events are inline we can skip the
+      // (WAF-blocked) events-list endpoint entirely.
+      const probeUuid = nhlSample ?? mlbSample ?? nbaSample
+      if (probeUuid) {
+        const sub = findCompSubtree(menuBody, probeUuid)
+        const subStr = sub ? JSON.stringify(sub).slice(0, 1500) : 'not-found'
+        log.info('caesars comp subtree probe', {
+          uuid: probeUuid,
+          topKeys: sub && typeof sub === 'object' ? Object.keys(sub).slice(0, 20) : [],
+          hasEvents: !!(sub && (sub.events || sub.items)),
+          sample: subStr,
+        })
+      }
 
       for (const comp of COMPETITIONS) {
         if (signal.aborted) break
@@ -469,37 +542,15 @@ export const caesarsAdapter: BookAdapter = {
           continue
         }
 
-        const eventsListUrl = `${API_BASE}/sports/${comp.sportApi}/competitions/${uuid}/events?useCombinedTouchdownsVirtualMarket=true&useCombinedSacksVirtualMarket=true`
-        let body: any
-        try {
-          const { status, text } = await authedFetch(eventsListUrl)
-          if (status !== 200) {
-            log.warn('events-list fetch failed', { comp: comp.name, status, sample: text.slice(0, 200) })
-            errors.push(`${comp.name} events-list HTTP ${status}`)
-            continue
-          }
-          try { body = JSON.parse(text) } catch {
-            log.warn('events-list non-JSON', { comp: comp.name, sample: text.slice(0, 200) })
-            errors.push(`${comp.name} events-list non-JSON`)
-            continue
-          }
-          const topKeys = Array.isArray(body) ? [`__array__len=${body.length}`]
-            : (body && typeof body === 'object' ? Object.keys(body).slice(0, 20) : [])
-          log.info('caesars events-list body', {
-            comp: comp.name, bodyLen: text.length, topKeys, sample: text.slice(0, 400),
-          })
-        } catch (e: any) {
-          log.warn('events-list request threw', { comp: comp.name, message: e?.message ?? String(e) })
-          errors.push(`${comp.name} events-list: ${e?.message ?? e}`)
-          continue
-        }
-
-        const events = extractEventsFromList(body)
+        // Primary path: mine events out of the sports-menu body. AWS WAF
+        // blocks the dedicated events-list endpoint regardless of auth, but
+        // sports-menu is public and >40KB — often carries events inline.
+        const events = extractEventsFromMenu(menuBody, uuid)
+        log.info('caesars events from menu', { comp: comp.name, count: events.length })
         if (events.length === 0) {
-          log.warn('no events parsed — skipping comp', { comp: comp.name })
+          log.warn('no events in sports-menu for comp', { comp: comp.name, uuid })
           continue
         }
-        log.info('events discovered', { comp: comp.name, count: events.length })
 
         // For each event, fetch single-event markets via page.evaluate so the
         // WAF token + cookies are inherited. Parallel but bounded.

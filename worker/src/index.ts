@@ -9,12 +9,18 @@ import { pointsbetAdapter } from './adapters/pointsbet.js'
 import { pinnacleAdapter } from './adapters/pinnacle.js'
 import { bet365Adapter } from './adapters/bet365.js'
 import { caesarsAdapter } from './adapters/caesars.js'
+import { betmgmAdapter } from './adapters/betmgm.js'
+import { fanduelAdapter } from './adapters/fanduel.js'
+import { betriversAdapter } from './adapters/betrivers.js'
 
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
   bet365Adapter,
   caesarsAdapter,
+  betmgmAdapter,
+  fanduelAdapter,
+  betriversAdapter,
 ]
 
 const log = createLogger('main')
