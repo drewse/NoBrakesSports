@@ -337,9 +337,10 @@ export const caesarsAdapter: BookAdapter = {
           const url = resp.url()
           if (!url.includes('api.americanwagering.com')) return
           allApiUrls.push(`${resp.status()} ${url.length > 200 ? url.slice(0, 200) + '...' : url}`)
-          // Candidate event-list URLs: contain /events or /competitions/.../events.
+          // Candidate event-list URLs.
           if (/\/sports\/[^/]+\/competitions\/[^/]+\/events/.test(url) ||
               /\/events\/schedule\b/.test(url) ||
+              /\/events\/competitions\b/.test(url) ||
               /\/competitions\/[^/]+\/events\b/.test(url)) {
             capturedEventLists.push(url)
             try { bodyByUrl.set(url, await resp.text()) } catch { /* stream may be closed */ }
@@ -366,25 +367,25 @@ export const caesarsAdapter: BookAdapter = {
         // needs a longer settle than a direct connection.
         await page.waitForTimeout(15_000)
 
-        // The Caesars SPA doesn't always auto-fire the events-list endpoint
-        // from the hashed client-side route. Fetch it directly from inside
-        // the page context so we inherit the WAF token + session cookies.
+        // The Caesars SPA doesn't always auto-fire the events-list endpoint.
+        // Hit it via Playwright's request context — inherits cookies + proxy,
+        // sidesteps the app's in-page fetch wrapper (newrelic/fullstory
+        // wrap window.fetch and reject cross-origin calls).
         const eventsListUrl = `${API_BASE}/events/competitions?useEventPayloadWithTabNav=true`
         try {
-          const listResp = await page.evaluate(async (u) => {
-            const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } })
-            const t = await r.text()
-            return { status: r.status, text: t, len: t.length }
-          }, eventsListUrl)
+          const listResp = await page.request.get(eventsListUrl, {
+            headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
+          })
+          const text = await listResp.text()
           log.info('caesars events-list direct fetch', {
             comp: comp.name,
-            status: listResp.status,
-            len: listResp.len,
-            sample: listResp.text.slice(0, 200),
+            status: listResp.status(),
+            len: text.length,
+            sample: text.slice(0, 200),
           })
-          if (listResp.status >= 200 && listResp.status < 300) {
+          if (listResp.ok()) {
             capturedEventLists.push(eventsListUrl)
-            bodyByUrl.set(eventsListUrl, listResp.text)
+            bodyByUrl.set(eventsListUrl, text)
           }
         } catch (e: any) {
           log.warn('caesars events-list fetch failed', { comp: comp.name, message: e?.message ?? String(e) })
@@ -434,17 +435,16 @@ export const caesarsAdapter: BookAdapter = {
             const ev = events[idx]
             const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
             try {
-              const resp = await page.evaluate(async (u) => {
-                const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } })
-                const t = await r.text()
-                return { status: r.status, text: t }
-              }, eventUrl)
-              if (resp.status >= 400) {
-                errors.push(`${comp.name} event ${ev.id}: HTTP ${resp.status}`)
+              const resp = await page.request.get(eventUrl, {
+                headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
+              })
+              if (!resp.ok()) {
+                errors.push(`${comp.name} event ${ev.id}: HTTP ${resp.status()}`)
                 continue
               }
+              const text = await resp.text()
               let body: any
-              try { body = JSON.parse(resp.text) } catch {
+              try { body = JSON.parse(text) } catch {
                 errors.push(`${comp.name} event ${ev.id}: non-JSON body`)
                 continue
               }
