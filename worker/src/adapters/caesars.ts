@@ -376,8 +376,19 @@ export const caesarsAdapter: BookAdapter = {
         errors.push(`seed: ${e?.message ?? e}`)
         return { events: scraped, errors }
       }
-      // Let the SPA boot, solve WAF, and issue sports-menu + nav XHRs.
-      await page.waitForTimeout(15_000)
+      // Actively wait for the SPA's sports-menu XHR (the source of truth for
+      // comp UUIDs). It only fires after the AWS WAF JS challenge resolves —
+      // timing varies (10-30s through the residential proxy).
+      try {
+        await page.waitForResponse(
+          (r) => menuUrlRe.test(r.url()) && r.status() === 200,
+          { timeout: 60_000 },
+        )
+      } catch (e: any) {
+        log.warn('sports-menu response wait timed out', { message: e?.message ?? String(e) })
+      }
+      // Small grace so the request listener flushes the WAF-token headers.
+      await page.waitForTimeout(2_000)
       page.off('response', responseHandler)
 
       // Pick any captured token (last one is freshest).
