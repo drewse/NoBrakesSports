@@ -400,16 +400,15 @@ export const caesarsAdapter: BookAdapter = {
         menuLen: menuBodyText?.length ?? 0,
       })
 
-      if (!menuBodyText) {
-        log.error('sports-menu not captured from SPA XHRs')
-        errors.push('sports-menu not captured')
-        return { events: scraped, errors }
-      }
-      let menuBody: any
-      try { menuBody = JSON.parse(menuBodyText) } catch {
-        log.error('sports-menu non-JSON', { sample: menuBodyText.slice(0, 200) })
-        errors.push('sports-menu non-JSON')
-        return { events: scraped, errors }
+      // authedFetch defined below references wafToken/ctx, so define early:
+      // but actually we need to forward-reference. We'll define fallback
+      // after authedFetch. For now, parse passively-captured menu if any.
+      let menuBody: any = null
+      if (menuBodyText) {
+        try { menuBody = JSON.parse(menuBodyText) } catch {
+          log.warn('passive sports-menu non-JSON, will retry active fetch')
+          menuBodyText = null
+        }
       }
 
       // Helper: issue the request from INSIDE the page so it rides the SPA's
@@ -433,6 +432,24 @@ export const caesarsAdapter: BookAdapter = {
         }, url)
       }
       void wafToken // token capture retained for diagnostics only
+
+      // Fallback: if the SPA didn't fire sports-menu during our wait window,
+      // fetch it ourselves — homepage goto set the aws-waf-token cookie, so
+      // credentials:'include' should carry it through.
+      if (!menuBody) {
+        log.info('sports-menu not captured passively, fetching actively')
+        const { status, text } = await authedFetch(SPORTS_MENU_URL)
+        if (status !== 200) {
+          log.error('active sports-menu fetch failed', { status, sample: text.slice(0, 200) })
+          errors.push(`sports-menu HTTP ${status}`)
+          return { events: scraped, errors }
+        }
+        try { menuBody = JSON.parse(text) } catch {
+          log.error('active sports-menu non-JSON', { sample: text.slice(0, 200) })
+          errors.push('sports-menu non-JSON (active)')
+          return { events: scraped, errors }
+        }
+      }
 
       const compUuids = extractCompUuids(menuBody)
       log.info('caesars sports-menu parsed', {
