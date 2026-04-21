@@ -10,7 +10,6 @@ import { pinnacleAdapter } from './adapters/pinnacle.js'
 import { bet365Adapter } from './adapters/bet365.js'
 import { caesarsAdapter } from './adapters/caesars.js'
 import { betmgmAdapter } from './adapters/betmgm.js'
-import { fanduelAdapter } from './adapters/fanduel.js'
 import { betriversAdapter } from './adapters/betrivers.js'
 import { prolineAdapter } from './adapters/proline.js'
 import { thescoreAdapter } from './adapters/thescore.js'
@@ -21,15 +20,16 @@ import { betanoAdapter } from './adapters/betano.js'
 import { tonybetAdapter } from './adapters/tonybet.js'
 import { casumoAdapter } from './adapters/casumo.js'
 import { ballybetAdapter } from './adapters/ballybet.js'
-import { jackpotbetAdapter } from './adapters/jackpotbet.js'
 
+// Removed:
+//   fanduel_on — handled by the Vercel pipeline (fanduel-props.ts)
+//   jackpotbet — domain is parked/dead (confirmed via discovery log)
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
   bet365Adapter,
   caesarsAdapter,
   betmgmAdapter,
-  fanduelAdapter,
   betriversAdapter,
   prolineAdapter,
   thescoreAdapter,
@@ -40,7 +40,6 @@ const ALL_ADAPTERS: BookAdapter[] = [
   tonybetAdapter,
   casumoAdapter,
   ballybetAdapter,
-  jackpotbetAdapter,
 ]
 
 const log = createLogger('main')

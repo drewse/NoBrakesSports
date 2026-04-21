@@ -1,17 +1,21 @@
 /**
  * theScore Bet (Ontario) — discovery-mode adapter.
  *
- * theScore Bet runs on Penn Interactive's sportsbook platform (post-ESPN BET
- * transition, the CA product kept the original "theScore Bet" branding).
- * Front-end is at on.thescorebet.ca. Goal of this pass is to catalog the
- * XHR shapes the SPA fires so we can pick a parser target.
+ * The real sportsbook host is sportsbook.thescore.bet (Penn Interactive) and
+ * the API lives at sportsbook.ca-on.thescore.bet/graphql/persisted_queries/
+ * — requires an x-anonymous-authorization Bearer JWT that the SPA mints
+ * on first load. Our previous seed (on.thescorebet.ca) tunnel-fails; the
+ * public product domain does load.
+ *
+ * This pass captures XHRs on those hosts so a real parser can target the
+ * CompetitionPageSectionLinesTabNode persisted query.
  */
 
 import { withPage } from '../lib/browser.js'
 import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
-const SEED_URL = 'https://on.thescorebet.ca/sports/basketball/nba'
+const SEED_URL = 'https://sportsbook.thescore.bet/basketball/nba'
 
 export const thescoreAdapter: BookAdapter = {
   slug: 'thescore',
@@ -25,7 +29,10 @@ export const thescoreAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const { captured, detach } = attachXhrCapture(page, log, {
-        hostIncludes: ['thescorebet.ca', 'thescore.com', 'penngaming.com'],
+        hostIncludes: [
+          'thescore.bet', 'ca-on.thescore.bet', 'thescorebet.ca',
+          'penngaming.com',
+        ],
         bookSlug: 'thescore',
         maxBodyBytes: 300,
       })
@@ -44,7 +51,7 @@ export const thescoreAdapter: BookAdapter = {
       for (const path of ['basketball/nba', 'baseball/mlb', 'hockey/nhl']) {
         if (signal.aborted) break
         try {
-          await page.goto(`https://on.thescorebet.ca/sports/${path}`, {
+          await page.goto(`https://sportsbook.thescore.bet/${path}`, {
             waitUntil: 'domcontentloaded', timeout: 30_000,
           })
           await page.waitForTimeout(6_000)

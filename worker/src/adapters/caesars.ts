@@ -26,10 +26,21 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
-const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet'
+// The basketball NBA page is a friendlier seed than the root bet path —
+// loads in ~8s through PacketStream vs. the root which consistently 45s'd.
+const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=870bd333-bdb3-4576-a1ac-6b4511bcdf48'
 const API_HOST = 'https://api.americanwagering.com'
 const API_BASE = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v4`
 const SPORTS_MENU_URL = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v3/sports-menu`
+
+// Fixed SPA headers the Caesars sportsbook sends on every api.* call.
+// Without these (captured from DevTools cURL), AWS WAF 403s even with a
+// valid x-aws-waf-token.
+const CAESARS_API_HEADERS: Record<string, string> = {
+  'x-app-version': '7.45.1',
+  'x-platform': 'cordova-desktop',
+  'x-unique-device-id': '64a867de-e9ac-4aae-bae8-2901badfd8d2',
+}
 
 // League landing pages: navigating here causes the SPA to fire the
 // events-list XHR (which AWS WAF blocks when we call it ourselves). By
@@ -477,16 +488,16 @@ export const caesarsAdapter: BookAdapter = {
       // Best-effort: replay the token for a few direct calls. We never depend
       // on this succeeding — the SPA-driven passive capture is the fallback.
       const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async ({ u, token }) => {
+        return page.evaluate(async ({ u, token, extra }) => {
           try {
-            const headers: Record<string, string> = {}
+            const headers: Record<string, string> = { ...extra }
             if (token) headers['x-aws-waf-token'] = token
             const r = await fetch(u, { headers })
             return { status: r.status, text: await r.text() }
           } catch (e: any) {
             return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
           }
-        }, { u: url, token: wafToken ?? '' })
+        }, { u: url, token: wafToken ?? '', extra: CAESARS_API_HEADERS })
       }
 
       let menuBody: any = null

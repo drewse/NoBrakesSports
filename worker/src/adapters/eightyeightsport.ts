@@ -11,7 +11,11 @@ import { withPage } from '../lib/browser.js'
 import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
-const SEED_URL = 'https://ca.888sport.com/sports'
+const SEED_CANDIDATES = [
+  'https://www.888sport.com/sports',
+  'https://ca.888sport.com/',
+  'https://sport.888sport.ca/',
+]
 
 export const eightyEightSportAdapter: BookAdapter = {
   slug: '888sport',
@@ -30,26 +34,26 @@ export const eightyEightSportAdapter: BookAdapter = {
         maxBodyBytes: 300,
       })
 
-      log.info('888sport seeding', { url: SEED_URL })
-      try {
-        await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-      } catch (e: any) {
-        log.error('888sport nav failed', { message: e?.message ?? String(e) })
-        errors.push(`nav: ${e?.message ?? e}`)
+      let loaded = false
+      for (const url of SEED_CANDIDATES) {
+        if (signal.aborted) break
+        try {
+          log.info('888sport seeding', { url })
+          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+          loaded = true
+          break
+        } catch (e: any) {
+          log.warn('888sport seed candidate failed', {
+            url, message: e?.message ?? String(e),
+          })
+        }
+      }
+      if (!loaded) {
+        errors.push('all seed candidates failed')
         detach()
         return { events: [], errors }
       }
-      await page.waitForTimeout(20_000)
-
-      for (const path of ['basketball/nba', 'baseball/mlb', 'ice-hockey/nhl']) {
-        if (signal.aborted) break
-        try {
-          await page.goto(`https://ca.888sport.com/sports/${path}`, {
-            waitUntil: 'domcontentloaded', timeout: 30_000,
-          })
-          await page.waitForTimeout(6_000)
-        } catch { /* ignore */ }
-      }
+      await page.waitForTimeout(25_000)
 
       detach()
       logXhrSummary(log, '888sport', captured)

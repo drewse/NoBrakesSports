@@ -52,9 +52,9 @@ export async function shutdownBrowser(): Promise<void> {
 /** Open an isolated context with sane anti-bot defaults. Caller must close it.
  *  Pass `useProxy: true` to route this context through PROXY_URL (residential
  *  proxy, required for sites that hard-block the Railway IP via CF).
- *  Pass `rotateSession: true` to append a random token to the proxy username
- *  — forces the upstream residential provider to hand out a fresh exit IP
- *  (tested pattern: Oxylabs/Bright Data/Smartproxy all accept `-session-X`). */
+ *  Pass `rotateSession: true` to route through the provider's rotating
+ *  (per-request exit IP) pool instead of the sticky pool. PacketStream uses
+ *  port 31112 for sticky, 31113 for rotating — we rewrite the port. */
 export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
@@ -67,17 +67,15 @@ export async function openContext(opts: {
   if (opts.useProxy && process.env.PROXY_URL) {
     try {
       const u = new URL(process.env.PROXY_URL)
-      let username = u.username || undefined
-      if (username && opts.rotateSession) {
-        const token = Math.random().toString(36).slice(2, 10)
-        // Most residential providers take -session-<id> in the username to
-        // pin to a fresh exit. Providers that don't use this syntax just
-        // treat it as part of the user id — no harm done.
-        username = `${username}-session-${token}`
+      let host = u.host
+      // PacketStream: sticky=31112, rotating=31113. If caller asked for
+      // rotation and URL points at the sticky port, swap to rotating.
+      if (opts.rotateSession && u.port === '31112') {
+        host = `${u.hostname}:31113`
       }
       proxy = {
-        server: `${u.protocol}//${u.host}`,
-        username,
+        server: `${u.protocol}//${host}`,
+        username: u.username || undefined,
         password: u.password || undefined,
       }
     } catch {
