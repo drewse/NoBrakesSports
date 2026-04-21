@@ -362,8 +362,33 @@ export const caesarsAdapter: BookAdapter = {
           page.off('response', responseHandler)
           continue
         }
-        // Let the SPA fire its XHRs. Caesars typically settles within 5-10s.
-        await page.waitForTimeout(10_000)
+        // Let the SPA boot (hydration + WAF handshake) through the proxy —
+        // needs a longer settle than a direct connection.
+        await page.waitForTimeout(15_000)
+
+        // The Caesars SPA doesn't always auto-fire the events-list endpoint
+        // from the hashed client-side route. Fetch it directly from inside
+        // the page context so we inherit the WAF token + session cookies.
+        const eventsListUrl = `${API_BASE}/events/competitions?useEventPayloadWithTabNav=true`
+        try {
+          const listResp = await page.evaluate(async (u) => {
+            const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } })
+            const t = await r.text()
+            return { status: r.status, text: t, len: t.length }
+          }, eventsListUrl)
+          log.info('caesars events-list direct fetch', {
+            comp: comp.name,
+            status: listResp.status,
+            len: listResp.len,
+            sample: listResp.text.slice(0, 200),
+          })
+          if (listResp.status >= 200 && listResp.status < 300) {
+            capturedEventLists.push(eventsListUrl)
+            bodyByUrl.set(eventsListUrl, listResp.text)
+          }
+        } catch (e: any) {
+          log.warn('caesars events-list fetch failed', { comp: comp.name, message: e?.message ?? String(e) })
+        }
         page.off('response', responseHandler)
 
         log.info('caesars xhrs captured', {
