@@ -355,18 +355,24 @@ export const caesarsAdapter: BookAdapter = {
       }
       await page.waitForTimeout(10_000)
 
-      // Fetch sports-menu directly — reuses WAF cookies set by page.goto.
+      // Fetch sports-menu from INSIDE the page context so we inherit the WAF
+      // token the SPA already holds. page.request.get uses a separate context
+      // that doesn't have the token and always gets 403 from AWS WAF.
+      const inPageFetch = async (url: string): Promise<{ status: number; text: string }> => {
+        return page.evaluate(async (u) => {
+          const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } })
+          return { status: r.status, text: await r.text() }
+        }, url)
+      }
+
       let menuBody: any = null
       try {
-        const resp = await page.request.get(SPORTS_MENU_URL, {
-          headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
-        })
-        if (!resp.ok()) {
-          log.error('sports-menu fetch failed', { status: resp.status() })
-          errors.push(`sports-menu HTTP ${resp.status()}`)
+        const { status, text } = await inPageFetch(SPORTS_MENU_URL)
+        if (status !== 200) {
+          log.error('sports-menu fetch failed', { status, bodyLen: text.length, sample: text.slice(0, 200) })
+          errors.push(`sports-menu HTTP ${status}`)
           return { events: scraped, errors }
         }
-        const text = await resp.text()
         try { menuBody = JSON.parse(text) } catch {
           log.error('sports-menu non-JSON', { bodyLen: text.length, sample: text.slice(0, 200) })
           errors.push('sports-menu non-JSON')
@@ -398,21 +404,17 @@ export const caesarsAdapter: BookAdapter = {
         const eventsListUrl = `${API_BASE}/sports/${comp.sportApi}/competitions/${uuid}/events?useCombinedTouchdownsVirtualMarket=true&useCombinedSacksVirtualMarket=true`
         let body: any
         try {
-          const resp = await page.request.get(eventsListUrl, {
-            headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
-          })
-          if (!resp.ok()) {
-            log.warn('events-list fetch failed', { comp: comp.name, status: resp.status() })
-            errors.push(`${comp.name} events-list HTTP ${resp.status()}`)
+          const { status, text } = await inPageFetch(eventsListUrl)
+          if (status !== 200) {
+            log.warn('events-list fetch failed', { comp: comp.name, status, sample: text.slice(0, 200) })
+            errors.push(`${comp.name} events-list HTTP ${status}`)
             continue
           }
-          const text = await resp.text()
           try { body = JSON.parse(text) } catch {
             log.warn('events-list non-JSON', { comp: comp.name, sample: text.slice(0, 200) })
             errors.push(`${comp.name} events-list non-JSON`)
             continue
           }
-          // Log shape once per comp so we can verify extractEventsFromList handles it.
           const topKeys = Array.isArray(body) ? [`__array__len=${body.length}`]
             : (body && typeof body === 'object' ? Object.keys(body).slice(0, 20) : [])
           log.info('caesars events-list body', {
@@ -442,14 +444,11 @@ export const caesarsAdapter: BookAdapter = {
             const ev = events[idx]
             const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
             try {
-              const resp = await page.request.get(eventUrl, {
-                headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
-              })
-              if (!resp.ok()) {
-                errors.push(`${comp.name} event ${ev.id}: HTTP ${resp.status()}`)
+              const { status, text } = await inPageFetch(eventUrl)
+              if (status !== 200) {
+                errors.push(`${comp.name} event ${ev.id}: HTTP ${status}`)
                 continue
               }
-              const text = await resp.text()
               let body: any
               try { body = JSON.parse(text) } catch {
                 errors.push(`${comp.name} event ${ev.id}: non-JSON body`)
