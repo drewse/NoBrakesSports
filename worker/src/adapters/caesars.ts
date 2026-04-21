@@ -409,7 +409,12 @@ export const caesarsAdapter: BookAdapter = {
       const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
         return page.evaluate(async (u) => {
           try {
-            const r = await fetch(u)
+            // credentials:'include' forwards the aws-waf-token cookie the SPA
+            // received from its JS challenge. Without it the cross-origin
+            // request omits cookies and AWS WAF returns 403 HTML. A plain
+            // fetch with only this option is still a CORS "simple request"
+            // (no preflight).
+            const r = await fetch(u, { credentials: 'include' })
             return { status: r.status, text: await r.text() }
           } catch (e: any) {
             return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
