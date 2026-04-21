@@ -416,22 +416,23 @@ export const caesarsAdapter: BookAdapter = {
       // tokens it refreshes out-of-band. page.context().request doesn't
       // share TLS state, so WAF rejects it. Use a plain fetch with no extra
       // options (any custom header triggers CORS preflight).
+      // The SPA authenticates to api.americanwagering.com via an
+      // x-aws-waf-token HEADER, not cookies (credentials:'include' throws
+      // because the server returns ACAO:* without ACAC:true). We captured
+      // that header from request listener. Replay it. The custom header
+      // triggers CORS preflight, which the server already allows.
       const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async (u) => {
+        return page.evaluate(async ({ u, token }) => {
           try {
-            // credentials:'include' forwards the aws-waf-token cookie the SPA
-            // received from its JS challenge. Without it the cross-origin
-            // request omits cookies and AWS WAF returns 403 HTML. A plain
-            // fetch with only this option is still a CORS "simple request"
-            // (no preflight).
-            const r = await fetch(u, { credentials: 'include' })
+            const headers: Record<string, string> = {}
+            if (token) headers['x-aws-waf-token'] = token
+            const r = await fetch(u, { headers })
             return { status: r.status, text: await r.text() }
           } catch (e: any) {
             return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
           }
-        }, url)
+        }, { u: url, token: wafToken ?? '' })
       }
-      void wafToken // token capture retained for diagnostics only
 
       // Fallback: if the SPA didn't fire sports-menu during our wait window,
       // fetch it ourselves — homepage goto set the aws-waf-token cookie, so
