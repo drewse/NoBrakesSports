@@ -401,20 +401,22 @@ export const caesarsAdapter: BookAdapter = {
         return { events: scraped, errors }
       }
 
-      // Helper: call page.request.get with the captured WAF token + cookies
-      // from the browser context. This is a real HTTP request (not in-page
-      // fetch) so it bypasses any CORS/CSP weirdness from page.evaluate, but
-      // it carries the token header so AWS WAF lets it through.
-      const ctx = page.context()
+      // Helper: issue the request from INSIDE the page so it rides the SPA's
+      // own network stack — same TLS fingerprint, same cookie jar, and WAF
+      // tokens it refreshes out-of-band. page.context().request doesn't
+      // share TLS state, so WAF rejects it. Use a plain fetch with no extra
+      // options (any custom header triggers CORS preflight).
       const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        const headers: Record<string, string> = {
-          accept: 'application/json',
-          referer: 'https://sportsbook.caesars.com/',
-        }
-        if (wafToken) headers['x-aws-waf-token'] = wafToken
-        const resp = await ctx.request.get(url, { headers })
-        return { status: resp.status(), text: await resp.text() }
+        return page.evaluate(async (u) => {
+          try {
+            const r = await fetch(u)
+            return { status: r.status, text: await r.text() }
+          } catch (e: any) {
+            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
+          }
+        }, url)
       }
+      void wafToken // token capture retained for diagnostics only
 
       const compUuids = extractCompUuids(menuBody)
       log.info('caesars sports-menu parsed', {
