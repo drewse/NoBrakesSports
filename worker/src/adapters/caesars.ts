@@ -343,8 +343,31 @@ export const caesarsAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Seed the session: load the homepage once so AWS WAF issues a token
-      // cookie we can reuse for all subsequent page.request.get calls.
+      // Capture two things during SPA navigation:
+      //   1. The sports-menu JSON body (fires naturally on home-page load).
+      //   2. Any x-aws-waf-token header the SPA attaches to api.* requests,
+      //      so we can replay it on our own fetches.
+      let menuBodyText: string | null = null as string | null
+      let wafToken: string | null = null
+      const wafTokenCandidates = new Set<string>()
+      const menuUrlRe = /\/sb\/v\d+\/sports-menu(\?|$)/
+
+      page.on('request', (req) => {
+        const u = req.url()
+        if (!u.includes('api.americanwagering.com')) return
+        const headers = req.headers()
+        const t = headers['x-aws-waf-token'] ?? headers['X-Aws-Waf-Token']
+        if (t) wafTokenCandidates.add(t)
+      })
+      const responseHandler = async (resp: import('playwright').Response) => {
+        const u = resp.url()
+        if (!u.includes('api.americanwagering.com')) return
+        if (menuUrlRe.test(u) && resp.status() === 200 && !menuBodyText) {
+          try { menuBodyText = await resp.text() } catch { /* stream closed */ }
+        }
+      }
+      page.on('response', responseHandler)
+
       log.info('seeding caesars session via homepage')
       try {
         await page.goto(SEED_ROOT, { waitUntil: 'domcontentloaded', timeout: 60_000 })
@@ -353,35 +376,44 @@ export const caesarsAdapter: BookAdapter = {
         errors.push(`seed: ${e?.message ?? e}`)
         return { events: scraped, errors }
       }
-      await page.waitForTimeout(10_000)
+      // Let the SPA boot, solve WAF, and issue sports-menu + nav XHRs.
+      await page.waitForTimeout(15_000)
+      page.off('response', responseHandler)
 
-      // Fetch sports-menu from INSIDE the page context so we inherit the WAF
-      // token the SPA already holds. page.request.get uses a separate context
-      // that doesn't have the token and always gets 403 from AWS WAF.
-      const inPageFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async (u) => {
-          const r = await fetch(u, { credentials: 'include', headers: { accept: 'application/json' } })
-          return { status: r.status, text: await r.text() }
-        }, url)
+      // Pick any captured token (last one is freshest).
+      const tokens = Array.from(wafTokenCandidates)
+      wafToken = tokens[tokens.length - 1] ?? null
+      log.info('caesars session tokens', {
+        tokenCount: tokens.length,
+        hasMenu: !!menuBodyText,
+        menuLen: menuBodyText?.length ?? 0,
+      })
+
+      if (!menuBodyText) {
+        log.error('sports-menu not captured from SPA XHRs')
+        errors.push('sports-menu not captured')
+        return { events: scraped, errors }
+      }
+      let menuBody: any
+      try { menuBody = JSON.parse(menuBodyText) } catch {
+        log.error('sports-menu non-JSON', { sample: menuBodyText.slice(0, 200) })
+        errors.push('sports-menu non-JSON')
+        return { events: scraped, errors }
       }
 
-      let menuBody: any = null
-      try {
-        const { status, text } = await inPageFetch(SPORTS_MENU_URL)
-        if (status !== 200) {
-          log.error('sports-menu fetch failed', { status, bodyLen: text.length, sample: text.slice(0, 200) })
-          errors.push(`sports-menu HTTP ${status}`)
-          return { events: scraped, errors }
+      // Helper: call page.request.get with the captured WAF token + cookies
+      // from the browser context. This is a real HTTP request (not in-page
+      // fetch) so it bypasses any CORS/CSP weirdness from page.evaluate, but
+      // it carries the token header so AWS WAF lets it through.
+      const ctx = page.context()
+      const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
+        const headers: Record<string, string> = {
+          accept: 'application/json',
+          referer: 'https://sportsbook.caesars.com/',
         }
-        try { menuBody = JSON.parse(text) } catch {
-          log.error('sports-menu non-JSON', { bodyLen: text.length, sample: text.slice(0, 200) })
-          errors.push('sports-menu non-JSON')
-          return { events: scraped, errors }
-        }
-      } catch (e: any) {
-        log.error('sports-menu request threw', { message: e?.message ?? String(e) })
-        errors.push(`sports-menu: ${e?.message ?? e}`)
-        return { events: scraped, errors }
+        if (wafToken) headers['x-aws-waf-token'] = wafToken
+        const resp = await ctx.request.get(url, { headers })
+        return { status: resp.status(), text: await resp.text() }
       }
 
       const compUuids = extractCompUuids(menuBody)
@@ -404,7 +436,7 @@ export const caesarsAdapter: BookAdapter = {
         const eventsListUrl = `${API_BASE}/sports/${comp.sportApi}/competitions/${uuid}/events?useCombinedTouchdownsVirtualMarket=true&useCombinedSacksVirtualMarket=true`
         let body: any
         try {
-          const { status, text } = await inPageFetch(eventsListUrl)
+          const { status, text } = await authedFetch(eventsListUrl)
           if (status !== 200) {
             log.warn('events-list fetch failed', { comp: comp.name, status, sample: text.slice(0, 200) })
             errors.push(`${comp.name} events-list HTTP ${status}`)
@@ -444,7 +476,7 @@ export const caesarsAdapter: BookAdapter = {
             const ev = events[idx]
             const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
             try {
-              const { status, text } = await inPageFetch(eventUrl)
+              const { status, text } = await authedFetch(eventUrl)
               if (status !== 200) {
                 errors.push(`${comp.name} event ${ev.id}: HTTP ${status}`)
                 continue
