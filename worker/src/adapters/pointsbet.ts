@@ -105,19 +105,28 @@ const PROP_CATEGORY_MAP: Record<string, string> = {
   'alternate points':           'player_points',
   'alternate rebounds':         'player_rebounds',
   'alternate assists':          'player_assists',
+  'alternate steals':           'player_steals',
+  'alternate blocks':           'player_blocks',
   'player points':              'player_points',
   'player rebounds':            'player_rebounds',
   'player assists':             'player_assists',
   'player steals':              'player_steals',
   'player blocks':              'player_blocks',
   'player turnovers':           'player_turnovers',
-  // Baseball
+  // Baseball — "OF" suffix is PB's "Official" flag
   'batter hits':                'player_hits',
   'batter home runs':           'player_home_runs',
   'batter rbis':                'player_rbis',
   'batter runs':                'player_runs',
   'batter total bases':         'player_total_bases',
   'batter stolen bases':        'player_stolen_bases',
+  'player hits of':             'player_hits',
+  'player home runs of':        'player_home_runs',
+  'player runs batted in of':   'player_rbis',
+  'alternate hits':             'player_hits',
+  'alternate total bases':      'player_total_bases',
+  'alternate runs':             'player_runs',
+  'alternate runs batted in':   'player_rbis',
   'pitcher strikeouts':         'player_strikeouts_p',
   'pitcher earned runs':        'player_earned_runs',
   'pitcher outs':               'pitcher_outs',
@@ -128,7 +137,34 @@ const PROP_CATEGORY_MAP: Record<string, string> = {
   'player saves':               'player_saves',
   // Soccer
   'player shots on target':     'player_shots_target',
+  'player total shots':         'player_shots',
 }
+
+// Player-class event classes we explicitly drop without logging as "unmapped".
+// These are real markets, but either binary / non-O/U shapes we don't support
+// yet, or aggregates that conflict with standard prop tables.
+const PROP_CATEGORY_IGNORE = new Set<string>([
+  'player to record a double double',
+  'player to record a double double and team to win',
+  'player to record a triple double',
+  'player to record a triple double and team to win',
+  'player to score first basket',
+  'player to score most points',
+  'player 2+ home runs',
+  'player hits double',
+  'player hits triple',
+  'player hits single',
+  'player hits + runs + rbis',
+  'pitcher to record the win of',
+  'moneyline listed pitchers of',
+  'alternate total runs of',
+  'alternate total runs - 3-way of',
+  'alternate run line',
+  'alternate run line - 3-way of',
+  'alternate point spread 1st half',
+  'alternate totals',
+  'red card - player',
+])
 
 // Pre-compute fuzzy-match iteration order: longest keys first so combos like
 // "player assists + rebounds" beat the plain "player assists" substring.
@@ -141,12 +177,22 @@ const PROP_CATEGORY_ENTRIES = Object.entries(PROP_CATEGORY_MAP)
 
 function mapPropCategory(eventClass: string): string | null {
   const lower = (eventClass || '').toLowerCase().trim()
-  const direct = PROP_CATEGORY_MAP[lower]
+  // PB suffixes its MLB "Official" (i.e. once game has started, books close
+  // first-inning-etc. variants) markets with " OF". Strip so the table lookup
+  // still finds the root category.
+  const normalized = lower.replace(/\s+of$/, '')
+  const direct = PROP_CATEGORY_MAP[normalized] ?? PROP_CATEGORY_MAP[lower]
   if (direct) return direct
   for (const [key, cat] of PROP_CATEGORY_ENTRIES) {
-    if (lower.includes(key)) return cat
+    if (normalized.includes(key) || lower.includes(key)) return cat
   }
   return null
+}
+
+function isIgnoredPropClass(eventClass: string): boolean {
+  const lower = (eventClass || '').toLowerCase().trim()
+  const normalized = lower.replace(/\s+of$/, '')
+  return PROP_CATEGORY_IGNORE.has(lower) || PROP_CATEGORY_IGNORE.has(normalized)
 }
 
 /**
@@ -336,10 +382,16 @@ export const pointsbetAdapter: BookAdapter = {
 
             for (const m of ev.specialFixedOddsMarkets ?? []) {
               const outcomes = (m.outcomes ?? []).filter(o => !o.isHidden && o.isOpenForBetting)
-              const isPlayerClass = (m.eventClass ?? '').toLowerCase().includes('player')
-                || (m.eventClass ?? '').toLowerCase().startsWith('alternate ')
-                || (m.eventClass ?? '').toLowerCase().includes('batter')
-                || (m.eventClass ?? '').toLowerCase().includes('pitcher')
+              const ecLower = (m.eventClass ?? '').toLowerCase()
+              // "alternate ..." is a mix: alt player stats (Alternate Assists)
+              // vs alt game lines (Alternate Run Line, Alternate Totals). Only
+              // treat as player-class if the stat word appears.
+              const altPlayerStats = /^alternate\s+(points|rebounds|assists|threes|steals|blocks|turnovers|hits|runs batted in|runs|total bases|home runs)\b/
+              const isPlayerClass = ecLower.includes('player')
+                || altPlayerStats.test(ecLower)
+                || ecLower.includes('batter')
+                || (ecLower.includes('pitcher') && !ecLower.includes('pitcher to record'))
+                || ecLower.includes('skater')
               if (outcomes.length === 0) {
                 if (isPlayerClass) propDrops.noOutcomesOpen++
                 continue
@@ -429,7 +481,7 @@ export const pointsbetAdapter: BookAdapter = {
               }
               const propCategory = mapPropCategory(m.eventClass ?? '')
               if (!propCategory) {
-                if (isPlayerClass) {
+                if (isPlayerClass && !isIgnoredPropClass(m.eventClass ?? '')) {
                   propDrops.unmappedCategory++
                   if (m.eventClass) unmappedClasses.add(m.eventClass)
                 }

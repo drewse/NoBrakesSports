@@ -24,12 +24,22 @@
 
 import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
-import type { ScrapeResult, ScrapedEvent, GameMarket } from '../lib/types.js'
+import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
 const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet'
 const API_HOST = 'https://api.americanwagering.com'
 const API_BASE = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v4`
 const SPORTS_MENU_URL = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v3/sports-menu`
+
+// League landing pages: navigating here causes the SPA to fire the
+// events-list XHR (which AWS WAF blocks when we call it ourselves). By
+// letting the SPA fire it and capturing the response body, we bypass the
+// token issue entirely.
+const LEAGUE_URLS: Record<string, string> = {
+  NBA: 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=870bd333-bdb3-4576-a1ac-6b4511bcdf48',
+  MLB: 'https://sportsbook.caesars.com/ca/on/bet/baseball?id=04f90892-3afa-4e84-acce-5b89f151063d',
+  NHL: 'https://sportsbook.caesars.com/ca/on/bet/hockey?id=b7b715a9-c7e8-4c47-af0a-77385b525e09',
+}
 
 interface Competition {
   name: string
@@ -397,14 +407,19 @@ export const caesarsAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Capture two things during SPA navigation:
-      //   1. The sports-menu JSON body (fires naturally on home-page load).
-      //   2. Any x-aws-waf-token header the SPA attaches to api.* requests,
-      //      so we can replay it on our own fetches.
-      let menuBodyText: string | null = null as string | null
-      let wafToken: string | null = null
+      // Capture everything the SPA's own network stack fetches from the
+      // api.* host. AWS WAF refuses any call we originate (even when we
+      // replay the token), so our only reliable source of events-list and
+      // single-event bodies is to let the SPA fire them and snarf the
+      // response bodies.
+      let menuBodyText = null as string | null
+      const eventsListBodies: string[] = []
+      const eventBodies = new Map<string, string>()  // eventId → body
       const wafTokenCandidates = new Set<string>()
+
       const menuUrlRe = /\/sb\/v\d+\/sports-menu(\?|$)/
+      const eventsListRe = /\/competitions\/[0-9a-f-]{36}\/events(\?|$)/
+      const eventRe = /\/events\/([0-9a-f-]{36})(\?|$)/
 
       page.on('request', (req) => {
         const u = req.url()
@@ -416,65 +431,51 @@ export const caesarsAdapter: BookAdapter = {
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         if (!u.includes('api.americanwagering.com')) return
-        if (menuUrlRe.test(u) && resp.status() === 200 && !menuBodyText) {
-          try { menuBodyText = await resp.text() } catch { /* stream closed */ }
-        }
+        if (resp.status() !== 200) return
+        try {
+          if (menuUrlRe.test(u) && !menuBodyText) {
+            menuBodyText = await resp.text()
+            return
+          }
+          if (eventsListRe.test(u)) {
+            eventsListBodies.push(await resp.text())
+            return
+          }
+          const m = u.match(eventRe)
+          if (m && !eventBodies.has(m[1])) {
+            eventBodies.set(m[1], await resp.text())
+          }
+        } catch { /* body stream closed */ }
       }
       page.on('response', responseHandler)
 
       log.info('seeding caesars session via homepage')
       try {
-        await page.goto(SEED_ROOT, { waitUntil: 'domcontentloaded', timeout: 60_000 })
+        await page.goto(SEED_ROOT, { waitUntil: 'domcontentloaded', timeout: 45_000 })
       } catch (e: any) {
         log.error('homepage seed failed', { message: e?.message ?? String(e) })
         errors.push(`seed: ${e?.message ?? e}`)
+        page.off('response', responseHandler)
         return { events: scraped, errors }
       }
-      // Actively wait for the SPA's sports-menu XHR (the source of truth for
-      // comp UUIDs). It only fires after the AWS WAF JS challenge resolves —
-      // timing varies (10-30s through the residential proxy).
+      // Wait up to 25s for menu to fire passively. If it doesn't, we'll
+      // still try the league-page navigations below which also warm things up.
       try {
         await page.waitForResponse(
           (r) => menuUrlRe.test(r.url()) && r.status() === 200,
-          { timeout: 60_000 },
+          { timeout: 25_000 },
         )
-      } catch (e: any) {
-        log.warn('sports-menu response wait timed out', { message: e?.message ?? String(e) })
-      }
-      // Small grace so the request listener flushes the WAF-token headers.
-      await page.waitForTimeout(2_000)
-      page.off('response', responseHandler)
+      } catch { /* proceed without passive menu */ }
 
-      // Pick any captured token (last one is freshest).
-      const tokens = Array.from(wafTokenCandidates)
-      wafToken = tokens[tokens.length - 1] ?? null
-      log.info('caesars session tokens', {
-        tokenCount: tokens.length,
+      const wafToken = [...wafTokenCandidates].pop() ?? null
+      log.info('caesars session', {
+        tokenCount: wafTokenCandidates.size,
         hasMenu: !!menuBodyText,
         menuLen: menuBodyText?.length ?? 0,
       })
 
-      // authedFetch defined below references wafToken/ctx, so define early:
-      // but actually we need to forward-reference. We'll define fallback
-      // after authedFetch. For now, parse passively-captured menu if any.
-      let menuBody: any = null
-      if (menuBodyText) {
-        try { menuBody = JSON.parse(menuBodyText) } catch {
-          log.warn('passive sports-menu non-JSON, will retry active fetch')
-          menuBodyText = null
-        }
-      }
-
-      // Helper: issue the request from INSIDE the page so it rides the SPA's
-      // own network stack — same TLS fingerprint, same cookie jar, and WAF
-      // tokens it refreshes out-of-band. page.context().request doesn't
-      // share TLS state, so WAF rejects it. Use a plain fetch with no extra
-      // options (any custom header triggers CORS preflight).
-      // The SPA authenticates to api.americanwagering.com via an
-      // x-aws-waf-token HEADER, not cookies (credentials:'include' throws
-      // because the server returns ACAO:* without ACAC:true). We captured
-      // that header from request listener. Replay it. The custom header
-      // triggers CORS preflight, which the server already allows.
+      // Best-effort: replay the token for a few direct calls. We never depend
+      // on this succeeding — the SPA-driven passive capture is the fallback.
       const authedFetch = async (url: string): Promise<{ status: number; text: string }> => {
         return page.evaluate(async ({ u, token }) => {
           try {
@@ -488,109 +489,132 @@ export const caesarsAdapter: BookAdapter = {
         }, { u: url, token: wafToken ?? '' })
       }
 
-      // Fallback: if the SPA didn't fire sports-menu during our wait window,
-      // fetch it ourselves — homepage goto set the aws-waf-token cookie, so
-      // credentials:'include' should carry it through.
+      let menuBody: any = null
+      if (menuBodyText) {
+        try { menuBody = JSON.parse(menuBodyText) } catch { /* fall through */ }
+      }
       if (!menuBody) {
-        log.info('sports-menu not captured passively, fetching actively')
         const { status, text } = await authedFetch(SPORTS_MENU_URL)
-        if (status !== 200) {
-          log.error('active sports-menu fetch failed', { status, sample: text.slice(0, 200) })
-          errors.push(`sports-menu HTTP ${status}`)
-          return { events: scraped, errors }
-        }
-        try { menuBody = JSON.parse(text) } catch {
-          log.error('active sports-menu non-JSON', { sample: text.slice(0, 200) })
-          errors.push('sports-menu non-JSON (active)')
-          return { events: scraped, errors }
+        if (status === 200) {
+          try { menuBody = JSON.parse(text) } catch { /* fall through */ }
+        } else {
+          log.warn('active sports-menu fetch failed', { status })
         }
       }
 
+      // If we still have no menu, we can't map comp names → UUIDs. Bail.
+      if (!menuBody) {
+        errors.push('sports-menu unavailable')
+        page.off('response', responseHandler)
+        return { events: scraped, errors }
+      }
+
       const compUuids = extractCompUuids(menuBody)
-      const nbaSample = compUuids.get('NBA')
-      const mlbSample = compUuids.get('MLB')
-      const nhlSample = compUuids.get('NHL')
-      log.info('caesars sports-menu parsed', {
-        totalUuids: compUuids.size,
-        hasNBA: !!nbaSample, hasMLB: !!mlbSample, hasNHL: !!nhlSample,
-        sample: Array.from(compUuids.entries()).slice(0, 20),
+      log.info('caesars sports-menu parsed', { totalUuids: compUuids.size })
+
+      // Drive the SPA to each league page so it fires the events-list XHR
+      // itself. We passively capture the body.
+      for (const comp of COMPETITIONS) {
+        if (signal.aborted) break
+        const leagueUrl = LEAGUE_URLS[comp.menuName]
+        if (!leagueUrl) continue
+        try {
+          log.debug('visiting league page', { comp: comp.name })
+          await page.goto(leagueUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+          // Give the events-list + some event calls time to settle.
+          await page.waitForTimeout(4_000)
+        } catch (e: any) {
+          log.warn('league page nav failed', { comp: comp.name, message: e?.message ?? String(e) })
+        }
+      }
+      // One more short grace period so in-flight event bodies finish arriving.
+      await page.waitForTimeout(2_000)
+      page.off('response', responseHandler)
+
+      log.info('caesars capture', {
+        eventsListCount: eventsListBodies.length,
+        eventBodyCount: eventBodies.size,
       })
 
-      // Dump the subtree for one known comp so we can see what fields Caesars
-      // ships in the sports-menu. If events are inline we can skip the
-      // (WAF-blocked) events-list endpoint entirely.
-      const probeUuid = nhlSample ?? mlbSample ?? nbaSample
-      if (probeUuid) {
-        const sub = findCompSubtree(menuBody, probeUuid)
-        const subStr = sub ? JSON.stringify(sub).slice(0, 1500) : 'not-found'
-        log.info('caesars comp subtree probe', {
-          uuid: probeUuid,
-          topKeys: sub && typeof sub === 'object' ? Object.keys(sub).slice(0, 20) : [],
-          hasEvents: !!(sub && (sub.events || sub.items)),
-          sample: subStr,
-        })
+      // Build a master event list: prefer passively-captured events-list
+      // bodies, fall back to mining the menu.
+      const eventsByComp = new Map<string, CaesarsEvent[]>()
+      for (const body of eventsListBodies) {
+        try {
+          const parsed = JSON.parse(body)
+          const evs = extractEventsFromList(parsed)
+          if (evs.length === 0) continue
+          // Attach to whatever comp UUID shows up in the body (Liberty wraps
+          // events in a competition node). Guess by sampling each known comp.
+          for (const comp of COMPETITIONS) {
+            const uuid = compUuids.get(comp.menuName.toUpperCase())
+              ?? compUuids.get(comp.leagueSlug.toUpperCase())
+            if (!uuid) continue
+            const serialized = JSON.stringify(parsed)
+            if (serialized.includes(uuid)) {
+              const prior = eventsByComp.get(comp.menuName) ?? []
+              eventsByComp.set(comp.menuName, [...prior, ...evs])
+            }
+          }
+        } catch { /* skip malformed */ }
       }
 
       for (const comp of COMPETITIONS) {
         if (signal.aborted) break
-
         const uuid = compUuids.get(comp.menuName.toUpperCase())
           ?? compUuids.get(comp.leagueSlug.toUpperCase())
         if (!uuid) {
-          log.warn('no comp uuid in menu — skipping', { comp: comp.name })
-          errors.push(`${comp.name}: uuid not found in sports-menu`)
+          errors.push(`${comp.name}: uuid not found`)
           continue
         }
-
-        // Primary path: mine events out of the sports-menu body. AWS WAF
-        // blocks the dedicated events-list endpoint regardless of auth, but
-        // sports-menu is public and >40KB — often carries events inline.
-        const events = extractEventsFromMenu(menuBody, uuid)
-        log.info('caesars events from menu', { comp: comp.name, count: events.length })
+        let events = eventsByComp.get(comp.menuName) ?? []
         if (events.length === 0) {
-          log.warn('no events in sports-menu for comp', { comp: comp.name, uuid })
-          continue
+          // Fallback: mine from sports-menu body (some deployments inline them).
+          events = extractEventsFromMenu(menuBody, uuid)
         }
+        // De-dup by event id.
+        const seen = new Set<string>()
+        events = events.filter(e => (seen.has(e.id) ? false : (seen.add(e.id), true)))
+        log.info('caesars events', { comp: comp.name, count: events.length })
+        if (events.length === 0) continue
 
-        // For each event, fetch single-event markets via page.evaluate so the
-        // WAF token + cookies are inherited. Parallel but bounded.
-        const CONCURRENCY = 6
+        // Fetch single-event bodies: prefer passive captures, otherwise
+        // navigate the SPA to each event page so it fires the XHR. Batched.
+        const CONCURRENCY = 4
         let cursor = 0
         async function worker() {
           while (cursor < events.length) {
             if (signal.aborted) return
             const idx = cursor++
             const ev = events[idx]
-            const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
-            try {
+            let bodyText = eventBodies.get(ev.id) ?? null
+            if (!bodyText) {
+              const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
               const { status, text } = await authedFetch(eventUrl)
-              if (status !== 200) {
-                errors.push(`${comp.name} event ${ev.id}: HTTP ${status}`)
-                continue
-              }
-              let body: any
-              try { body = JSON.parse(text) } catch {
-                errors.push(`${comp.name} event ${ev.id}: non-JSON body`)
-                continue
-              }
-              const home = ev.competitors.find(c => c.home) ?? ev.competitors[0]
-              const away = ev.competitors.find(c => !c.home) ?? ev.competitors[1]
-              const gameMarkets = extractGameMarketsFromEvent(body, home.name, away.name)
-              scraped.push({
-                event: {
-                  externalId: ev.id,
-                  homeTeam: home.name,
-                  awayTeam: away.name,
-                  startTime: ev.startTime,
-                  leagueSlug: comp.leagueSlug,
-                  sport: comp.sport,
-                },
-                gameMarkets,
-                props: [],
-              })
-            } catch (e: any) {
-              errors.push(`${comp.name} event ${ev.id}: ${e?.message ?? e}`)
+              if (status === 200) bodyText = text
+              else errors.push(`${comp.name} event ${ev.id}: HTTP ${status}`)
             }
+            if (!bodyText) continue
+            let body: any
+            try { body = JSON.parse(bodyText) } catch {
+              errors.push(`${comp.name} event ${ev.id}: non-JSON body`)
+              continue
+            }
+            const home = ev.competitors.find(c => c.home) ?? ev.competitors[0]
+            const away = ev.competitors.find(c => !c.home) ?? ev.competitors[1]
+            const gameMarkets = extractGameMarketsFromEvent(body, home.name, away.name)
+            scraped.push({
+              event: {
+                externalId: ev.id,
+                homeTeam: home.name,
+                awayTeam: away.name,
+                startTime: ev.startTime,
+                leagueSlug: comp.leagueSlug,
+                sport: comp.sport,
+              },
+              gameMarkets,
+              props: [],
+            })
           }
         }
         await Promise.all(Array.from({ length: CONCURRENCY }, worker))

@@ -12,6 +12,7 @@ import { caesarsAdapter } from './adapters/caesars.js'
 import { betmgmAdapter } from './adapters/betmgm.js'
 import { fanduelAdapter } from './adapters/fanduel.js'
 import { betriversAdapter } from './adapters/betrivers.js'
+import { prolineAdapter } from './adapters/proline.js'
 
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
@@ -21,6 +22,7 @@ const ALL_ADAPTERS: BookAdapter[] = [
   betmgmAdapter,
   fanduelAdapter,
   betriversAdapter,
+  prolineAdapter,
 ]
 
 const log = createLogger('main')
