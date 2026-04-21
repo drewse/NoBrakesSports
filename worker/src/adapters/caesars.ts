@@ -323,6 +323,7 @@ export const caesarsAdapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
 
       for (const comp of COMPETITIONS) {
+
         if (signal.aborted) break
 
         // Capture XHRs to api.americanwagering.com during league-page load —
@@ -446,6 +447,6 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    })
+    }, { useProxy: true })
   },
 }
