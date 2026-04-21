@@ -337,13 +337,19 @@ export const caesarsAdapter: BookAdapter = {
           const url = resp.url()
           if (!url.includes('api.americanwagering.com')) return
           allApiUrls.push(`${resp.status()} ${url.length > 200 ? url.slice(0, 200) + '...' : url}`)
-          // Candidate event-list URLs.
-          if (/\/sports\/[^/]+\/competitions\/[^/]+\/events/.test(url) ||
+          // Candidate event-list URLs. Skip quick-picks (parlay sampler) —
+          // it has a different shape and isn't the full events list.
+          const isQuickPicks = /quick-picks\b/.test(url)
+          if (!isQuickPicks && (
+              /\/sports\/[^/]+\/competitions\/[^/]+\/events/.test(url) ||
               /\/events\/schedule\b/.test(url) ||
-              /\/events\/competitions\b/.test(url) ||
-              /\/competitions\/[^/]+\/events\b/.test(url)) {
+              /\/sb\/v\d+\/events\/competitions\b/.test(url) ||
+              /\/competitions\/[^/]+\/events\b/.test(url))) {
             capturedEventLists.push(url)
-            try { bodyByUrl.set(url, await resp.text()) } catch { /* stream may be closed */ }
+            try {
+              const text = await resp.text()
+              bodyByUrl.set(url, text)
+            } catch { /* stream may be closed */ }
           }
           // Also capture any single-event responses the page grabs (home page
           // sometimes prefetches a few).
@@ -367,30 +373,29 @@ export const caesarsAdapter: BookAdapter = {
         // needs a longer settle than a direct connection.
         await page.waitForTimeout(15_000)
 
-        // The Caesars SPA doesn't always auto-fire the events-list endpoint.
-        // Hit it via Playwright's request context — inherits cookies + proxy,
-        // sidesteps the app's in-page fetch wrapper (newrelic/fullstory
-        // wrap window.fetch and reject cross-origin calls).
-        const eventsListUrl = `${API_BASE}/events/competitions?useEventPayloadWithTabNav=true`
-        try {
-          const listResp = await page.request.get(eventsListUrl, {
-            headers: { accept: 'application/json', referer: 'https://sportsbook.caesars.com/' },
-          })
-          const text = await listResp.text()
-          log.info('caesars events-list direct fetch', {
-            comp: comp.name,
-            status: listResp.status(),
-            len: text.length,
-            sample: text.slice(0, 200),
-          })
-          if (listResp.ok()) {
-            capturedEventLists.push(eventsListUrl)
-            bodyByUrl.set(eventsListUrl, text)
-          }
-        } catch (e: any) {
-          log.warn('caesars events-list fetch failed', { comp: comp.name, message: e?.message ?? String(e) })
-        }
+        // Direct fetch via page.request.get() uses a separate request context
+        // without the page's WAF cookies — always 403s. Rely entirely on the
+        // response listener capturing the SPA's own XHR.
         page.off('response', responseHandler)
+
+        // Log the captured bodies so we can see the JSON shape the parser
+        // must handle (top-level keys + sample).
+        for (const u of capturedEventLists.slice(0, 2)) {
+          const text = bodyByUrl.get(u) ?? ''
+          let topKeys: string[] = []
+          try {
+            const parsed = JSON.parse(text)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) topKeys = Object.keys(parsed).slice(0, 20)
+            else if (Array.isArray(parsed)) topKeys = [`__array__len=${parsed.length}`]
+          } catch { /* ignore */ }
+          log.info('caesars body sample', {
+            comp: comp.name,
+            url: u.length > 120 ? u.slice(0, 120) + '...' : u,
+            bodyLen: text.length,
+            topKeys,
+            sample: text.slice(0, 400),
+          })
+        }
 
         log.info('caesars xhrs captured', {
           comp: comp.name,
