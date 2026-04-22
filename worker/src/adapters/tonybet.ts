@@ -259,10 +259,23 @@ export const tonybetAdapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
 
       // Passive capture of /api/event/list responses as the SPA fetches them.
+      // Also record every unique JSON host we see for diagnostics — lets us
+      // tell in one log line whether the SPA ever called our expected endpoint.
       const listBodies: string[] = []
+      const seenJsonHosts = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
-        if (!/platform\.tonybet\.com\/api\/event\/list/.test(u)) return
+        const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
+        if (ct.includes('json')) {
+          try {
+            const host = new URL(u).host
+            seenJsonHosts.set(host, (seenJsonHosts.get(host) ?? 0) + 1)
+          } catch { /* ignore */ }
+        }
+        // Broadened: any event-list-shaped path on any tonybet host qualifies.
+        // Earlier versions hardcoded platform.tonybet.com; the CA product may
+        // serve from a different subdomain under the same path convention.
+        if (!/tonybet\.[a-z]+\/api\/(event|events?)\/list/i.test(u)) return
         if (resp.status() !== 200) return
         try { listBodies.push(await resp.text()) } catch { /* stream closed */ }
       }
@@ -277,7 +290,7 @@ export const tonybetAdapter: BookAdapter = {
         page.off('response', responseHandler)
         return { events: scraped, errors }
       }
-      await page.waitForTimeout(8_000)
+      await page.waitForTimeout(15_000)
 
       // Drive the SPA to each sport page — this is what causes event/list to fire.
       for (const s of SPORT_PATHS) {
@@ -292,7 +305,10 @@ export const tonybetAdapter: BookAdapter = {
         }
       }
       page.off('response', responseHandler)
-      log.info('tonybet captured', { listResponses: listBodies.length })
+      log.info('tonybet captured', {
+        listResponses: listBodies.length,
+        jsonHostsSeen: Array.from(seenJsonHosts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
+      })
 
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()

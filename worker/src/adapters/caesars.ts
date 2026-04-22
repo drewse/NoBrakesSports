@@ -640,6 +640,7 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: true, rotateSession: true })
+    }, { useProxy: false })   // PacketStream consistently gets ERR_EMPTY_RESPONSE
+                              // from Caesars — try the Railway IP direct instead.
   },
 }
