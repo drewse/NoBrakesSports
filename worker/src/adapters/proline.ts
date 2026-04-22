@@ -30,15 +30,13 @@ interface KLeagueConfig {
   leaguePath: string
 }
 
+// Soccer leagues 404 on the OLG client — Kambi uses different league
+// slugs per white-label. Stick to NBA / MLB / NHL which the curl
+// confirmed. Add soccer back once the correct path segments are known.
 const LEAGUES: KLeagueConfig[] = [
-  { termKey: 'nba',            leagueSlug: 'nba',        sport: 'basketball', sportPath: 'basketball', leaguePath: 'nba' },
-  { termKey: 'mlb',            leagueSlug: 'mlb',        sport: 'baseball',   sportPath: 'baseball',   leaguePath: 'mlb' },
-  { termKey: 'nhl',            leagueSlug: 'nhl',        sport: 'ice_hockey', sportPath: 'ice_hockey', leaguePath: 'nhl' },
-  { termKey: 'premier_league', leagueSlug: 'epl',        sport: 'soccer',     sportPath: 'football',   leaguePath: 'premier_league' },
-  { termKey: 'la_liga',        leagueSlug: 'laliga',     sport: 'soccer',     sportPath: 'football',   leaguePath: 'la_liga' },
-  { termKey: 'bundesliga',     leagueSlug: 'bundesliga', sport: 'soccer',     sportPath: 'football',   leaguePath: 'bundesliga' },
-  { termKey: 'serie_a',        leagueSlug: 'seria_a',    sport: 'soccer',     sportPath: 'football',   leaguePath: 'serie_a' },
-  { termKey: 'ligue_1',        leagueSlug: 'ligue_one',  sport: 'soccer',     sportPath: 'football',   leaguePath: 'ligue_1' },
+  { termKey: 'nba', leagueSlug: 'nba', sport: 'basketball', sportPath: 'basketball', leaguePath: 'nba' },
+  { termKey: 'mlb', leagueSlug: 'mlb', sport: 'baseball',   sportPath: 'baseball',   leaguePath: 'mlb' },
+  { termKey: 'nhl', leagueSlug: 'nhl', sport: 'ice_hockey', sportPath: 'ice_hockey', leaguePath: 'nhl' },
 ]
 
 interface KEvent {
