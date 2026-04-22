@@ -74,13 +74,76 @@ export async function GET(request: NextRequest) {
   }
   const sourceId = source.id as string
 
-  // 3) Build abbr → { slug, fullName } lookup from teams joined to leagues.
-  //    Needed because Sleeper gives us abbreviations like "DET" / "ORL"
-  //    but our events.title is "Orlando Magic vs Detroit Pistons".
+  // 3) Abbreviation → full team name lookup. Our teams table is sparsely
+  //    seeded (first cron fire showed 0/18 matches because most rows
+  //    don't exist), so we bake in the major-league maps directly. When
+  //    teams table is populated, it augments this table — not the other
+  //    way around.
+  const HARDCODED_ABBRS: Record<string, Record<string, string>> = {
+    nba: {
+      ATL:'Atlanta Hawks', BOS:'Boston Celtics', BKN:'Brooklyn Nets',
+      CHA:'Charlotte Hornets', CHI:'Chicago Bulls', CLE:'Cleveland Cavaliers',
+      DAL:'Dallas Mavericks', DEN:'Denver Nuggets', DET:'Detroit Pistons',
+      GSW:'Golden State Warriors', HOU:'Houston Rockets', IND:'Indiana Pacers',
+      LAC:'LA Clippers', LAL:'Los Angeles Lakers', MEM:'Memphis Grizzlies',
+      MIA:'Miami Heat', MIL:'Milwaukee Bucks', MIN:'Minnesota Timberwolves',
+      NOP:'New Orleans Pelicans', NYK:'New York Knicks', OKC:'Oklahoma City Thunder',
+      ORL:'Orlando Magic', PHI:'Philadelphia 76ers', PHX:'Phoenix Suns',
+      POR:'Portland Trail Blazers', SAC:'Sacramento Kings', SAS:'San Antonio Spurs',
+      TOR:'Toronto Raptors', UTA:'Utah Jazz', WAS:'Washington Wizards',
+    },
+    wnba: {
+      ATL:'Atlanta Dream', CHI:'Chicago Sky', CON:'Connecticut Sun',
+      DAL:'Dallas Wings', IND:'Indiana Fever', LVA:'Las Vegas Aces',
+      LAS:'Las Vegas Aces', LAK:'Los Angeles Sparks', LAS2:'Los Angeles Sparks',
+      MIN:'Minnesota Lynx', NYL:'New York Liberty', PHX:'Phoenix Mercury',
+      SEA:'Seattle Storm', WAS:'Washington Mystics', GSV:'Golden State Valkyries',
+    },
+    mlb: {
+      ARI:'Arizona Diamondbacks', ATL:'Atlanta Braves', BAL:'Baltimore Orioles',
+      BOS:'Boston Red Sox', CHC:'Chicago Cubs', CWS:'Chicago White Sox',
+      CHW:'Chicago White Sox', CIN:'Cincinnati Reds', CLE:'Cleveland Guardians',
+      COL:'Colorado Rockies', DET:'Detroit Tigers', HOU:'Houston Astros',
+      KAN:'Kansas City Royals', KC:'Kansas City Royals', KCR:'Kansas City Royals',
+      LAA:'Los Angeles Angels', ANA:'Los Angeles Angels',
+      LAD:'Los Angeles Dodgers', MIA:'Miami Marlins', MIL:'Milwaukee Brewers',
+      MIN:'Minnesota Twins', NYM:'New York Mets', NYY:'New York Yankees',
+      OAK:'Oakland Athletics', ATH:'Athletics', PHI:'Philadelphia Phillies',
+      PIT:'Pittsburgh Pirates', SDP:'San Diego Padres', SD:'San Diego Padres',
+      SEA:'Seattle Mariners', SFG:'San Francisco Giants', SF:'San Francisco Giants',
+      STL:'St. Louis Cardinals', TBR:'Tampa Bay Rays', TB:'Tampa Bay Rays',
+      TEX:'Texas Rangers', TOR:'Toronto Blue Jays', WAS:'Washington Nationals',
+      WSH:'Washington Nationals', AZ:'Arizona Diamondbacks',
+    },
+    nhl: {
+      ANA:'Anaheim Ducks', ARI:'Arizona Coyotes', BOS:'Boston Bruins',
+      BUF:'Buffalo Sabres', CGY:'Calgary Flames', CAR:'Carolina Hurricanes',
+      CHI:'Chicago Blackhawks', COL:'Colorado Avalanche', CBJ:'Columbus Blue Jackets',
+      DAL:'Dallas Stars', DET:'Detroit Red Wings', EDM:'Edmonton Oilers',
+      FLA:'Florida Panthers', LAK:'Los Angeles Kings', LA:'Los Angeles Kings',
+      MIN:'Minnesota Wild', MTL:'Montreal Canadiens', MON:'Montreal Canadiens',
+      NSH:'Nashville Predators', NJD:'New Jersey Devils', NJ:'New Jersey Devils',
+      NYI:'New York Islanders', NYR:'New York Rangers', OTT:'Ottawa Senators',
+      PHI:'Philadelphia Flyers', PIT:'Pittsburgh Penguins', SJS:'San Jose Sharks',
+      SJ:'San Jose Sharks', SEA:'Seattle Kraken', STL:'St. Louis Blues',
+      TBL:'Tampa Bay Lightning', TB:'Tampa Bay Lightning', TOR:'Toronto Maple Leafs',
+      UTA:'Utah Hockey Club', VAN:'Vancouver Canucks', VGK:'Vegas Golden Knights',
+      WSH:'Washington Capitals', WAS:'Washington Capitals', WPG:'Winnipeg Jets',
+    },
+    nfl: {},
+  }
+
+  // Also pull DB teams rows so any custom/seeded entries augment the hardcoded
+  // map without overriding it.
   const { data: teamsRows } = await db
     .from('teams')
     .select('abbreviation, name, city, leagues(slug)')
-  const fullByLeagueAbbr = new Map<string, string>()  // `${slug}|${abbr}` → full
+  const fullByLeagueAbbr = new Map<string, string>()
+  for (const [slug, m] of Object.entries(HARDCODED_ABBRS)) {
+    for (const [abbr, full] of Object.entries(m)) {
+      fullByLeagueAbbr.set(`${slug}|${abbr.toUpperCase()}`, full)
+    }
+  }
   for (const t of (teamsRows ?? []) as any[]) {
     const slug = t.leagues?.slug
     const abbr = t.abbreviation
