@@ -365,62 +365,64 @@ export const tonybetAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
+      // Out-of-band requests to platform.tonybet.ca keep getting dropped
+      // (socket hang up / Failed to fetch) — WAF fingerprinting our
+      // non-SPA traffic. The SPA's own /api/event/list calls DO succeed
+      // because they come with the session's cookies, referer, and
+      // origin. Passive capture: navigate, let the SPA fire its XHRs,
+      // snarf the response bodies.
+      const listBodies: string[] = []
+      const seenPaths = new Map<string, number>()
+      const responseHandler = async (resp: import('playwright').Response) => {
+        const u = resp.url()
+        const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
+        if (ct.includes('json')) {
+          try {
+            const parsed = new URL(u)
+            if (/platform\.tonybet\.(ca|com)$/i.test(parsed.host)) {
+              const shape = parsed.pathname.replace(/\/\d{3,}/g, '/:id')
+              seenPaths.set(shape, (seenPaths.get(shape) ?? 0) + 1)
+            }
+          } catch { /* ignore */ }
+        }
+        if (!/platform\.tonybet\.(ca|com)\/api\/event\/list/i.test(u)) return
+        if (resp.status() !== 200) return
+        try { listBodies.push(await resp.text()) } catch { /* stream closed */ }
+      }
+      page.on('response', responseHandler)
+
       log.info('tonybet seeding', { url: SEED_URL })
       try {
         await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
       } catch (e: any) {
         log.error('tonybet nav failed', { message: e?.message ?? String(e) })
         errors.push(`nav: ${e?.message ?? e}`)
+        page.off('response', responseHandler)
         return { events: scraped, errors }
       }
-      // Let the SPA set its session cookies (sid, _bsid, etc) and CSRF token.
-      await page.waitForTimeout(8_000)
+      // Let the SPA render + fire its league XHRs. Longer dwell than
+      // before so we capture the post-init events-list call that carries
+      // the `relations[]=odds` param (the landing-only call doesn't).
+      await page.waitForTimeout(12_000)
 
-      // Using Playwright's APIRequestContext (via page.context().request)
-      // instead of in-page fetch(): shares cookies + proxy settings with the
-      // browser context but bypasses CORS and respects ignoreHTTPSErrors on
-      // cross-subdomain calls (tonybet.ca -> platform.tonybet.ca). In-page
-      // fetch kept throwing "Failed to fetch" because Chromium's request
-      // layer doesn't honor our context cert-bypass on XHRs the same way
-      // navigations get it.
-      const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
+      // Drill into NBA / NHL / MLB league pages — these typically force the
+      // SPA to re-fetch /api/event/list with full odds relations.
+      for (const path of ['basketball', 'baseball', 'ice-hockey']) {
+        if (signal.aborted) break
         try {
-          const r = await page.context().request.get(url, {
-            headers: { Accept: 'application/json' },
+          await page.goto(`https://tonybet.ca/prematch/${path}`, {
+            waitUntil: 'domcontentloaded', timeout: 30_000,
           })
-          return { status: r.status(), text: await r.text() }
+          await page.waitForTimeout(6_000)
         } catch (e: any) {
-          return { status: -1, text: `request threw: ${e?.message ?? String(e)}` }
+          log.warn('tonybet league nav failed', { path, message: e?.message ?? String(e) })
         }
       }
-
-      // Actively call /api/event/list with relations=odds so odds ship
-      // inline. Server told us (round 9) which relations are valid:
-      //   odds, competitors, league, result, players, sportCategories,
-      //   variants, withMarketsCount, broadcasts, rounds, statistics,
-      //   additionalInfo, sport, tips, cashoutMarkets, pinnedEvents,
-      //   recentEvents
-      // `marketOrder` was an outright-list relation and 400s here. We
-      // replicate the SPA's actual choice: odds, withMarketsCount, result,
-      // league, competitors, sportCategories, tips.
-      const bracket = (r: string) => `relations%5B%5D=${r}`
-      const rels = ['odds', 'withMarketsCount', 'result', 'league',
-                    'competitors', 'sportCategories', 'tips']
-      const listUrl = `${API_BASE}/event/list?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`
-      log.info('tonybet fetching event list', { url: listUrl })
-      const listBodies: string[] = []
-      const r = await pageFetch(listUrl)
-      log.info('tonybet event list response', {
-        url: listUrl,
-        status: r.status,
-        bodyLen: r.text.length,
-        sample: r.status === 200 ? null : r.text.slice(0, 500),
+      page.off('response', responseHandler)
+      log.info('tonybet captured', {
+        listResponses: listBodies.length,
+        topPlatformPaths: Array.from(seenPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
       })
-      if (r.status === 200 && r.text.length > 100) {
-        listBodies.push(r.text)
-      } else {
-        errors.push(`event/list HTTP ${r.status}`)
-      }
 
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()
