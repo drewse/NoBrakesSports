@@ -40,7 +40,10 @@ export default async function ArbitragePage() {
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
   // Fire game-level + prop-level queries concurrently to cut total latency.
-  const staleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  // Only consider snapshots from the last 5 minutes — pairing a fresh price
+  // with an hour-old one is not actionable arbitrage.
+  const FRESHNESS_MS = 5 * 60 * 1000
+  const staleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
   const snapshotsPromise = supabase
     .from('current_market_odds')
     .select(
@@ -55,7 +58,7 @@ export default async function ArbitragePage() {
     .limit(5000)
 
   // Fire prop batch requests NOW (don't await yet) — they run while we process game arbs.
-  const propStaleCutoff = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
+  const propStaleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
   const PROP_PAGE = 1000
   // Unbounded prop fetch: get exact count first, then fire all pages in a
   // single parallel burst. Cheaper than sequential rounds and eliminates
