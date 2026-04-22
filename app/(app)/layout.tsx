@@ -29,11 +29,17 @@ export default async function AppLayout({
       .select('*')
       .eq('id', user.id)
       .single(),
+    // Only count sources that are actually producing data. The table is
+    // seeded with ~90 sportsbook entries (many planned/blocked/dead) but
+    // only the ones currently healthy should appear in the topbar count
+    // and the /books selector — otherwise "25 of 92 Books" misleads the
+    // user into thinking 92 books are available.
     supabase
       .from('market_sources')
       .select('name, slug')
       .eq('source_type', 'sportsbook')
       .eq('is_active', true)
+      .eq('health_status', 'healthy')
       .order('display_order', { ascending: true }),
     supabase
       .from('data_pipelines')

@@ -13,11 +13,15 @@ export default async function BooksPage() {
 
   const cookieStore = await cookies()
   const [{ data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
+    // Match the topbar count: only sources currently producing data.
+    // Filtering by health_status='healthy' hides the ~70 planned/blocked/
+    // dead seed rows that would otherwise bloat the selector.
     supabase
       .from('market_sources')
       .select('name, slug')
       .eq('source_type', 'sportsbook')
       .eq('is_active', true)
+      .eq('health_status', 'healthy')
       .order('display_order', { ascending: true }),
     supabase
       .from('data_pipelines')
