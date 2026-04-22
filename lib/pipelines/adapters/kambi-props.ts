@@ -94,7 +94,12 @@ export interface KambiPropResult {
 async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS): Promise<KambiEvent[]> {
   const url = `${base}/listView/${sportPath}/all/all/matches.json?${params}`
   const resp = await fetch(url)
-  if (!resp.ok) return []
+  if (!resp.ok) {
+    // Surface non-ok responses — host/market guesses for US Kambi regionals
+    // return 404 silently otherwise, making new operators impossible to debug.
+    console.warn(`[Kambi] listView non-ok`, { base, sportPath, status: resp.status })
+    return []
+  }
 
   const data = await resp.json()
   const events: KambiEvent[] = []
@@ -442,6 +447,7 @@ export async function scrapeAllKambiOperators(
       KAMBI_SPORT_PATHS.map(sp => fetchEvents(base, sp.path, params)),
     )
     const opEvents = sportEvents.flat()
+    console.log(`[Kambi:${operator.sourceSlug}] discovered ${opEvents.length} events (host=${host}, market=${operator.market ?? 'CA-ON'})`)
     if (opEvents.length === 0) {
       allResults.push({ operator, results: [] })
       continue
