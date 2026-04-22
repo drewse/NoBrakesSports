@@ -372,6 +372,10 @@ export const tonybetAdapter: BookAdapter = {
       const listBodies: string[] = []
       const seenJsonHosts = new Map<string, number>()
       const seenPlatformPaths = new Map<string, number>()
+      // Track all WebSocket connections the SPA opens — BetConstruct
+      // typically streams odds via WS once the page is interactive.
+      const wsUrls = new Set<string>()
+      const wsFrames: Array<{ url: string; payload: string }> = []
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
@@ -395,6 +399,19 @@ export const tonybetAdapter: BookAdapter = {
         try { listBodies.push(await resp.text()) } catch { /* stream closed */ }
       }
       page.on('response', responseHandler)
+      page.on('websocket', (ws) => {
+        const url = ws.url()
+        if (!/tonybet/i.test(url)) return
+        wsUrls.add(url)
+        ws.on('framereceived', (frame) => {
+          if (wsFrames.length >= 5) return
+          // Playwright gives us Buffer | string; we only care about text.
+          const payload = typeof frame.payload === 'string' ? frame.payload : frame.payload.toString('utf8')
+          if (payload && payload.length > 10) {
+            wsFrames.push({ url, payload: payload.slice(0, 1200) })
+          }
+        })
+      })
 
       log.info('tonybet seeding', { url: SEED_URL })
       try {
@@ -419,12 +436,77 @@ export const tonybetAdapter: BookAdapter = {
           log.warn('sport page nav failed', { path: s.path, message: e?.message ?? String(e) })
         }
       }
+      // Give WebSocket frames a moment to arrive — BetConstruct typically
+      // streams odds updates after the event list XHR lands.
+      await page.waitForTimeout(4_000)
+
+      const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
+        return page.evaluate(async (u: string) => {
+          try {
+            const r = await fetch(u, { headers: { Accept: 'application/json' }, credentials: 'include' })
+            return { status: r.status, text: await r.text() }
+          } catch (e: any) {
+            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
+          }
+        }, url)
+      }
+
+      // Pull one sample event id from the captured list bodies to probe
+      // candidate REST-odds endpoint patterns. One 200 tells us the URL
+      // template for a follow-up parser.
+      let sampleEventId: number | string | null = null
+      for (const body of listBodies) {
+        try {
+          const j = JSON.parse(body)
+          const items = j?.data?.items ?? j?.items ?? []
+          if (Array.isArray(items) && items.length > 0) {
+            sampleEventId = items[0]?.id ?? items[0]?.sbEventId ?? null
+            if (sampleEventId) break
+          }
+        } catch { /* skip */ }
+      }
+      if (sampleEventId) {
+        const base = 'https://platform.tonybet.com'
+        const candidates = [
+          `${base}/api/event/${sampleEventId}`,
+          `${base}/api/event/get/${sampleEventId}`,
+          `${base}/api/event/${sampleEventId}/markets`,
+          `${base}/api/event/${sampleEventId}/odds`,
+          `${base}/api/odds/get-by-event/${sampleEventId}`,
+          `${base}/api/odds/by-event-ids/${sampleEventId}`,
+          `${base}/api/market/get-by-event-id/${sampleEventId}`,
+          `${base}/api/market/list/${sampleEventId}`,
+          `${base}/api/v2/event/${sampleEventId}`,
+        ]
+        for (const url of candidates) {
+          if (signal.aborted) break
+          const r = await pageFetch(url)
+          log.info('tonybet odds probe', {
+            url,
+            status: r.status,
+            bodyLen: r.text.length,
+            sample: r.text.slice(0, 500),
+          })
+          if (r.status === 200 && r.text.length > 100) break
+        }
+      }
+
       page.off('response', responseHandler)
       log.info('tonybet captured', {
         listResponses: listBodies.length,
         jsonHostsSeen: Array.from(seenJsonHosts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
         topPlatformPaths: Array.from(seenPlatformPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20),
+        wsUrls: Array.from(wsUrls),
+        wsFrames: wsFrames.length,
       })
+      // Dump the first WS frame verbatim so we can see whether BetConstruct
+      // pushes odds over the wire in JSON/binary/CBOR/etc.
+      if (wsFrames.length > 0) {
+        log.info('tonybet ws sample', {
+          url: wsFrames[0].url,
+          framePreview: wsFrames[0].payload,
+        })
+      }
 
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()

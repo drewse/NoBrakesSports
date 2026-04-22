@@ -311,24 +311,33 @@ export const betvictorAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Passive capture of component bodies the SPA fetches on render,
-      // plus a diagnostic tally of every JSON path seen so we can confirm
-      // which components fire on NBA/MLB/NHL pages. We ONLY push JSON
-      // bodies — /horizon/betvictor returns HTML/JS on some request types
-      // and JSON.parse would silently nuke our diagnostics.
+      // Passive capture of component bodies the SPA fetches on render.
+      // Round-5 revealed /api/(left|right)_components only carry UI
+      // navigation; real event data must live at /horizon/betvictor which
+      // was previously filtered out because it isn't application/json.
+      // This round: capture horizon bodies regardless of content-type
+      // and sample the format (likely NDJSON or SSE).
       const bodies: string[] = []
+      const horizonBodies: Array<{ url: string; ct: string; body: string }> = []
       const seenPaths = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
         const isJson = ct.includes('json')
-        if (isJson && u.includes('betvictor.com')) {
+        if (u.includes('betvictor.com')) {
           try {
             const p = new URL(u).pathname
               .replace(/\/\d{3,}/g, '/:id')
               .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/:uuid')
             seenPaths.set(p, (seenPaths.get(p) ?? 0) + 1)
           } catch { /* ignore */ }
+        }
+        // Snarf /horizon/betvictor bodies regardless of content-type —
+        // we need to see the payload format to write a parser.
+        if (/\/horizon\/betvictor/.test(u) && resp.status() === 200 && horizonBodies.length < 5) {
+          try {
+            horizonBodies.push({ url: u, ct, body: await resp.text() })
+          } catch { /* stream closed */ }
         }
         if (!isJson) return
         if (!FEATURED_URL_RE.test(u)) return
@@ -362,8 +371,20 @@ export const betvictorAdapter: BookAdapter = {
       page.off('response', responseHandler)
       log.info('betvictor captured', {
         componentBodies: bodies.length,
+        horizonBodies: horizonBodies.length,
         topJsonPaths: Array.from(seenPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20),
       })
+      if (horizonBodies.length > 0) {
+        const first = horizonBodies[0]
+        log.info('betvictor horizon sample', {
+          url: first.url,
+          contentType: first.ct,
+          bodyLen: first.body.length,
+          // First 2500 chars — long enough to reveal NDJSON-vs-JSON-vs-SSE
+          // vs something more exotic.
+          sample: first.body.slice(0, 2500),
+        })
+      }
 
       const agg = {
         events: new Map<number | string, BvEvent>(),
