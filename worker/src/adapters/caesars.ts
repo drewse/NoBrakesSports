@@ -26,12 +26,16 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
-// The basketball NBA page is a friendlier seed than the root bet path —
-// loads in ~8s through PacketStream vs. the root which consistently 45s'd.
-const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=870bd333-bdb3-4576-a1ac-6b4511bcdf48'
+// Caesars dropped the /ca/on/bet/ path prefix — front-end now lives at
+// sportsbook.caesars.com/<sport>?id=<competitionUuid>.
+const SEED_ROOT = 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c'
 const API_HOST = 'https://api.americanwagering.com'
 const API_BASE = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v4`
 const SPORTS_MENU_URL = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v3/sports-menu`
+// Response-listener host filter — matches legacy api.americanwagering.com AND
+// any future caesars-branded API host. Paths are what actually identify the
+// relevant XHRs; the host check is just a cheap pre-filter.
+const CAESARS_API_HOST_RE = /americanwagering\.com|api\.[^/]*caesars/i
 
 // Fixed SPA headers the Caesars sportsbook sends on every api.* call.
 // Without these (captured from DevTools cURL), AWS WAF 403s even with a
@@ -46,10 +50,14 @@ const CAESARS_API_HEADERS: Record<string, string> = {
 // events-list XHR (which AWS WAF blocks when we call it ourselves). By
 // letting the SPA fire it and capturing the response body, we bypass the
 // token issue entirely.
+//
+// NBA UUID captured 2026-04 from live site. MLB/NHL UUIDs unknown under the
+// new URL scheme — landing on the bare sport path lets the SPA pick the
+// default competition and fire its own XHRs, which we still capture.
 const LEAGUE_URLS: Record<string, string> = {
-  NBA: 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=870bd333-bdb3-4576-a1ac-6b4511bcdf48',
-  MLB: 'https://sportsbook.caesars.com/ca/on/bet/baseball?id=04f90892-3afa-4e84-acce-5b89f151063d',
-  NHL: 'https://sportsbook.caesars.com/ca/on/bet/hockey?id=b7b715a9-c7e8-4c47-af0a-77385b525e09',
+  NBA: 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
+  MLB: 'https://sportsbook.caesars.com/baseball',
+  NHL: 'https://sportsbook.caesars.com/hockey',
 }
 
 interface Competition {
@@ -434,14 +442,14 @@ export const caesarsAdapter: BookAdapter = {
 
       page.on('request', (req) => {
         const u = req.url()
-        if (!u.includes('api.americanwagering.com')) return
+        if (!CAESARS_API_HOST_RE.test(u)) return
         const headers = req.headers()
         const t = headers['x-aws-waf-token'] ?? headers['X-Aws-Waf-Token']
         if (t) wafTokenCandidates.add(t)
       })
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
-        if (!u.includes('api.americanwagering.com')) return
+        if (!CAESARS_API_HOST_RE.test(u)) return
         if (resp.status() !== 200) return
         try {
           if (menuUrlRe.test(u) && !menuBodyText) {

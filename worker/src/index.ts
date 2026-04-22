@@ -10,7 +10,6 @@ import { pinnacleAdapter } from './adapters/pinnacle.js'
 import { bet365Adapter } from './adapters/bet365.js'
 import { caesarsAdapter } from './adapters/caesars.js'
 import { betmgmAdapter } from './adapters/betmgm.js'
-import { betriversAdapter } from './adapters/betrivers.js'
 import { prolineAdapter } from './adapters/proline.js'
 import { thescoreAdapter } from './adapters/thescore.js'
 import { betvictorAdapter } from './adapters/betvictor.js'
@@ -22,15 +21,15 @@ import { casumoAdapter } from './adapters/casumo.js'
 import { ballybetAdapter } from './adapters/ballybet.js'
 
 // Removed:
-//   fanduel_on — handled by the Vercel pipeline (fanduel-props.ts)
-//   jackpotbet — domain is parked/dead (confirmed via discovery log)
+//   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
+//   betrivers_on — handled by the Vercel pipeline (kambi)
+//   jackpotbet   — domain is parked/dead (confirmed via discovery log)
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
   bet365Adapter,
   caesarsAdapter,
   betmgmAdapter,
-  betriversAdapter,
   prolineAdapter,
   thescoreAdapter,
   betvictorAdapter,

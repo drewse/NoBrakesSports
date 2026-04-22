@@ -12,9 +12,8 @@ import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
 const SEED_CANDIDATES = [
-  'https://www.888sport.com/sports',
-  'https://ca.888sport.com/',
-  'https://sport.888sport.ca/',
+  'https://www.888sport.ca/basketball/united-states/nba-t-563941/',
+  'https://www.888sport.ca/',
 ]
 
 export const eightyEightSportAdapter: BookAdapter = {
@@ -29,9 +28,9 @@ export const eightyEightSportAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const { captured, detach } = attachXhrCapture(page, log, {
-        hostIncludes: ['888sport.com', 'kambi.com', 'kambicdn.com'],
+        hostIncludes: ['888sport.com', '888sport.ca', 'kambi.com', 'kambicdn.com'],
         bookSlug: '888sport',
-        maxBodyBytes: 300,
+        maxBodyBytes: 1200,
       })
 
       let loaded = false

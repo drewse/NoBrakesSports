@@ -10,7 +10,9 @@ import { withPage } from '../lib/browser.js'
 import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
-const SEED_URL = 'https://www.casumo.com/en-ca/sports'
+// Deep-link directly to an NBA grid — the bare /sports route renders a
+// promo page and doesn't fire sportsbook XHRs until the user drills in.
+const SEED_URL = 'https://www.casumo.com/en-ca/sports/basketball/nba'
 
 export const casumoAdapter: BookAdapter = {
   slug: 'casumo',
@@ -23,10 +25,20 @@ export const casumoAdapter: BookAdapter = {
 
     return withPage(async (page) => {
       const errors: string[] = []
+      // Broad host filter — we don't know yet whether Casumo CA fronts Kambi,
+      // their own API, or a third-party (Bragg, SGDigital). Capture JSON
+      // responses from anywhere except obvious static CDNs so the discovery
+      // summary surfaces the real sportsbook API.
       const { captured, detach } = attachXhrCapture(page, log, {
-        hostIncludes: ['casumo.com', 'kambi.com', 'kambicdn.com'],
+        hostIncludes: [
+          'casumo.com',
+          'kambi.com', 'kambicdn.com', 'offering-api',
+          'bragg.com', 'sgdigital.com', 'sbtech.com',
+        ],
         bookSlug: 'casumo',
-        maxBodyBytes: 300,
+        maxBodyBytes: 1200,
+        // Skip the static SPA bundle chunks that dominated the last capture.
+        excludePath: /\/fabric-static-assets\/|\.js(\?|$)|\.css(\?|$)/,
       })
 
       log.info('casumo seeding', { url: SEED_URL })

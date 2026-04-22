@@ -1,10 +1,9 @@
 /**
  * Bally Bet (Ontario) — discovery-mode adapter.
  *
- * Bally Bet Ontario sportsbook has gone through several platform changes.
- * Gamesys brand (ballybet.ca) is casino-only; subdomain sports.ballybet.ca
- * doesn't resolve. Try the virginplusbet.ca landing (successor CA brand)
- * and sports-ballybet.com as fallbacks.
+ * The live CA sportsbook is served from play.ballybet.ca behind a hash-based
+ * SPA (`#sports-hub/<sport>/<league>`). Capture XHRs on the NBA deep link so
+ * we can identify the event + market feed before writing a real parser.
  */
 
 import { withPage } from '../lib/browser.js'
@@ -12,9 +11,8 @@ import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
 
 const SEED_CANDIDATES = [
-  'https://virginplusbet.ca/en/sports',
-  'https://www.ballybet.com/',
-  'https://sportsbook.ballybet.ca/',
+  'https://play.ballybet.ca/sports#sports-hub/basketball/nba',
+  'https://play.ballybet.ca/sports',
 ]
 
 export const ballybetAdapter: BookAdapter = {
@@ -30,11 +28,13 @@ export const ballybetAdapter: BookAdapter = {
       const errors: string[] = []
       const { captured, detach } = attachXhrCapture(page, log, {
         hostIncludes: [
-          'ballybet.ca', 'ballybet.com', 'ballybetca.com', 'virginplusbet.ca',
+          'ballybet.ca', 'ballybet.com', 'ballybetca.com',
           'kambi.com', 'kambicdn.com',
+          // White-label platforms ballybet has used historically:
+          'bragg.com', 'sgdigital.com', 'sbtech.com', 'digital-gaming.com',
         ],
         bookSlug: 'ballybet',
-        maxBodyBytes: 300,
+        maxBodyBytes: 1200,
       })
 
       // Try each candidate URL until one resolves. PacketStream returns
