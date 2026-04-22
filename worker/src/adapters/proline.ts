@@ -96,22 +96,24 @@ export const prolineAdapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
       const eventsById = new Map<number, KEvent & { league: KLeagueConfig }>()
 
-      // Seed an olg.ca context so the fetch's origin / referer match what
-      // Kambi expects. Kambi endpoints are public but some regions check
-      // cross-origin markers; olg.ca is the SPA's real origin.
-      try {
-        await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-      } catch { /* proceed — endpoints are public */ }
-
+      // Kambi offering-api is public CDN — no cookies required. Use the
+      // context's APIRequestContext so calls aren't tied to the page's
+      // navigation lifecycle. (Earlier code seeded www.olg.ca first and
+      // ran fetch() via page.evaluate, which died with "Execution context
+      // destroyed" when OLG redirected mid-request.)
       const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async (u: string) => {
-          try {
-            const r = await fetch(u, { headers: { Accept: '*/*' } })
-            return { status: r.status, text: await r.text() }
-          } catch (e: any) {
-            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
-          }
-        }, url)
+        try {
+          const r = await page.context().request.get(url, {
+            headers: {
+              Accept: '*/*',
+              Origin: ORIGIN,
+              Referer: `${ORIGIN}/`,
+            },
+          })
+          return { status: r.status(), text: await r.text() }
+        } catch (e: any) {
+          return { status: -1, text: `request threw: ${e?.message ?? String(e)}` }
+        }
       }
 
       // 1) Pull event lists per league in parallel.

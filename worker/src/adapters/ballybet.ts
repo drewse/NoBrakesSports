@@ -94,21 +94,22 @@ export const ballybetAdapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
       const eventsById = new Map<number, KEvent & { league: KLeagueConfig }>()
 
-      // Seed play.ballybet.ca so fetch origin/referer matches. The SPA can
-      // be slow to load but we only need a document context for fetch().
-      try {
-        await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-      } catch { /* proceed — endpoints are public */ }
-
+      // Kambi offering-api is public CDN — skip the page seed and use
+      // the context's APIRequestContext. Avoids "Execution context
+      // destroyed" errors when the origin host redirects mid-fetch.
       const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async (u: string) => {
-          try {
-            const r = await fetch(u, { headers: { Accept: '*/*' } })
-            return { status: r.status, text: await r.text() }
-          } catch (e: any) {
-            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
-          }
-        }, url)
+        try {
+          const r = await page.context().request.get(url, {
+            headers: {
+              Accept: '*/*',
+              Origin: ORIGIN,
+              Referer: `${ORIGIN}/`,
+            },
+          })
+          return { status: r.status(), text: await r.text() }
+        } catch (e: any) {
+          return { status: -1, text: `request threw: ${e?.message ?? String(e)}` }
+        }
       }
 
       // 1) Pull event lists per league in parallel.
