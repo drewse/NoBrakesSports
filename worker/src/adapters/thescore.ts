@@ -391,9 +391,34 @@ export const thescoreAdapter: BookAdapter = {
       const seen = new Set<string>()
       let loggedSample = false
       const loggedSections = new Set<string>()
+      const loggedCompetitionPageLeagues = new Set<string>()
       for (const { url: bodyUrl, body } of gqlBodies) {
         let json: any
         try { json = JSON.parse(body) } catch { continue }
+
+        // Log the CompetitionPage body — it fires once per league and
+        // contains the list of ALL available sections (Moneyline, Spread,
+        // Total, SGP, Featured etc.) with their sectionIds, which is what
+        // we need to actively fetch the game-lines section. The Lines tab
+        // only fires the section the user currently has selected (which on
+        // our #lines hash is always Featured).
+        if (/operationName=CompetitionPage(&|$)/.test(bodyUrl)) {
+          let leagueHint = '(unknown)'
+          try {
+            const vm = bodyUrl.match(/variables=([^&]+)/)
+            if (vm) {
+              const parsed = JSON.parse(decodeURIComponent(vm[1]))
+              leagueHint = parsed?.competitionSlug ?? parsed?.slug ?? parsed?.competitionId ?? '(no-slug)'
+            }
+          } catch { /* ignore */ }
+          if (!loggedCompetitionPageLeagues.has(leagueHint)) {
+            loggedCompetitionPageLeagues.add(leagueHint)
+            log.info('thescore CompetitionPage body', {
+              leagueHint, bodyLen: body.length,
+              headSample: body.slice(0, 4000),
+            })
+          }
+        }
 
         // Dump EVERY CompetitionPageSectionLinesTabNode body we see — the
         // Lines tab fires one per section (Featured, SGP, Moneyline,

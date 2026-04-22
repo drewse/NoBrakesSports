@@ -49,16 +49,13 @@ const CAESARS_API_HEADERS: Record<string, string> = {
   'x-unique-device-id': '64a867de-e9ac-4aae-bae8-2901badfd8d2',
 }
 
-// League landing pages: navigating here causes the SPA to fire the
-// events-list XHR (which AWS WAF blocks when we call it ourselves). By
-// letting the SPA fire it and capturing the response body, we bypass the
-// token issue entirely.
-//
-// NBA UUID captured 2026-04 from live site. MLB/NHL UUIDs unknown under the
-// new URL scheme — landing on the bare sport path lets the SPA pick the
-// default competition and fire its own XHRs, which we still capture.
-const LEAGUE_URLS: Record<string, string> = {
-  NBA: 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
+// League landing pages: bare sport path hits the sport-level quick-picks
+// (no competition). To trigger the competition-scoped quick-picks XHR
+// (which carries events[] with real teams + startTime), append `?id={uuid}`
+// where uuid is the sports-menu competitionId. We build these dynamically
+// after parsing the sports-menu body.
+const LEAGUE_BASE_URLS: Record<string, string> = {
+  NBA: 'https://sportsbook.caesars.com/basketball',
   MLB: 'https://sportsbook.caesars.com/baseball',
   NHL: 'https://sportsbook.caesars.com/hockey',
 }
@@ -637,13 +634,19 @@ export const caesarsAdapter: BookAdapter = {
       log.info('caesars sports-menu parsed', { totalUuids: compUuids.size })
 
       // Drive the SPA to each league page so it fires the events-list XHR
-      // itself. We passively capture the body.
+      // itself. We passively capture the body. URLs are composed from the
+      // sports-menu competitionIds so each league fires a competition-scoped
+      // /quick-picks (bare sport paths only fire sport-level which carries
+      // no event/competition mapping).
       for (const comp of COMPETITIONS) {
         if (signal.aborted) break
-        const leagueUrl = LEAGUE_URLS[comp.menuName]
-        if (!leagueUrl) continue
+        const base = LEAGUE_BASE_URLS[comp.menuName]
+        if (!base) continue
+        const uuid = compUuids.get(comp.menuName.toUpperCase())
+          ?? compUuids.get(comp.leagueSlug.toUpperCase())
+        const leagueUrl = uuid ? `${base}?id=${uuid}` : base
         try {
-          log.debug('visiting league page', { comp: comp.name })
+          log.debug('visiting league page', { comp: comp.name, url: leagueUrl })
           await page.goto(leagueUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
           // Give the events-list + some event calls time to settle.
           await page.waitForTimeout(4_000)
