@@ -28,197 +28,10 @@ const TYPE_COLORS: Record<PromoType, string> = {
   'Free Bet':      'bg-orange-500/15 text-orange-300 border-orange-500/30',
 }
 
-const PROMOS: Promo[] = [
-  // ── Welcome Bonuses ───────────────────────────────────────────────────────
-  {
-    id: 'dk-welcome',
-    book: 'DraftKings',
-    type: 'Welcome Bonus',
-    title: 'Bet $5, Get $200 in Bonus Bets',
-    value: '$200',
-    description: 'New users place a $5 bet and receive $200 in bonus bets instantly, regardless of outcome.',
-    terms: '21+. New customers only. Bonus bets expire in 7 days. Must be in an eligible state.',
-    url: 'https://sportsbook.draftkings.com',
-    tag: 'Best Value',
-    states: 'US Only',
-  },
-  {
-    id: 'fd-welcome',
-    book: 'FanDuel',
-    type: 'Welcome Bonus',
-    title: 'Bet $5, Get $200 in Bonus Bets',
-    value: '$200',
-    description: 'Place your first $5 wager and get $200 in bonus bets win or lose.',
-    terms: '21+. New customers only. Bonus bets expire in 14 days.',
-    url: 'https://sportsbook.fanduel.com',
-    states: 'US Only',
-  },
-  {
-    id: 'betmgm-welcome',
-    book: 'BetMGM',
-    type: 'Welcome Bonus',
-    title: 'First Bet Offer Up to $1,500',
-    value: '$1,500',
-    description: 'If your first bet loses, BetMGM credits your account with bonus bets up to $1,500.',
-    terms: '21+. New customers only. Bonus bets paid in 5 x 20% increments. 1x playthrough.',
-    url: 'https://sports.betmgm.com',
-    tag: 'Highest Cap',
-    states: 'US Only',
-  },
-  {
-    id: 'caesars-welcome',
-    book: 'Caesars',
-    type: 'Welcome Bonus',
-    title: 'First Bet on Caesars up to $1,000',
-    value: '$1,000',
-    description: 'Your first bet is fully insured up to $1,000. If it loses, you get a bonus bet back.',
-    terms: '21+. New customers only. Single bonus bet returned. 1x playthrough required.',
-    url: 'https://sportsbook.caesars.com',
-    states: 'US Only',
-  },
-  {
-    id: 'espnbet-welcome',
-    book: 'ESPN Bet',
-    type: 'Welcome Bonus',
-    title: 'First Bet Reset up to $1,000',
-    value: '$1,000',
-    description: 'Lose your first bet? ESPN Bet refunds it as a bonus bet up to $1,000.',
-    terms: '21+. New customers only. Bonus bet expires in 7 days.',
-    url: 'https://espnbet.com',
-    states: 'US Only',
-  },
-  {
-    id: 'si-welcome',
-    book: 'Sports Interaction',
-    type: 'Welcome Bonus',
-    title: '100% Match Bonus up to $200',
-    value: '$200',
-    description: 'Deposit and receive a 100% match bonus on your first deposit up to $200.',
-    terms: 'New customers. 5x rollover on deposit + bonus. Minimum odds -200.',
-    url: 'https://www.sportsinteraction.com',
-    tag: 'Canada',
-    states: 'CA Only',
-  },
-  {
-    id: 'thescore-welcome',
-    book: 'theScore Bet',
-    type: 'Welcome Bonus',
-    title: 'Bet $50, Get $100 in Bonus Bets',
-    value: '$100',
-    description: 'New customers place a $50 bet and receive $100 in bonus bets.',
-    terms: 'New customers. Minimum odds -200. Bonus bets expire in 7 days.',
-    url: 'https://bet.thescore.com',
-    states: 'CA Only',
-  },
-
-  // ── Risk-Free ─────────────────────────────────────────────────────────────
-  {
-    id: 'betrivers-nswb',
-    book: 'BetRivers',
-    type: 'Risk-Free',
-    title: 'No-Sweat First Bet up to $500',
-    value: '$500',
-    description: 'First bet is protected. If it loses, get a bonus bet of equal value up to $500.',
-    terms: '21+. New customers. Bonus bet expires 30 days. 1x playthrough.',
-    url: 'https://www.betrivers.com',
-    states: 'US Only',
-  },
-  {
-    id: 'hardrock-nswb',
-    book: 'Hard Rock Bet',
-    type: 'Risk-Free',
-    title: 'Second Chance Bet up to $500',
-    value: '$500',
-    description: 'If your first bet loses you get a second chance bonus bet up to $500.',
-    terms: '21+. New customers. FL, NJ, TN, IN, VA only.',
-    url: 'https://www.hardrock.bet',
-    states: 'US Only',
-  },
-
-  // ── Reload ────────────────────────────────────────────────────────────────
-  {
-    id: 'betmgm-reload',
-    book: 'BetMGM',
-    type: 'Reload',
-    title: 'Monday Night Football Parlay Boost',
-    value: '+25%',
-    description: 'Get a 25% profit boost on any same-game parlay placed on Monday Night Football.',
-    terms: 'Existing customers. Opt-in required. Max $25 boost value.',
-    url: 'https://sports.betmgm.com',
-  },
-  {
-    id: 'dk-reload',
-    book: 'DraftKings',
-    type: 'Reload',
-    title: 'Stepped Up Parlay Bonus',
-    value: 'Up to +100%',
-    description: 'Extra winnings on parlays: 3-leg +33%, 4-leg +50%, 5-leg +75%, 6+ leg +100%.',
-    terms: 'Minimum odds -300 per leg. Max bonus $25 per parlay. Recurring weekly.',
-    url: 'https://sportsbook.draftkings.com',
-    tag: 'Recurring',
-  },
-
-  // ── Odds Boost ────────────────────────────────────────────────────────────
-  {
-    id: 'fd-boost',
-    book: 'FanDuel',
-    type: 'Odds Boost',
-    title: 'Daily Odds Boosts',
-    value: 'Varies',
-    description: 'FanDuel offers multiple daily odds boosts across all major sports, typically 20–100% enhanced odds on featured markets.',
-    terms: 'Max bet $25 on boosted odds. One per customer per boost. Check app daily.',
-    url: 'https://sportsbook.fanduel.com',
-    tag: 'Daily',
-  },
-  {
-    id: 'caesars-boost',
-    book: 'Caesars',
-    type: 'Odds Boost',
-    title: 'Profit Boosts',
-    value: 'Up to +100%',
-    description: 'Profit boost tokens that increase your winnings by a set percentage on eligible bets.',
-    terms: 'Issued via promotions. Max boost varies. Check your active offers.',
-    url: 'https://sportsbook.caesars.com',
-    tag: 'Recurring',
-  },
-
-  // ── Referral ──────────────────────────────────────────────────────────────
-  {
-    id: 'dk-referral',
-    book: 'DraftKings',
-    type: 'Referral',
-    title: 'Refer a Friend — $100 Each',
-    value: '$100/referral',
-    description: 'Refer a friend and both of you receive $100 in bonus bets when they place their first $25+ wager.',
-    terms: 'Referred friend must be a new DraftKings customer. Limit 10 referrals.',
-    url: 'https://sportsbook.draftkings.com',
-    tag: 'Stackable',
-  },
-  {
-    id: 'fd-referral',
-    book: 'FanDuel',
-    type: 'Referral',
-    title: 'Refer a Friend — $75 Each',
-    value: '$75/referral',
-    description: 'Both you and your referred friend get $75 in bonus bets after they place their first bet.',
-    terms: 'New FanDuel customer only. Must use your referral link. Limit 10 referrals.',
-    url: 'https://sportsbook.fanduel.com',
-    tag: 'Stackable',
-  },
-
-  // ── Free Bet ──────────────────────────────────────────────────────────────
-  {
-    id: 'betway-freebet',
-    book: 'Betway',
-    type: 'Free Bet',
-    title: 'Weekly Free Bet Club',
-    value: 'Up to $30/wk',
-    description: 'Place qualifying bets each week to earn a free bet token. Higher activity = larger free bet.',
-    terms: 'Opt-in required weekly. Qualifying bets must be at odds -200 or greater.',
-    url: 'https://www.betway.com',
-    states: 'CA Only',
-  },
-]
+// Wiped — user is sourcing real promos per book and will add them back
+// one-by-one. Keep this array empty so the page renders the empty state
+// until the first real entry is added.
+const PROMOS: Promo[] = []
 
 const TYPE_ORDER: PromoType[] = ['Welcome Bonus', 'Risk-Free', 'Reload', 'Odds Boost', 'Free Bet', 'Referral']
 
@@ -249,6 +62,16 @@ export default function PromotionsPage() {
           Bonus bet values represent the potential bonus, not guaranteed cash.
         </p>
       </div>
+
+      {/* Empty state */}
+      {grouped.length === 0 && (
+        <div className="rounded-lg border border-nb-800 bg-nb-900 px-6 py-10 text-center">
+          <p className="text-sm text-nb-300 font-medium">No promotions yet</p>
+          <p className="text-[11px] text-nb-500 mt-1">
+            Promotions will appear here as they're researched and added.
+          </p>
+        </div>
+      )}
 
       {/* Sections by type */}
       {grouped.map(({ type, promos }) => (
