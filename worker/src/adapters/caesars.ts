@@ -26,9 +26,12 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
-// Caesars dropped the /ca/on/bet/ path prefix — front-end now lives at
-// sportsbook.caesars.com/<sport>?id=<competitionUuid>.
-const SEED_ROOT = 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c'
+// Caesars supports BOTH the new bare path (/basketball?id=...) AND the
+// explicit /ca/on/bet/ region prefix. The bare path is geo-dependent —
+// Starlink residential IPs sometimes get pinned to Colorado, leaving the
+// events-list XHR firing against the US-CO API stack. The explicit prefix
+// forces the Ontario region stack unambiguously.
+const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c'
 const API_HOST = 'https://api.americanwagering.com'
 const API_BASE = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v4`
 const SPORTS_MENU_URL = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v3/sports-menu`
@@ -55,9 +58,9 @@ const CAESARS_API_HEADERS: Record<string, string> = {
 // new URL scheme — landing on the bare sport path lets the SPA pick the
 // default competition and fire its own XHRs, which we still capture.
 const LEAGUE_URLS: Record<string, string> = {
-  NBA: 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
-  MLB: 'https://sportsbook.caesars.com/baseball',
-  NHL: 'https://sportsbook.caesars.com/hockey',
+  NBA: 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
+  MLB: 'https://sportsbook.caesars.com/ca/on/bet/baseball',
+  NHL: 'https://sportsbook.caesars.com/ca/on/bet/hockey',
 }
 
 interface Competition {
@@ -452,6 +455,11 @@ export const caesarsAdapter: BookAdapter = {
       const menuUrlRe = /\/sb\/v\d+\/sports-menu(\?|$)/
       const eventsListRe = /\/competitions\/[0-9a-f-]{36}\/events(\?|$)/
       const eventRe = /\/events\/([0-9a-f-]{36})(\?|$)/
+      // Liberty platform moved away from /competitions/:uuid/events towards
+      // /competitions/:uuid/{tabs,quick-picks} which return event+market
+      // graphs keyed differently. Capture those too; we parse afterwards.
+      const compSubRe = /\/competitions\/[0-9a-f-]{36}\/(tabs|quick-picks|events-with-markets)(\?|$)/
+      const compSubBodies: Array<{ path: string; body: string }> = []
 
       page.on('request', (req) => {
         const u = req.url()
@@ -477,6 +485,12 @@ export const caesarsAdapter: BookAdapter = {
           }
           if (eventsListRe.test(u)) {
             eventsListBodies.push(await resp.text())
+            return
+          }
+          if (compSubRe.test(u) && compSubBodies.length < 10) {
+            const path = new URL(u).pathname
+              .replace(/\/[0-9a-f-]{36}/g, '/:uuid')
+            compSubBodies.push({ path, body: await resp.text() })
             return
           }
           const m = u.match(eventRe)
@@ -575,8 +589,31 @@ export const caesarsAdapter: BookAdapter = {
       log.info('caesars capture', {
         eventsListCount: eventsListBodies.length,
         eventBodyCount: eventBodies.size,
+        compSubBodies: compSubBodies.length,
         topApiPaths: Array.from(seenCaesarsPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25),
       })
+
+      // Dump one sample body per distinct competition sub-endpoint so we
+      // can see which (tabs / quick-picks / events-with-markets) holds the
+      // events graph and wire a parser next iteration.
+      const subSeen = new Set<string>()
+      for (const { path, body } of compSubBodies) {
+        if (subSeen.has(path)) continue
+        subSeen.add(path)
+        let topKeys: string[] | null = null
+        try {
+          const parsed = JSON.parse(body)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            topKeys = Object.keys(parsed).slice(0, 20)
+          } else if (Array.isArray(parsed)) {
+            topKeys = [`__array__len=${parsed.length}`]
+          }
+        } catch { /* log anyway */ }
+        log.info('caesars comp sub-endpoint sample', {
+          path, topKeys, bodyLen: body.length,
+          sample: body.slice(0, 2500),
+        })
+      }
 
       // Build a master event list: prefer passively-captured events-list
       // bodies, fall back to mining the menu.
