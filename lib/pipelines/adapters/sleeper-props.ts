@@ -44,44 +44,46 @@ const SPORT_TO_LEAGUE: Record<string, { leagueSlug: string; sport: string }> = {
   nfl:  { leagueSlug: 'nfl',  sport: 'football'   },
 }
 
-// wager_type → canonical prop_category. Sleeper uses snake_case names
-// that don't always line up with PrizePicks/Underdog display_stat labels.
+// wager_type → canonical prop_category. Names verified from a live
+// production response; Sleeper's conventions differ from PrizePicks/
+// Underdog (e.g. "threes_made" not "three_pointers_made", "pts_reb_ast"
+// instead of spelling out). Unmapped wager_types surface in the sync
+// response's debug.unmappedWagerTypes so new/renamed stats show up
+// quickly.
 const STAT_TO_CATEGORY: Record<string, string> = {
   // NBA / WNBA
-  'points':                 'player_points',
-  'rebounds':               'player_rebounds',
-  'assists':                'player_assists',
-  'steals':                 'player_steals',
-  'blocks':                 'player_blocks',
-  'turnovers':              'player_turnovers',
-  'three_pointers_made':    'player_threes',
-  '3pt_made':               'player_threes',
-  'points_rebounds_assists':'player_pts_reb_ast',
-  'points_assists':         'player_pts_ast',
-  'points_rebounds':        'player_pts_reb',
-  'rebounds_assists':       'player_ast_reb',
-  'blocks_steals':          'player_blks_stls',
+  'points':              'player_points',
+  'rebounds':            'player_rebounds',
+  'assists':             'player_assists',
+  'steals':              'player_steals',
+  'blocks':              'player_blocks',
+  'blocked_shots':       'player_blocks',
+  'turnovers':           'player_turnovers',
+  'threes_made':         'player_threes',
+  'pts_reb_ast':         'player_pts_reb_ast',
+  'points_and_assists':  'player_pts_ast',
+  'points_and_rebounds': 'player_pts_reb',
+  'rebounds_and_assists':'player_ast_reb',
+  'blocks_and_steals':   'player_blks_stls',
   // MLB
-  'hits':                   'player_hits',
-  'total_bases':            'player_total_bases',
-  'runs':                   'player_runs',
-  'rbis':                   'player_rbis',
-  'stolen_bases':           'player_stolen_bases',
-  'walks':                  'player_walks',
-  'home_runs':              'player_home_runs',
-  'strikeouts_pitched':     'player_strikeouts_p',
-  'hits_allowed':           'player_hits_allowed',
-  'earned_runs_allowed':    'player_earned_runs',
-  'pitching_outs':          'pitcher_outs',
-  'hits_runs_rbis':         'player_hits_runs_rbis',
+  'hits':                'player_hits',
+  'total_bases':         'player_total_bases',
+  'runs':                'player_runs',
+  'rbis':                'player_rbis',
+  'stolen_bases':        'player_stolen_bases',
+  'bat_walks':           'player_walks',
+  'home_runs':           'player_home_runs',
+  'strike_outs':         'player_strikeouts_p',
+  'bat_strike_outs':     'player_strikeouts_p',
+  'hits_allowed':        'player_hits_allowed',
+  'earned_runs':         'player_earned_runs',
+  'outs':                'pitcher_outs',
   // NHL
-  'goals':                  'player_goals',
-  'shots_on_goal':          'player_shots_on_goal',
-  'saves':                  'player_saves',
-  'goals_allowed':          'player_goals_allowed',
-  'power_play_points':      'player_power_play_pts',
-  'hockey_assists':         'player_hockey_assists',
-  'hockey_points':          'player_hockey_points',
+  'goals':               'player_goals',
+  'shots':               'player_shots_on_goal',
+  'saves':               'player_saves',
+  'goals_against':       'player_goals_allowed',
+  'powerplay_points':    'player_power_play_pts',
 }
 
 export interface SLEvent {
@@ -156,11 +158,13 @@ export const __lastScrapeStats: {
   skippedSport: number
   skippedStat: number
   skippedShape: number
+  shapeReasons: Record<string, number>   // sub-breakdown of skippedShape
   gamesWithOneTeam: number
   unmappedWagerTypes: Record<string, number>
 } = {
   linesReceived: 0, sportsNeeded: [],
   skippedSport: 0, skippedStat: 0, skippedShape: 0,
+  shapeReasons: {},
   gamesWithOneTeam: 0, unmappedWagerTypes: {},
 }
 
@@ -172,8 +176,13 @@ export async function scrapeSleeper(
   __lastScrapeStats.skippedSport = 0
   __lastScrapeStats.skippedStat = 0
   __lastScrapeStats.skippedShape = 0
+  __lastScrapeStats.shapeReasons = {}
   __lastScrapeStats.gamesWithOneTeam = 0
   __lastScrapeStats.unmappedWagerTypes = {}
+  const bumpShape = (reason: string) => {
+    __lastScrapeStats.shapeReasons[reason] = (__lastScrapeStats.shapeReasons[reason] ?? 0) + 1
+    __lastScrapeStats.skippedShape += 1
+  }
   // 1) Fetch the lines list.
   const lines = await fetchJson<SLLine[]>(LINES_URL, signal)
   if (!lines || !Array.isArray(lines) || lines.length === 0) return []
@@ -206,15 +215,14 @@ export async function scrapeSleeper(
 
   let skippedSport = 0
   let skippedStat = 0
-  let skippedShape = 0
 
   for (const l of lines) {
-    if (!l.sport) { skippedShape++; continue }
+    if (!l.sport) { bumpShape('no_sport'); continue }
     const leagueMap = SPORT_TO_LEAGUE[l.sport]
     if (!leagueMap) { skippedSport++; continue }
-    if (l.status !== 'active') { skippedShape++; continue }
-    if (l.game_status && l.game_status !== 'pre_game') { skippedShape++; continue }
-    if (l.outcome_type && l.outcome_type !== 'over_under') { skippedShape++; continue }
+    if (l.status !== 'active') { bumpShape('status_not_active'); continue }
+    if (l.game_status && l.game_status !== 'pre_game') { bumpShape('not_pregame'); continue }
+    if (l.outcome_type && l.outcome_type !== 'over_under') { bumpShape('not_over_under'); continue }
 
     const category = l.wager_type ? STAT_TO_CATEGORY[l.wager_type] : undefined
     if (!category) {
@@ -227,13 +235,13 @@ export async function scrapeSleeper(
     }
 
     const player = l.subject_id ? playersBySport[l.sport]?.[l.subject_id] : undefined
-    if (!player?.first_name && !player?.last_name) { skippedShape++; continue }
+    if (!player?.first_name && !player?.last_name) { bumpShape('no_player'); continue }
     const fullName = [player.first_name, player.last_name].filter(Boolean).join(' ').trim()
-    if (!fullName) { skippedShape++; continue }
+    if (!fullName) { bumpShape('empty_player_name'); continue }
 
     const gameId = l.game_id
     const teamAbbr = l.subject_team
-    if (!gameId || !teamAbbr) { skippedShape++; continue }
+    if (!gameId || !teamAbbr) { bumpShape('no_game_or_team'); continue }
 
     // Extract over/under prices + line from options[].
     let overPrice: number | null = null
@@ -250,8 +258,8 @@ export async function scrapeSleeper(
       if (opt.outcome === 'over') overPrice = px
       else if (opt.outcome === 'under') underPrice = px
     }
-    if (lineValue == null) { skippedShape++; continue }
-    if (overPrice == null && underPrice == null) { skippedShape++; continue }
+    if (lineValue == null) { bumpShape('no_line_value'); continue }
+    if (overPrice == null && underPrice == null) { bumpShape('no_prices'); continue }
 
     const key: GameKey = `${l.sport}|${gameId}`
     const teams = gameTeams.get(key) ?? new Set<string>()
@@ -280,7 +288,7 @@ export async function scrapeSleeper(
   for (const [key, teams] of gameTeams) {
     if (teams.size !== 2) {
       if (teams.size === 1) __lastScrapeStats.gamesWithOneTeam++
-      skippedShape++
+      bumpShape('game_team_count_not_2')
       continue
     }
     const meta = gameMeta.get(key)!
@@ -310,12 +318,12 @@ export async function scrapeSleeper(
   }
   console.log(`[Sleeper] total: ${out.length} games, ${out.reduce((s, r) => s + r.props.length, 0)} props; by league:`,
     Object.fromEntries(perLeague))
-  if (skippedSport || skippedStat || skippedShape) {
-    console.log(`[Sleeper] skipped: sport=${skippedSport} unmapped_stat=${skippedStat} shape=${skippedShape}`)
+  if (skippedSport || skippedStat || __lastScrapeStats.skippedShape) {
+    console.log(`[Sleeper] skipped: sport=${skippedSport} unmapped_stat=${skippedStat} shape=${__lastScrapeStats.skippedShape}`)
   }
   __lastScrapeStats.skippedSport = skippedSport
   __lastScrapeStats.skippedStat = skippedStat
-  __lastScrapeStats.skippedShape = skippedShape
+  // skippedShape incremented inside bumpShape() already
 
   return out
 }
