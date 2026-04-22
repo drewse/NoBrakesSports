@@ -18,6 +18,7 @@ import { scrapeBetway, type BWResult } from '@/lib/pipelines/adapters/betway-pro
 import { scrapeBetMGM, type MGMResult } from '@/lib/pipelines/adapters/betmgm-props'
 import { scrapeBwin, type BWINResult } from '@/lib/pipelines/adapters/bwin-props'
 import { scrapePartypoker, type PPResult } from '@/lib/pipelines/adapters/partypoker-props'
+import { scrapePrizePicks, type PrizePicksResult } from '@/lib/pipelines/adapters/prizepicks'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import { canonicalEventKey } from '@/lib/pipelines/normalize'
 
@@ -109,6 +110,7 @@ export async function GET(req: NextRequest) {
   let mgmResults: MGMResult[] = []
   let bwinResults: BWINResult[] = []
   let ppResults: PPResult[] = []
+  let prizepicksResults: PrizePicksResult[] = []
 
   // 1. Scrape all sources in parallel
   const controller = new AbortController()
@@ -120,7 +122,7 @@ export async function GET(req: NextRequest) {
     // and produces garbage player names / stale lines that collide with the
     // worker's writes on the same (source_id, event_id, prop_category, player,
     // line_value) key and cause fake arbs/+EV.
-    const [kambi, dk, fd, bw, mgm, bwinRes, ppRes] = await Promise.allSettled([
+    const [kambi, dk, fd, bw, mgm, bwinRes, ppRes, prizepicksRes] = await Promise.allSettled([
       scrapeAllKambiOperators(controller.signal),
       scrapeDraftKings(controller.signal),
       scrapeFanDuel(controller.signal),
@@ -128,6 +130,7 @@ export async function GET(req: NextRequest) {
       scrapeBetMGM(controller.signal),
       scrapeBwin(controller.signal),
       scrapePartypoker(controller.signal),
+      scrapePrizePicks(controller.signal),
     ])
 
     if (kambi.status === 'fulfilled') {
@@ -178,6 +181,13 @@ export async function GET(req: NextRequest) {
       if (ppResults.length === 0) errors.push('partypoker: scrape succeeded but returned 0 events')
     } else {
       errors.push(`partypoker scrape failed: ${String(ppRes.reason)}`)
+    }
+
+    if (prizepicksRes.status === 'fulfilled') {
+      prizepicksResults = prizepicksRes.value
+      if (prizepicksResults.length === 0) errors.push('prizepicks: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`prizepicks scrape failed: ${String(prizepicksRes.reason)}`)
     }
 
   } finally {
@@ -420,6 +430,33 @@ export async function GET(req: NextRequest) {
         propRows.push(buildPropRow(eventId, fdSourceIdForProps, prop, now))
       }
     }
+  }
+
+  // Process PrizePicks (DFS pick-em) — auto-create source row on first run,
+  // then match each game's projections against canonical events. Props
+  // carry line_value only; over_price / under_price are NULL by design
+  // (PrizePicks doesn't quote per-leg odds — payouts are pick-count based).
+  let prizepicksSourceId = sourceMap.get('prizepicks')
+  if (!prizepicksSourceId && prizepicksResults.length > 0) {
+    const { data: newSource } = await db
+      .from('market_sources')
+      .insert({ name: 'PrizePicks', slug: 'prizepicks', source_type: 'dfs', is_active: true })
+      .select('id')
+      .single()
+    if (newSource) { prizepicksSourceId = newSource.id; sourceMap.set('prizepicks', newSource.id) }
+  }
+  if (prizepicksSourceId) {
+    let ppMatched = 0
+    let ppUnmatched = 0
+    for (const result of prizepicksResults) {
+      const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeTeam, result.event.awayTeam)
+      if (!eventId) { ppUnmatched++; continue }
+      ppMatched++
+      for (const prop of result.props) {
+        propRows.push(buildPropRow(eventId, prizepicksSourceId, prop, now))
+      }
+    }
+    console.log(`[PrizePicks] games matched=${ppMatched} unmatched=${ppUnmatched} props=${prizepicksResults.reduce((s, r) => s + r.props.length, 0)}`)
   }
 
   // 4b. Write Kambi game-level markets (ML, spread, total) into current_market_odds.
