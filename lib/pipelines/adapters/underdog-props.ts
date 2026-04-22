@@ -157,15 +157,16 @@ export async function scrapeUnderdog(
     return []
   }
 
-  const body = await resp.json() as UDResponse
-  const appearances = body.appearances ?? []
-  const players = body.players ?? []
-  const games = body.games ?? []
+  // Parse the ~16MB response, build lookup maps immediately, then drop
+  // references to the raw arrays so V8 can GC them before we walk lines.
+  // Otherwise parsed JSON + derived maps + line iteration all sit in
+  // heap together and push us past Vercel's function memory budget.
+  let body: UDResponse | null = await resp.json() as UDResponse
+  const appById    = new Map((body.appearances ?? []).map(a => [a.id, a]))
+  const playerById = new Map((body.players ?? []).map(p => [p.id, p]))
+  const gameById   = new Map((body.games ?? []).map(g => [g.id, g]))
   const lines = body.over_under_lines ?? []
-
-  const appById    = new Map(appearances.map(a => [a.id, a]))
-  const playerById = new Map(players.map(p => [p.id, p]))
-  const gameById   = new Map(games.map(g => [g.id, g]))
+  body = null  // drop the root reference; raw JSON + solo_games can GC now
 
   // Group props by game id (match_id). Each game becomes one UDResult.
   const byGame = new Map<number, NormalizedProp[]>()

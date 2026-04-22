@@ -237,12 +237,15 @@ async function fetchLeague(
 export async function scrapePrizePicks(
   signal?: AbortSignal,
 ): Promise<PrizePicksResult[]> {
-  const perLeague = await Promise.all(
-    PP_LEAGUES.map(async (lg) => {
-      const res = await fetchLeague(lg, signal)
-      console.log(`[PrizePicks:${lg.leagueSlug}] ${res.length} games, ${res.reduce((s, r) => s + r.props.length, 0)} props`)
-      return res
-    }),
-  )
-  return perLeague.flat()
+  // Serial per-league to cap peak memory at ~7MB (one response) instead of
+  // ~28MB (4 parallel responses). Vercel's sync-props function was OOM'ing
+  // on the parallel path once Underdog was added alongside.
+  const out: PrizePicksResult[] = []
+  for (const lg of PP_LEAGUES) {
+    if (signal?.aborted) break
+    const res = await fetchLeague(lg, signal)
+    console.log(`[PrizePicks:${lg.leagueSlug}] ${res.length} games, ${res.reduce((s, r) => s + r.props.length, 0)} props`)
+    for (const r of res) out.push(r)
+  }
+  return out
 }
