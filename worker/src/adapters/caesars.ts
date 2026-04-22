@@ -246,6 +246,131 @@ function parseQuickPickName(name: string): { away: string; home: string } | null
   return { away, home }
 }
 
+/** Walk a /tabs body (selectedTabId = SCHEDULE|Games by default) for events
+ *  with full game markets embedded under keyMarketGroups[].markets[].
+ *  Shape: { competitions: [{ id, events: [{ id, name:"A at B", startTime,
+ *  competitionId, keyMarketGroups:[{markets:[{name:"|Spread|", line, selections:
+ *  [{type:"home", price:{a:-110}}, ...]}]}] }] }] }.
+ *  Returns events with pre-extracted GameMarket records so we skip the
+ *  per-event fetch path entirely for games covered here. */
+function extractEventsFromTabs(body: any): Array<{
+  id: string
+  name: string
+  startTime: string
+  competitors: Array<{ id?: string; name: string; home: boolean }>
+  competitionId?: string
+  gameMarkets: GameMarket[]
+}> {
+  const out: Array<{
+    id: string; name: string; startTime: string
+    competitors: Array<{ id?: string; name: string; home: boolean }>
+    competitionId?: string; gameMarkets: GameMarket[]
+  }> = []
+  const comps = Array.isArray(body?.competitions) ? body.competitions : []
+  for (const comp of comps) {
+    const events = Array.isArray(comp?.events) ? comp.events : []
+    const compId = comp?.id ?? comp?.competitionId
+    for (const ev of events) {
+      const id = ev?.id
+      const name = ev?.name
+      const startTime = ev?.startTime ?? ev?.scheduledStartTime
+      if (typeof id !== 'string' || !/^[0-9a-f-]{36}$/i.test(id)) continue
+      if (typeof name !== 'string' || !startTime) continue
+      // /tabs uses " at " (space-at-space) as the delimiter, unlike
+      // quick-picks' "|at|". Prefer lastIndexOf so "Los Angeles Lakers at
+      // Seattle Mariners" (hypothetical) splits correctly if a team name
+      // were to contain " at ".
+      const idx = name.lastIndexOf(' at ')
+      if (idx < 0) continue
+      const away = name.slice(0, idx).trim()
+      const home = name.slice(idx + 4).trim()
+      if (!away || !home) continue
+
+      // Collect game-line markets from keyMarketGroups. Each group is a
+      // display bundle (Game Lines, Player Props, etc.); we only want the
+      // Game Lines group (moneyline / spread / total).
+      let moneyline: any = null, spread: any = null, total: any = null
+      const groups = Array.isArray(ev?.keyMarketGroups) ? ev.keyMarketGroups : []
+      for (const g of groups) {
+        const ms = Array.isArray(g?.markets) ? g.markets : []
+        for (const m of ms) {
+          const cls = classifyMarket(m)
+          if (cls === 'moneyline' && !moneyline) moneyline = m
+          else if (cls === 'spread' && !spread) spread = m
+          else if (cls === 'total' && !total) total = m
+        }
+      }
+
+      const gameMarkets: GameMarket[] = []
+      const stripPipes = (s: string) => String(s ?? '').replace(/\|/g, '').trim().toLowerCase()
+      if (moneyline) {
+        let hp: number | null = null, ap: number | null = null
+        for (const s of (moneyline.selections ?? moneyline.outcomes ?? [])) {
+          const p = extractAmerican(s?.price ?? s)
+          if (p == null) continue
+          const t = String(s?.type ?? '').toLowerCase()
+          if (t === 'home') hp = p
+          else if (t === 'away') ap = p
+        }
+        if (hp != null || ap != null) gameMarkets.push({
+          marketType: 'moneyline',
+          homePrice: hp, awayPrice: ap, drawPrice: null,
+          spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+        })
+      }
+      if (spread) {
+        let hp: number | null = null, ap: number | null = null
+        const line: number | null = typeof spread.line === 'number' ? spread.line : null
+        for (const s of (spread.selections ?? spread.outcomes ?? [])) {
+          const p = extractAmerican(s?.price ?? s)
+          if (p == null) continue
+          const t = String(s?.type ?? '').toLowerCase()
+          if (t === 'home') hp = p
+          else if (t === 'away') ap = p
+        }
+        if (hp != null || ap != null) gameMarkets.push({
+          marketType: 'spread',
+          homePrice: hp, awayPrice: ap, drawPrice: null,
+          spreadValue: line,
+          totalValue: null, overPrice: null, underPrice: null,
+        })
+      }
+      if (total) {
+        let op: number | null = null, up: number | null = null
+        const line: number | null = typeof total.line === 'number' ? total.line : null
+        for (const s of (total.selections ?? total.outcomes ?? [])) {
+          const p = extractAmerican(s?.price ?? s)
+          if (p == null) continue
+          const t = String(s?.type ?? '').toLowerCase()
+          const n = stripPipes(s?.name ?? '')
+          if (t === 'over' || n.startsWith('over') || n === 'o') op = p
+          else if (t === 'under' || n.startsWith('under') || n === 'u') up = p
+        }
+        if (op != null || up != null) gameMarkets.push({
+          marketType: 'total',
+          homePrice: null, awayPrice: null, drawPrice: null,
+          spreadValue: null,
+          totalValue: line,
+          overPrice: op, underPrice: up,
+        })
+      }
+
+      out.push({
+        id,
+        name,
+        startTime: String(startTime),
+        competitors: [
+          { name: away, home: false },
+          { name: home, home: true },
+        ],
+        competitionId: compId,
+        gameMarkets,
+      })
+    }
+  }
+  return out
+}
+
 /** Walk a /quick-picks body for events with the Liberty quick-picks shape:
  *  { id, name: "|Away| |at| |Home|", startTime, competitionId, markets }. */
 function extractEventsFromQuickPicks(body: any): Array<CaesarsEvent & { competitionId?: string }> {
@@ -704,11 +829,35 @@ export const caesarsAdapter: BookAdapter = {
           ?? compUuids.get(comp.leagueSlug.toUpperCase())
         if (uuid) compByUuid.set(uuid, comp)
       }
-      // Both /quick-picks and /tabs bodies embed events with the same
-      // Liberty shape: { id, name: "|Away| |at| |Home|", startTime,
-      // competitionId, markets }. Walk each.
+      // Pre-extracted game markets keyed by event UUID. Populated from
+      // /tabs bodies which carry full moneyline/spread/total graphs inline.
+      const gameMarketsByEventId = new Map<string, GameMarket[]>()
+
+      // /tabs bodies carry the Games grid: events + markets inline. This is
+      // the primary source of main lines.
       for (const { path, body } of compSubBodies) {
-        if (!/\/(quick-picks|tabs)(?:\?|$)/.test(path)) continue
+        if (!/\/tabs(?:\?|$)/.test(path)) continue
+        try {
+          const parsed = JSON.parse(body)
+          const evs = extractEventsFromTabs(parsed)
+          for (const ev of evs) {
+            const comp = ev.competitionId ? compByUuid.get(ev.competitionId) : undefined
+            if (!comp) continue
+            const prior = eventsByComp.get(comp.menuName) ?? []
+            eventsByComp.set(comp.menuName, [...prior, {
+              id: ev.id, name: ev.name, startTime: ev.startTime,
+              competitors: ev.competitors,
+            }])
+            if (ev.gameMarkets.length) {
+              gameMarketsByEventId.set(ev.id, ev.gameMarkets)
+            }
+          }
+        } catch { /* skip malformed */ }
+      }
+      // /quick-picks bodies carry extra events (parlay promos) that may not
+      // be on the Games tab yet (future/boost markets). No main lines here.
+      for (const { path, body } of compSubBodies) {
+        if (!/\/quick-picks(?:\?|$)/.test(path)) continue
         try {
           const parsed = JSON.parse(body)
           const evs = extractEventsFromQuickPicks(parsed)
@@ -767,6 +916,27 @@ export const caesarsAdapter: BookAdapter = {
             if (signal.aborted) return
             const idx = cursor++
             const ev = events[idx]
+            const home = ev.competitors.find(c => c.home) ?? ev.competitors[0]
+            const away = ev.competitors.find(c => !c.home) ?? ev.competitors[1]
+
+            // Pre-extracted markets from /tabs — skip the per-event fetch.
+            const preMarkets = gameMarketsByEventId.get(ev.id)
+            if (preMarkets && preMarkets.length) {
+              scraped.push({
+                event: {
+                  externalId: ev.id,
+                  homeTeam: home.name,
+                  awayTeam: away.name,
+                  startTime: ev.startTime,
+                  leagueSlug: comp.leagueSlug,
+                  sport: comp.sport,
+                },
+                gameMarkets: preMarkets,
+                props: [],
+              })
+              continue
+            }
+
             let bodyText = eventBodies.get(ev.id) ?? null
             if (!bodyText) {
               const eventUrl = `${API_BASE}/events/${ev.id}?useEventPayloadWithTabNav=true`
@@ -780,8 +950,6 @@ export const caesarsAdapter: BookAdapter = {
               errors.push(`${comp.name} event ${ev.id}: non-JSON body`)
               continue
             }
-            const home = ev.competitors.find(c => c.home) ?? ev.competitors[0]
-            const away = ev.competitors.find(c => !c.home) ?? ev.competitors[1]
             const gameMarkets = extractGameMarketsFromEvent(body, home.name, away.name)
             scraped.push({
               event: {
