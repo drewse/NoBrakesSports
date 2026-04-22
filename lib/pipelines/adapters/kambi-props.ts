@@ -21,11 +21,28 @@ const KAMBI_CDN = 'https://eu-offering-api.kambicdn.com/offering/v2018'
 const DEFAULT_PARAMS = 'lang=en_CA&market=CA-ON'
 const PAGE_SIZE = 2000
 
-// Kambi operators with confirmed public API access and distinct odds
-export const KAMBI_OPERATORS: { clientId: string; sourceSlug: string; displayName: string }[] = [
+// Kambi operators with confirmed public API access and distinct odds.
+// Optional host/lang/market overrides let us reuse the same scraper for
+// US regional operators (different Kambi platform, different market code).
+export interface KambiOperator {
+  clientId: string
+  sourceSlug: string
+  displayName: string
+  host?: string       // default: KAMBI_CDN
+  lang?: string       // default: 'en_CA'
+  market?: string     // default: 'CA-ON'
+}
+
+export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'rsicaon',      sourceSlug: 'betrivers',    displayName: 'BetRivers (Ontario)' },
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
+
+  // ── US Kambi regionals ─────────────────────────────────────────────
+  // Different Kambi platform (c3.sb.kambicdn.com), distinct event IDs
+  // from CA operators — each US op discovers its own event list.
+  { clientId: 'parx',         sourceSlug: 'betparx',      displayName: 'BetParx',
+    host: 'https://c3.sb.kambicdn.com/offering/v2018', lang: 'en_US', market: 'US-PA' },
 ]
 
 // Sports and their Kambi group paths
@@ -74,8 +91,8 @@ export interface KambiPropResult {
  * Discover all upcoming events for a sport path.
  * Uses the listView endpoint (confirmed working) not event/group.
  */
-async function fetchEvents(base: string, sportPath: string): Promise<KambiEvent[]> {
-  const url = `${base}/listView/${sportPath}/all/all/matches.json?${DEFAULT_PARAMS}`
+async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS): Promise<KambiEvent[]> {
+  const url = `${base}/listView/${sportPath}/all/all/matches.json?${params}`
   const resp = await fetch(url)
   if (!resp.ok) return []
 
@@ -108,13 +125,14 @@ async function fetchAllBetOffers(
   base: string,
   eventIds: number[],
   signal?: AbortSignal,
+  params: string = DEFAULT_PARAMS,
 ): Promise<KambiBetOffer[]> {
   const idStr = eventIds.join(',')
   const allOffers: KambiBetOffer[] = []
   let start = 0
 
   while (true) {
-    const url = `${base}/betoffer/event/${idStr}.json?${DEFAULT_PARAMS}&range_start=${start}&range_size=${PAGE_SIZE}&includeParticipants=true`
+    const url = `${base}/betoffer/event/${idStr}.json?${params}&range_start=${start}&range_size=${PAGE_SIZE}&includeParticipants=true`
     const resp = await fetch(url, { signal })
     if (!resp.ok) break
 
@@ -395,53 +413,55 @@ function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[
 }
 
 export interface KambiOperatorResults {
-  operator: { clientId: string; sourceSlug: string; displayName: string }
+  operator: KambiOperator
   results: KambiPropResult[]
 }
 
 /**
- * Full Kambi scrape: fetch every prop for every event across all configured sports
- * and ALL Kambi operators (BetRivers, LeoVegas, NorthStar).
+ * Full Kambi scrape: fetch every prop for every event across all configured
+ * sports for each configured operator. CA operators share a Kambi platform
+ * (shared event IDs); US operators (parx, etc.) run on their own platform
+ * with distinct IDs, so we discover events per-operator to support both.
  *
- * Each operator may return different odds for the same events.
- * Event IDs are shared across operators (Kambi platform-level), but prices differ.
+ * Performance cost of per-op discovery: one listView call per sport per op
+ * (~11 sports × N ops ≈ 11N extra sub-second calls). Negligible vs. the
+ * bet-offer fetches.
  */
 export async function scrapeAllKambiOperators(
   signal?: AbortSignal,
 ): Promise<KambiOperatorResults[]> {
   const allResults: KambiOperatorResults[] = []
 
-  // Discover events once (same events across all operators)
-  const base0 = `${KAMBI_CDN}/${KAMBI_OPERATORS[0].clientId}`
-  const sportEvents = await Promise.all(
-    KAMBI_SPORT_PATHS.map(async (sp) => {
-      const events = await fetchEvents(base0, sp.path)
-      return events
-    })
-  )
-
-  const allEvents = sportEvents.flat()
-  if (allEvents.length === 0) return allResults
-
-  // For each operator, fetch betOffers (prices differ per operator)
   for (const operator of KAMBI_OPERATORS) {
-    const base = `${KAMBI_CDN}/${operator.clientId}`
-    const results: KambiPropResult[] = []
+    const host = operator.host ?? KAMBI_CDN
+    const base = `${host}/${operator.clientId}`
+    const params = `lang=${operator.lang ?? 'en_CA'}&market=${operator.market ?? 'CA-ON'}`
+
+    // Per-operator event discovery.
+    const sportEvents = await Promise.all(
+      KAMBI_SPORT_PATHS.map(sp => fetchEvents(base, sp.path, params)),
+    )
+    const opEvents = sportEvents.flat()
+    if (opEvents.length === 0) {
+      allResults.push({ operator, results: [] })
+      continue
+    }
 
     // Batch events in groups of 15
     const BATCH_SIZE = 15
     const batches: KambiEvent[][] = []
-    for (let i = 0; i < allEvents.length; i += BATCH_SIZE) {
-      batches.push(allEvents.slice(i, i + BATCH_SIZE))
+    for (let i = 0; i < opEvents.length; i += BATCH_SIZE) {
+      batches.push(opEvents.slice(i, i + BATCH_SIZE))
     }
 
+    const results: KambiPropResult[] = []
     const MAX_CONCURRENT = 3
     for (let i = 0; i < batches.length; i += MAX_CONCURRENT) {
       const chunk = batches.slice(i, i + MAX_CONCURRENT)
       const batchResults = await Promise.all(
         chunk.map(async (batch) => {
           const eventIds = batch.map(e => e.eventId)
-          const offers = await fetchAllBetOffers(base, eventIds, signal)
+          const offers = await fetchAllBetOffers(base, eventIds, signal, params)
           const propsByEvent = parseBetOffers(offers)
           const gameMarketsByEvent = parseGameMarkets(offers)
 
@@ -450,7 +470,7 @@ export async function scrapeAllKambiOperators(
             props: propsByEvent.get(event.eventId) ?? [],
             gameMarkets: gameMarketsByEvent.get(event.eventId) ?? [],
           }))
-        })
+        }),
       )
 
       results.push(...batchResults.flat())
