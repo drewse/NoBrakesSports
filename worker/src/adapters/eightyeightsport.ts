@@ -291,9 +291,16 @@ export const eightyEightSportAdapter: BookAdapter = {
           const firstEv = eventsObj[String(firstEid)] ?? eventsObj[firstEid as any]
           log.info('888sport raw sample', {
             listTopKeys: Object.keys(json).slice(0, 20),
+            eventsShape: Array.isArray(eventsObj) ? 'array' : typeof eventsObj,
+            eventsKeys: (eventsObj && typeof eventsObj === 'object')
+              ? Object.keys(eventsObj).slice(0, 5) : null,
             pointerSample: pointers.slice(0, 3),
+            firstEventId: firstEid,
             eventKeys: firstEv ? Object.keys(firstEv) : null,
-            eventBody: JSON.stringify(firstEv).slice(0, 2000),
+            eventBody: firstEv ? JSON.stringify(firstEv).slice(0, 2000) : '<firstEv undefined>',
+            // Dump the response shape when the events lookup fails so we can
+            // see where Spectate actually nested them.
+            listSample: firstEv ? null : JSON.stringify(json).slice(0, 2000),
           })
         }
 

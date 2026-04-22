@@ -26,7 +26,12 @@ import type { ScrapeResult, GameMarket, NormalizedEvent } from '../lib/types.js'
 // Deep-seed directly into NBA so the sportsbook component fires — the
 // bare /en-ca/sports route renders a promo that doesn't hydrate market data.
 const SEED_URL = 'https://www.betvictor.com/en-ca/sports/basketball/nba'
-const FEATURED_URL_RE = /\/sportsbook_components\/|\/sports?_components\/|\/home_components\/components\//
+// Actual data endpoints observed on the NBA page:
+//   /horizon/betvictor       — main sportsbook data API
+//   /api/left_components     — left-rail components (often carry the event list)
+//   /api/right_components    — right-rail components (featured / odds boosts)
+//   /sportsbook_components/… — legacy home-page featured components (rare on league pages)
+const FEATURED_URL_RE = /\/horizon\/betvictor|\/api\/(left|right)_components|\/sportsbook_components\//
 
 const LEAGUE_MAP: Array<{ match: RegExp; leagueSlug: string; sport: string }> = [
   { match: /\bNBA\b/i,               leagueSlug: 'nba',        sport: 'basketball' },
@@ -370,6 +375,17 @@ export const betvictorAdapter: BookAdapter = {
         markets: agg.markets.size,
         outcomes: agg.outcomes.size,
       })
+      // If extraction found nothing, dump the first body so we can see the
+      // real shape the new endpoints ship.
+      if (agg.events.size === 0 && bodies.length > 0) {
+        try {
+          const parsed = JSON.parse(bodies[0])
+          log.info('betvictor raw body sample', {
+            topKeys: parsed && typeof parsed === 'object' ? Object.keys(parsed).slice(0, 30) : null,
+            body: JSON.stringify(parsed).slice(0, 2500),
+          })
+        } catch { /* skip */ }
+      }
 
       for (const [eid, ev] of agg.events) {
         const league = agg.leagueByEvent.get(eid)

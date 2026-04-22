@@ -29,6 +29,47 @@ const SPORT_PATHS: Array<{ path: string; leagueSlug: string; sport: string; leag
   { path: 'ice-hockey', leagueSlug: 'nhl', sport: 'ice_hockey', leagueNameRe: /\bnhl\b/i },
 ]
 
+// TonyBet /api/event/list ships `sportId` + `sportCategoryId` + `leagueId`
+// as opaque numbers and doesn't inline league names. Map sportId -> sport,
+// then detect NBA/MLB/NHL by matching slug teams against the known rosters.
+const SPORT_ID_MAP: Record<number, string> = {
+  2: 'basketball',
+  3: 'baseball',
+  4: 'ice_hockey',
+}
+
+// Canonical city/name tokens that identify each top North American league.
+// We match on the slug (lowercase, hyphen-joined) — any hit flags the event.
+const NBA_TOKENS = new Set([
+  'lakers','clippers','warriors','kings','suns','nuggets','jazz','trail-blazers','blazers','timberwolves',
+  'thunder','rockets','mavericks','spurs','pelicans','grizzlies',
+  'celtics','knicks','nets','76ers','sixers','raptors','bucks','pacers','bulls','pistons','cavaliers','hawks','hornets','heat','magic','wizards',
+])
+const MLB_TOKENS = new Set([
+  'dodgers','giants','padres','rockies','diamondbacks','angels','astros','rangers','athletics','mariners',
+  'twins','royals','white-sox','whitesox','indians','guardians','tigers','blue-jays','bluejays','yankees','red-sox','redsox','orioles','rays',
+  'brewers','cubs','cardinals','pirates','reds','braves','marlins','mets','phillies','nationals',
+])
+const NHL_TOKENS = new Set([
+  'golden-knights','vegas-golden-knights','utah-hockey-club','kings','ducks','sharks','flames','oilers','canucks','jets','wild','avalanche','stars',
+  'blackhawks','blues','predators','red-wings','redwings','blue-jackets','bluejackets','penguins','flyers','rangers','islanders','devils','capitals','hurricanes',
+  'panthers','lightning','senators','maple-leafs','mapleleafs','canadiens','bruins','sabres','kraken',
+])
+
+function leagueFromSlug(slug: string, sportId: number | undefined): { leagueSlug: string; sport: string } | null {
+  if (!slug) return null
+  const s = slug.toLowerCase()
+  const hitAny = (set: Set<string>) => [...set].some(tok => s.includes(tok))
+  if (hitAny(NBA_TOKENS)) return { leagueSlug: 'nba', sport: 'basketball' }
+  if (hitAny(NHL_TOKENS)) return { leagueSlug: 'nhl', sport: 'ice_hockey' }
+  if (hitAny(MLB_TOKENS)) return { leagueSlug: 'mlb', sport: 'baseball' }
+  // Fall back to sport-only classification if sportId known.
+  if (sportId != null && SPORT_ID_MAP[sportId]) {
+    return { leagueSlug: '', sport: SPORT_ID_MAP[sportId] }
+  }
+  return null
+}
+
 /** Try the common American / decimal / fractional shapes the BetConstruct
  *  stack uses. Returns null if nothing parses. */
 function toAmerican(price: any): number | null {
@@ -78,10 +119,67 @@ interface TonyBetEvent {
   startTs?: number | string
   startDate?: string
   startTime?: string
+  time?: string                 // "2026-04-22 01:30:00" (space-delimited, UTC)
+  translationSlug?: string      // "home-team-away-team" (hyphen-joined)
+  sportId?: number
+  sportCategoryId?: number
+  leagueId?: number | string
   league?: { name?: string } | string
   leagueName?: string
   odds?: any[]
   markets?: any[]
+}
+
+/** Split a "home-team-away-team" slug. Since we don't know where the boundary
+ *  is, we try all split points and pick one whose halves plausibly look like
+ *  team names (both start with a capital letter when Title-Cased and each
+ *  have >= 1 word). The tournament league set is small enough that we can
+ *  also crib known multi-word team tokens to steer the split. Returns
+ *  Title-Cased team names. */
+function teamsFromSlug(slug: string): { home: string; away: string } | null {
+  if (!slug || !slug.includes('-')) return null
+  const parts = slug.split('-').filter(Boolean)
+  if (parts.length < 2) return null
+  // Known multi-word city/name roots. When we see these, we snap to them.
+  const KNOWN_MULTI = [
+    'new-york', 'new-jersey', 'new-orleans', 'los-angeles', 'san-francisco',
+    'san-antonio', 'san-diego', 'san-jose', 'oklahoma-city', 'golden-state',
+    'portland-trail', 'portland-trail-blazers', 'trail-blazers',
+    'utah-hockey-club', 'vegas-golden-knights', 'colorado-avalanche',
+    'tampa-bay', 'st-louis',
+  ]
+  const joined = parts.join('-')
+  // Walk possible split points; prefer the longest valid known-prefix match.
+  const tryPair = (left: string[], right: string[]): { home: string; away: string } | null => {
+    if (left.length === 0 || right.length === 0) return null
+    const home = left.map(titleCase).join(' ')
+    const away = right.map(titleCase).join(' ')
+    return { home, away }
+  }
+  // Prefer a known-multi home team.
+  for (const km of KNOWN_MULTI) {
+    if (joined.startsWith(km + '-')) {
+      const leftTokens = km.split('-')
+      return tryPair(leftTokens, parts.slice(leftTokens.length))
+    }
+    const suffixIdx = joined.indexOf('-' + km + '-')
+    if (suffixIdx > 0 && joined.endsWith('-' + km) === false) {
+      // km in middle? unusual — skip
+    }
+    if (joined.endsWith('-' + km)) {
+      const rightTokens = km.split('-')
+      const leftTokens = parts.slice(0, parts.length - rightTokens.length)
+      return tryPair(leftTokens, rightTokens)
+    }
+  }
+  // Fallback: midpoint split — imperfect but we pass the raw name to the
+  // canonical normalizer which handles most casing/alias edge cases.
+  const mid = Math.floor(parts.length / 2)
+  return tryPair(parts.slice(0, mid), parts.slice(mid))
+}
+
+function titleCase(word: string): string {
+  return word.length === 0 ? '' : word[0].toUpperCase() + word.slice(1).toLowerCase()
 }
 
 /** Pull team names from the various shapes BetConstruct sites use. */
@@ -105,12 +203,22 @@ function extractTeams(e: TonyBetEvent): { home: string; away: string } | null {
     const away = get(awayC ?? e.competitors[1])
     if (home && away) return { home, away }
   }
+  // translationSlug: "vegas-golden-knights-utah-hockey-club"
+  if (typeof e.translationSlug === 'string') {
+    const pair = teamsFromSlug(e.translationSlug)
+    if (pair) return pair
+  }
   return null
 }
 
 function extractStartIso(e: TonyBetEvent): string | null {
   if (typeof e.startDate === 'string' && e.startDate.length >= 10) return e.startDate
   if (typeof e.startTime === 'string' && e.startTime.length >= 10) return e.startTime
+  // TonyBet ships UTC as "YYYY-MM-DD HH:MM:SS" in field `time`.
+  if (typeof e.time === 'string' && /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(e.time)) {
+    const iso = e.time.replace(' ', 'T') + (e.time.length === 19 ? '.000Z' : 'Z')
+    if (!isNaN(Date.parse(iso))) return iso
+  }
   if (typeof e.startTs === 'number') return new Date(e.startTs * 1000).toISOString()
   if (typeof e.startTs === 'string') {
     const n = Number(e.startTs)
@@ -336,13 +444,18 @@ export const tonybetAdapter: BookAdapter = {
           const id = String(item.id ?? (item as any).sbEventId ?? '')
           if (!id || seen.has(id)) continue
 
-          const leagueName = extractLeagueName(item)
-          const sportMatch = SPORT_PATHS.find(s => s.leagueNameRe.test(leagueName))
-          if (!sportMatch) continue   // only keep NBA/MLB/NHL for v1
+          const slug = typeof item.translationSlug === 'string' ? item.translationSlug : ''
+          const sportId = typeof item.sportId === 'number' ? item.sportId : undefined
+          const classified = leagueFromSlug(slug, sportId)
+          if (!classified || !classified.leagueSlug) continue   // only keep NBA/MLB/NHL for v1
 
           const teams = extractTeams(item)
           const startIso = extractStartIso(item)
           if (!teams || !startIso) continue
+          const sportMatch = {
+            leagueSlug: classified.leagueSlug,
+            sport: classified.sport,
+          }
 
           seen.add(id)
           const gameMarkets = extractGameMarkets(item, teams.home, teams.away)
