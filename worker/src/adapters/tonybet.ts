@@ -395,32 +395,31 @@ export const tonybetAdapter: BookAdapter = {
         }, url)
       }
 
-      // Actively call /api/event/list with relations=odds so odds ship inline.
-      // The real SPA uses bracket syntax (relations[]=odds), the _trlang
-      // param, and a trailing slash on the path. Try the fully-matching
-      // URL first; fall back to the no-bracket variant on 400.
+      // Actively call /api/event/list with relations=odds so odds ship
+      // inline. Server told us (round 9) which relations are valid:
+      //   odds, competitors, league, result, players, sportCategories,
+      //   variants, withMarketsCount, broadcasts, rounds, statistics,
+      //   additionalInfo, sport, tips, cashoutMarkets, pinnedEvents,
+      //   recentEvents
+      // `marketOrder` was an outright-list relation and 400s here. We
+      // replicate the SPA's actual choice: odds, withMarketsCount, result,
+      // league, competitors, sportCategories, tips.
       const bracket = (r: string) => `relations%5B%5D=${r}`
-      const rels = ['odds', 'competitors', 'league', 'marketOrder', 'sportCategories']
-      const candidates = [
-        `${API_BASE}/event/list/?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`,
-        `${API_BASE}/event/list?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`,
-        `${API_BASE}/event/list?lang=en&isLive=0&${rels.map(r => `relations=${r}`).join('&')}`,
-      ]
+      const rels = ['odds', 'withMarketsCount', 'result', 'league',
+                    'competitors', 'sportCategories', 'tips']
+      const listUrl = `${API_BASE}/event/list?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`
+      log.info('tonybet fetching event list', { url: listUrl })
       const listBodies: string[] = []
-      for (const url of candidates) {
-        log.info('tonybet fetching event list', { url })
-        const r = await pageFetch(url)
-        log.info('tonybet event list response', {
-          url,
-          status: r.status,
-          bodyLen: r.text.length,
-          // Always capture a body sample on non-200 so we can diagnose.
-          sample: r.status === 200 ? null : r.text.slice(0, 500),
-        })
-        if (r.status === 200 && r.text.length > 100) {
-          listBodies.push(r.text)
-          break
-        }
+      const r = await pageFetch(listUrl)
+      log.info('tonybet event list response', {
+        url: listUrl,
+        status: r.status,
+        bodyLen: r.text.length,
+        sample: r.status === 200 ? null : r.text.slice(0, 500),
+      })
+      if (r.status === 200 && r.text.length > 100) {
+        listBodies.push(r.text)
+      } else {
         errors.push(`event/list HTTP ${r.status}`)
       }
 
