@@ -42,12 +42,26 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
-  // ── US Kambi regionals ─────────────────────────────────────────────
-  // Same eu-offering-api host as CA ops. Needs an Origin/Referer of the
-  // actual sportsbook site — Kambi rate-limits (429) unauthenticated,
-  // unknown-origin requests to US client slugs.
-  { clientId: 'parx',         sourceSlug: 'betparx',      displayName: 'BetParx',
-    lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com' },
+  // ── US Kambi regionals (PARKED) ────────────────────────────────────
+  // Attempted BetParx via Vercel cron. Result: HTTP 429 on every list-
+  // View call (22/22 across 2 cycles) even with Origin/Referer set to
+  // https://www.betparx.com and a browser UA. CA operators (rsicaon,
+  // leose, torstarcaon) hit the same eu-offering-api host from the same
+  // Vercel IPs and get 200 fine, so this is client-specific: Kambi
+  // enforces per-client rate limits that Vercel's shared IP pool blows
+  // through on the first call.
+  //
+  // Next-step options if we want to revisit:
+  //   (a) Move BetParx scrape to Railway worker with mobile/residential
+  //       proxy (matches Caesars/theScore pattern).
+  //   (b) Try a different market code — Kambi may enforce per-market
+  //       licensing: US-NJ / US-OH / US-IL / US-MD.
+  //   (c) Check whether BetParx requires a session init (cookie from
+  //       play.betparx.com) before offering-api accepts calls.
+  //
+  // Commented out to stop burning cycles. Re-enable after (a) or (b).
+  // { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
+  //   lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com' },
 ]
 
 // Sports and their Kambi group paths
