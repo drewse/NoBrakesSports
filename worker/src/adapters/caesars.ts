@@ -419,7 +419,7 @@ function extractGameMarketsFromEvent(
 export const caesarsAdapter: BookAdapter = {
   slug: 'caesars',
   name: 'Caesars (Ontario)',
-  pollIntervalSec: 180,
+  pollIntervalSec: 900,   // 15 min — conserves MOBILE_PROXY_URL bandwidth
   needsBrowser: true,
 
   async scrape({ signal, log }) {

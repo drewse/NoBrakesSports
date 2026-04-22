@@ -239,7 +239,7 @@ function extractGameMarkets(e: TsbEvent, home: string, away: string): GameMarket
 export const thescoreAdapter: BookAdapter = {
   slug: 'thescore',
   name: 'theScore Bet (Ontario)',
-  pollIntervalSec: 300,
+  pollIntervalSec: 900,   // 15 min — conserves MOBILE_PROXY_URL bandwidth
   needsBrowser: true,
 
   async scrape({ signal, log }) {

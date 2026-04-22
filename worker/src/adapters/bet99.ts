@@ -15,7 +15,7 @@ const SEED_URL = 'https://www.bet99.com/en/sports'
 export const bet99Adapter: BookAdapter = {
   slug: 'bet99',
   name: 'Bet99 (Ontario) [discovery]',
-  pollIntervalSec: 600,
+  pollIntervalSec: 900,   // 15 min — conserves MOBILE_PROXY_URL bandwidth
   needsBrowser: true,
 
   async scrape({ signal, log }) {
