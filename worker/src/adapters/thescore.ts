@@ -304,9 +304,27 @@ export const thescoreAdapter: BookAdapter = {
       // Parse every captured body; collect distinct events across all of them.
       const seen = new Set<string>()
       let loggedSample = false
-      for (const { body } of gqlBodies) {
+      let loggedLinesBody = false
+      for (const { url: bodyUrl, body } of gqlBodies) {
         let json: any
         try { json = JSON.parse(body) } catch { continue }
+
+        // Dump the first full CompetitionPageSectionLinesTabNode body so
+        // we can see where markets/prices live in the Apollo response.
+        // The event-summary walker only grabs the StandardEvent leaves; the
+        // line prices hang off a sibling shape we haven't mapped yet.
+        if (!loggedLinesBody && bodyUrl.includes('CompetitionPageSectionLinesTabNode')) {
+          loggedLinesBody = true
+          const roots = json?.data && typeof json.data === 'object' ? Object.keys(json.data) : []
+          log.info('thescore lines body shape', {
+            dataKeys: roots,
+            bodyLen: body.length,
+            // First 4000 chars is enough to see the graph structure
+            // without flooding the log.
+            headSample: body.slice(0, 4000),
+          })
+        }
+
         const events = walkForEvents(json)
         if (events.length === 0) continue
 

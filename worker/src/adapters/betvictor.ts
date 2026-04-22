@@ -126,7 +126,18 @@ export const betvictorAdapter: BookAdapter = {
           errors.push(`${L.leagueSlug} nav: ${e?.message ?? e}`)
           continue
         }
-        await page.waitForTimeout(6_000)
+        // Wait for event cards to hydrate — React ships the layout before
+        // populating cards, and a flat 6s sleep wasn't enough.
+        try {
+          await page.waitForSelector('[data-event-id]', { timeout: 20_000 })
+        } catch {
+          // Log body shape so we see what landed instead (geoblock page?
+          // redirect? splash?). Then move on to the next league.
+          const title = await page.title().catch(() => '?')
+          const url = page.url()
+          log.warn('betvictor event cards not found', { league: L.leagueSlug, url, title })
+        }
+        await page.waitForTimeout(3_000)
 
         // 1) Scrape the meeting HTML for event cards.
         const htmlEvents: HtmlEvent[] = await page.evaluate(() => {
