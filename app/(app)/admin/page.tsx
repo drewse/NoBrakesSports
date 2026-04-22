@@ -14,7 +14,7 @@ const ADMIN_SECTIONS = [
   { href: '/admin/feature-flags', icon: Flag, label: 'Feature Flags', desc: 'Toggle features for users or tiers' },
 ]
 
-type ImplStatus = 'live' | 'partial' | 'in_progress' | 'planned' | 'blocked' | 'dead'
+type ImplStatus = 'live' | 'partial' | 'in_progress' | 'planned' | 'blocked' | 'dead' | 'covered'
 
 type DeployTarget = 'railway' | 'vercel' | 'unknown'
 
@@ -89,33 +89,33 @@ interface UsaBookEntry {
 
 const USA_BOOK_TRACKER: UsaBookEntry[] = [
   // ── Majors (DFS + broad multi-state footprint) ────────────────────────
-  { name: 'DraftKings',          slug: 'draftkings-us',      operator: 'DraftKings Inc.',                 url: 'https://sportsbook.draftkings.com',  platform: 'SBTech (proprietary)',       category: 'major',    states: ['AZ','CO','CT','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NC','NH','NJ','NY','OH','OR','PA','TN','VA','VT','WV','WY'], status: 'planned', notes: 'Flagship. Public odds API per state.' },
-  { name: 'FanDuel',             slug: 'fanduel-us',         operator: 'Flutter Entertainment',           url: 'https://sportsbook.fanduel.com',     platform: 'Flutter (IGT/proprietary)',  category: 'major',    states: ['AZ','CO','CT','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NC','NH','NJ','NY','OH','PA','TN','VA','VT','WV','WY'], status: 'planned', notes: 'Market leader. Same stack as FD CA.' },
-  { name: 'BetMGM',              slug: 'betmgm-us',          operator: 'MGM Resorts / Entain',            url: 'https://sports.betmgm.com',          platform: 'Entain CDS',                 category: 'major',    states: ['AZ','CO','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','MS','NJ','NV','NY','NC','OH','PA','TN','VA','WV','WY'], status: 'planned', notes: 'Entain CDS — same surface as our CA adapter, just different host.' },
-  { name: 'Caesars',             slug: 'caesars-us',         operator: 'Caesars Entertainment',           url: 'https://sportsbook.caesars.com',     platform: 'Liberty (proprietary)',      category: 'major',    states: ['AZ','CO','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NJ','NV','NY','NC','OH','PA','TN','VA','WV','WY'], status: 'planned', notes: 'Same Liberty/SGP platform as CA Caesars. Will inherit CA infra blocker.' },
-  { name: 'ESPN Bet',            slug: 'espn-bet',           operator: 'PENN Entertainment',              url: 'https://espnbet.com',                platform: 'PENN (ex-theScore)',         category: 'major',    states: ['AZ','CO','IL','IN','IA','KS','KY','LA','MD','MA','ME','MI','NC','NJ','NY','OH','PA','TN','VA','VT','WV'], status: 'planned', notes: 'Built on old theScore stack after PENN rebrand.' },
-  { name: 'Fanatics',            slug: 'fanatics',           operator: 'Fanatics Betting and Gaming',     url: 'https://sportsbook.fanatics.com',    platform: 'Proprietary (ex-PointsBet)', category: 'major',    states: ['AZ','CO','CT','IL','IN','IA','KY','LA','MD','MA','MI','NC','NJ','NY','OH','PA','TN','VA','VT','WV'], status: 'planned', notes: 'Absorbed PointsBet US tech.' },
-  { name: 'BetRivers',           slug: 'betrivers-us',       operator: 'Rush Street Interactive',         url: 'https://betrivers.com',              platform: 'Kambi + RSI',                category: 'major',    states: ['AZ','CO','DE','IL','IN','IA','LA','MD','MI','NJ','NY','OH','PA','VA','WV'], status: 'planned', notes: 'Same Kambi stack as our CA BetRivers adapter.' },
+  { name: 'DraftKings',          slug: 'draftkings-us',      operator: 'DraftKings Inc.',                 url: 'https://sportsbook.draftkings.com',  platform: 'SBTech (proprietary)',       category: 'major',    states: ['AZ','CO','CT','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NC','NH','NJ','NY','OH','OR','PA','TN','VA','VT','WV','WY'], status: 'covered', notes: 'Same DK API as CA DraftKings adapter. Lines effectively identical across states — reuse CA feed.' },
+  { name: 'FanDuel',             slug: 'fanduel-us',         operator: 'Flutter Entertainment',           url: 'https://sportsbook.fanduel.com',     platform: 'Flutter (IGT/proprietary)',  category: 'major',    states: ['AZ','CO','CT','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NC','NH','NJ','NY','OH','PA','TN','VA','VT','WV','WY'], status: 'covered', notes: 'Same Flutter/FD API as CA FanDuel adapter. Reuse CA feed.' },
+  { name: 'BetMGM',              slug: 'betmgm-us',          operator: 'MGM Resorts / Entain',            url: 'https://sports.betmgm.com',          platform: 'Entain CDS',                 category: 'major',    states: ['AZ','CO','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','MS','NJ','NV','NY','NC','OH','PA','TN','VA','WV','WY'], status: 'covered', notes: 'Same Entain CDS as BetMGM ON. Reuse CA feed.' },
+  { name: 'Caesars',             slug: 'caesars-us',         operator: 'Caesars Entertainment',           url: 'https://sportsbook.caesars.com',     platform: 'Liberty (proprietary)',      category: 'major',    states: ['AZ','CO','DC','IL','IN','IA','KS','KY','LA','MA','MD','ME','MI','NJ','NV','NY','NC','OH','PA','TN','VA','WV','WY'], status: 'covered', notes: 'Same Liberty platform as CA Caesars. CA adapter already hits /regions/us/locations/co/ endpoints via mobile proxy. Reuse CA feed.' },
+  { name: 'ESPN Bet',            slug: 'espn-bet',           operator: 'PENN Entertainment',              url: 'https://espnbet.com',                platform: 'PENN (ex-theScore)',         category: 'major',    states: ['AZ','CO','IL','IN','IA','KS','KY','LA','MD','MA','ME','MI','NC','NJ','NY','OH','PA','TN','VA','VT','WV'], status: 'covered', notes: 'PENN rebrand of the theScore Bet stack — same Apollo GraphQL surface as CA theScore. Reuse CA pipeline (same blockers/unblockers apply).' },
+  { name: 'Fanatics',            slug: 'fanatics',           operator: 'Fanatics Betting and Gaming',     url: 'https://sportsbook.fanatics.com',    platform: 'Proprietary (ex-PointsBet)', category: 'major',    states: ['AZ','CO','CT','IL','IN','IA','KY','LA','MD','MA','MI','NC','NJ','NY','OH','PA','TN','VA','VT','WV'], status: 'covered', notes: 'Runs on the PointsBet US tech stack Fanatics absorbed — same API surface as our PointsBet ON adapter. Reuse CA feed.' },
+  { name: 'BetRivers',           slug: 'betrivers-us',       operator: 'Rush Street Interactive',         url: 'https://betrivers.com',              platform: 'Kambi + RSI',                category: 'major',    states: ['AZ','CO','DE','IL','IN','IA','LA','MD','MI','NJ','NY','OH','PA','VA','WV'], status: 'covered', notes: 'Same Kambi stack as CA BetRivers adapter. Reuse CA feed.' },
   { name: 'Hard Rock Bet',       slug: 'hard-rock-bet',      operator: 'Hard Rock Digital',               url: 'https://app.hardrock.bet',           platform: 'Hard Rock Digital',          category: 'major',    states: ['AZ','FL','IN','NJ','OH','TN','VA'], status: 'planned', notes: 'Dominant in FL.' },
-  { name: 'bet365 US',           slug: 'bet365-us',          operator: 'bet365 Group',                    url: 'https://www.bet365.com',             platform: 'Proprietary',                category: 'major',    states: ['AZ','CO','IA','IN','KY','LA','NC','NJ','OH','TN','VA'], status: 'planned', notes: 'Same CF wall as CA bet365 — infra-blocked.' },
+  { name: 'bet365 US',           slug: 'bet365-us',          operator: 'bet365 Group',                    url: 'https://www.bet365.com',             platform: 'Proprietary',                category: 'major',    states: ['AZ','CO','IA','IN','KY','LA','NC','NJ','OH','TN','VA'], status: 'covered', notes: 'Same WSS-only transport as CA bet365 — same infra blocker. No separate US work.' },
 
   // ── Regionals (single-state or narrow footprint) ──────────────────────
-  { name: 'Bally Bet',           slug: 'bally-bet-us',       operator: "Bally's Corporation",             url: 'https://play.ballybet.com',          platform: 'Kambi + White Hat',          category: 'regional', states: ['AZ','CO','IN','NJ','NY','OH','VA'], status: 'planned', notes: 'Kambi operator.' },
+  { name: 'Bally Bet',           slug: 'bally-bet-us',       operator: "Bally's Corporation",             url: 'https://play.ballybet.com',          platform: 'Kambi + White Hat',          category: 'regional', states: ['AZ','CO','IN','NJ','NY','OH','VA'], status: 'covered', notes: 'Same Kambi stack as CA Bally Bet adapter. Reuse CA feed.' },
   { name: 'Betfred Sports',      slug: 'betfred-us',         operator: 'Betfred Group',                   url: 'https://www.betfred.com',            platform: 'Proprietary',                category: 'regional', states: ['AZ','CO','IA','NV','OH','PA','VA'], status: 'planned', notes: 'UK operator w/ US footprint.' },
   { name: 'Betly',               slug: 'betly',              operator: 'Delaware North',                  url: 'https://betly.com',                  platform: 'White Hat / Kambi',          category: 'regional', states: ['AR','OH','TN','WV'], status: 'planned', notes: 'Regional brand.' },
-  { name: 'SI Sportsbook',       slug: 'si-sportsbook',      operator: '888 Holdings',                    url: 'https://www.sisportsbook.com',       platform: '888/SBTech',                 category: 'regional', states: ['CO','MI','VA'], status: 'planned', notes: 'Sports Illustrated brand by 888.' },
+  { name: 'SI Sportsbook',       slug: 'si-sportsbook',      operator: '888 Holdings',                    url: 'https://www.sisportsbook.com',       platform: '888/SBTech',                 category: 'regional', states: ['CO','MI','VA'], status: 'covered', notes: 'SI by 888 runs the Spectate stack — same surface as our 888sport CA adapter. Reuse CA feed.' },
   { name: 'WynnBET',             slug: 'wynnbet',            operator: 'Wynn Interactive',                url: 'https://www.wynnbet.com',            platform: 'Proprietary',                category: 'regional', states: ['MI','NV','NY'], status: 'planned', notes: 'Shrinking footprint.' },
   { name: 'Tipico US',           slug: 'tipico-us',          operator: 'Tipico Group',                    url: 'https://tipico.us',                  platform: 'Proprietary',                category: 'regional', states: ['NJ'], status: 'planned', notes: 'Most US states wound down.' },
   { name: 'Circa Sports',        slug: 'circa-sports',       operator: 'Circa Resort & Casino',           url: 'https://www.circasports.com',        platform: 'CG Technology',              category: 'regional', states: ['CO','IA','IL','KY','NV'], status: 'planned', notes: 'Vegas-first, small online footprint.' },
   { name: 'Desert Diamond',      slug: 'desert-diamond',     operator: 'Tohono O\'odham Gaming',          url: 'https://az.desertdiamondsports.com', platform: 'Light & Wonder OpenSports',  category: 'regional', states: ['AZ'], status: 'planned', notes: 'SBTech/Light & Wonder stack.' },
-  { name: 'Golden Nugget',       slug: 'golden-nugget',      operator: 'DraftKings Inc.',                 url: 'https://www.goldennuggetcasino.com/sports', platform: 'DraftKings (SBTech)',  category: 'regional', states: ['MI','NJ','WV'], status: 'planned', notes: 'DraftKings-owned since 2022.' },
+  { name: 'Golden Nugget',       slug: 'golden-nugget',      operator: 'DraftKings Inc.',                 url: 'https://www.goldennuggetcasino.com/sports', platform: 'DraftKings (SBTech)',  category: 'regional', states: ['MI','NJ','WV'], status: 'covered', notes: 'DraftKings-owned; runs on the DK (SBTech) stack. Reuse CA DraftKings feed.' },
   { name: 'FireKeepers',         slug: 'firekeepers',        operator: 'FireKeepers Casino',              url: 'https://firekeeperssportsbook.com',  platform: 'Light & Wonder',             category: 'regional', states: ['MI'], status: 'planned', notes: 'Tribal MI operator.' },
   { name: 'Four Winds',          slug: 'four-winds',         operator: 'Pokagon Band',                    url: 'https://www.fourwindscasino.com/sportsbook', platform: 'Kambi',              category: 'regional', states: ['MI'], status: 'planned', notes: 'Tribal MI on Kambi.' },
   { name: 'Eagle Sports',        slug: 'eagle-casino-sports', operator: 'Soaring Eagle Casino',           url: 'https://www.playeaglemi.com',        platform: 'Parlay Group (IGT)',         category: 'regional', states: ['MI'], status: 'planned', notes: 'Tribal MI.' },
   { name: 'Island Resort',       slug: 'island-resort',      operator: 'Hannahville',                     url: 'https://islandresortsportsbook.com', platform: 'GAN / Kambi',                category: 'regional', states: ['MI'], status: 'planned', notes: 'Small tribal book.' },
   { name: 'Ocean Casino',        slug: 'ocean-casino',       operator: 'Ocean Casino Resort',             url: 'https://www.theoceancasino.com/sports', platform: 'GAN / Kambi',             category: 'regional', states: ['NJ'], status: 'planned', notes: 'AC-based.' },
   { name: 'Resorts World Bet',   slug: 'resorts-world-bet',  operator: 'Genting Group',                   url: 'https://www.rwbet.com',              platform: 'Kambi',                      category: 'regional', states: ['NY'], status: 'planned', notes: 'NY-only.' },
-  { name: 'Rivers Casino SB',    slug: 'rivers-casino',      operator: 'Rush Street Gaming',              url: 'https://www.playsugarhouse.com',     platform: 'Kambi + RSI',                category: 'regional', states: ['NJ','PA'], status: 'planned', notes: 'RSI-sister to BetRivers.' },
+  { name: 'Rivers Casino SB',    slug: 'rivers-casino',      operator: 'Rush Street Gaming',              url: 'https://www.playsugarhouse.com',     platform: 'Kambi + RSI',                category: 'regional', states: ['NJ','PA'], status: 'covered', notes: 'RSI sister-brand to BetRivers, same Kambi stack. Reuse CA BetRivers feed.' },
 
   // ── Exchanges / prediction markets ────────────────────────────────────
   { name: 'Sporttrade',          slug: 'sporttrade',         operator: 'Sporttrade Inc.',                 url: 'https://sporttrade.com',             platform: 'Proprietary exchange',       category: 'exchange', states: ['CO','IA','NJ'], status: 'planned', notes: 'Order-book exchange, different pricing model (needs adapter layer).' },
@@ -140,6 +140,7 @@ function StatusPill({ status }: { status: ImplStatus }) {
     planned:     { label: 'Planned',     bg: 'bg-nb-800 border-nb-700',             text: 'text-nb-400' },
     blocked:     { label: 'Blocked',     bg: 'bg-red-500/10 border-red-500/20',     text: 'text-red-400' },
     dead:        { label: 'Dead',        bg: 'bg-nb-900 border-nb-700',             text: 'text-nb-600' },
+    covered:     { label: 'Covered (CA)', bg: 'bg-sky-500/10 border-sky-500/20',     text: 'text-sky-400' },
   }
   const c = config[status]
   return (
@@ -386,7 +387,11 @@ export default async function AdminPage() {
               {USA_BOOK_TRACKER.filter(b => b.category === 'major').length} majors ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.category === 'regional').length} regionals ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.category === 'exchange').length} exchanges ·{' '}
-              {USA_BOOK_TRACKER.filter(b => b.category === 'dfs-sweepstakes').length} DFS/sweeps ·{' '}
+              {USA_BOOK_TRACKER.filter(b => b.category === 'dfs-sweepstakes').length} DFS/sweeps
+            </p>
+            <p className="text-[10px] text-nb-500 mt-0.5">
+              <span className="text-sky-400 font-semibold">{USA_BOOK_TRACKER.filter(b => b.status === 'covered').length} covered by CA adapter</span> ·{' '}
+              {USA_BOOK_TRACKER.filter(b => b.status === 'planned').length} still need US work ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.status === 'live' || b.status === 'partial').length} producing
             </p>
           </div>
@@ -394,11 +399,13 @@ export default async function AdminPage() {
             <div className="w-32 h-2 rounded-full bg-nb-800 overflow-hidden">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-green-500 to-green-400"
-                style={{ width: `${Math.round((USA_BOOK_TRACKER.filter(b => b.status === 'live' || b.status === 'partial').length / USA_BOOK_TRACKER.length) * 100)}%` }}
+                // "Handled" = live + partial + covered-by-CA (all three
+                // produce lines, just via different adapters).
+                style={{ width: `${Math.round((USA_BOOK_TRACKER.filter(b => b.status === 'live' || b.status === 'partial' || b.status === 'covered').length / USA_BOOK_TRACKER.length) * 100)}%` }}
               />
             </div>
             <span className="text-[10px] text-nb-400 font-mono">
-              {Math.round((USA_BOOK_TRACKER.filter(b => b.status === 'live' || b.status === 'partial').length / USA_BOOK_TRACKER.length) * 100)}%
+              {Math.round((USA_BOOK_TRACKER.filter(b => b.status === 'live' || b.status === 'partial' || b.status === 'covered').length / USA_BOOK_TRACKER.length) * 100)}%
             </span>
           </div>
         </div>
