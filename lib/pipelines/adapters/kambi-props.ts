@@ -16,6 +16,7 @@ import {
   americanToImpliedProb,
   type NormalizedProp,
 } from '../prop-normalizer'
+import { pipeFetch } from '../proxy-fetch'
 
 const KAMBI_CDN = 'https://eu-offering-api.kambicdn.com/offering/v2018'
 const DEFAULT_PARAMS = 'lang=en_CA&market=CA-ON'
@@ -35,6 +36,11 @@ export interface KambiOperator {
   // US operators reject unknown-origin traffic with 429/403; CA operators
   // don't enforce it but setting it doesn't hurt.
   origin?: string
+  // When true, route requests through PROXY_URL (PacketStream residential
+  // via pipeFetch). Use for US operators where Kambi rate-limits Vercel's
+  // shared serverless IP pool. CA operators stay on direct fetch — saves
+  // proxy bandwidth and they work fine from Vercel IPs.
+  proxied?: boolean
 }
 
 export const KAMBI_OPERATORS: KambiOperator[] = [
@@ -42,26 +48,12 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
-  // ── US Kambi regionals (PARKED) ────────────────────────────────────
-  // Attempted BetParx via Vercel cron. Result: HTTP 429 on every list-
-  // View call (22/22 across 2 cycles) even with Origin/Referer set to
-  // https://www.betparx.com and a browser UA. CA operators (rsicaon,
-  // leose, torstarcaon) hit the same eu-offering-api host from the same
-  // Vercel IPs and get 200 fine, so this is client-specific: Kambi
-  // enforces per-client rate limits that Vercel's shared IP pool blows
-  // through on the first call.
-  //
-  // Next-step options if we want to revisit:
-  //   (a) Move BetParx scrape to Railway worker with mobile/residential
-  //       proxy (matches Caesars/theScore pattern).
-  //   (b) Try a different market code — Kambi may enforce per-market
-  //       licensing: US-NJ / US-OH / US-IL / US-MD.
-  //   (c) Check whether BetParx requires a session init (cookie from
-  //       play.betparx.com) before offering-api accepts calls.
-  //
-  // Commented out to stop burning cycles. Re-enable after (a) or (b).
-  // { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
-  //   lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com' },
+  // ── US Kambi regionals ─────────────────────────────────────────────
+  // BetParx is rate-limited (HTTP 429) on Vercel's shared serverless IP
+  // pool, even though CA operators on the same host/IPs return 200.
+  // Route through PacketStream residential (PROXY_URL) to bypass.
+  { clientId: 'parx',         sourceSlug: 'betparx',      displayName: 'BetParx',
+    lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: true },
 ]
 
 // Sports and their Kambi group paths
@@ -108,12 +100,16 @@ export interface KambiPropResult {
 
 /** Fetch with a hard timeout + outer AbortSignal + optional Kambi-licensing
  *  headers. Returns null on timeout or network error; caller treats null
- *  as "no data, continue". */
+ *  as "no data, continue".
+ *
+ *  When `proxied` is true, routes through pipeFetch (PacketStream residential
+ *  via PROXY_URL). Use for US operators that rate-limit Vercel serverless IPs. */
 async function fetchWithTimeout(
   url: string,
   timeoutMs: number,
   outerSignal?: AbortSignal,
   origin?: string,
+  proxied?: boolean,
 ): Promise<Response | null> {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(new Error('timeout')), timeoutMs)
@@ -128,10 +124,13 @@ async function fetchWithTimeout(
     headers['Referer'] = origin.endsWith('/') ? origin : `${origin}/`
   }
   try {
+    if (proxied) {
+      return await pipeFetch(url, { headers, signal: ctl.signal })
+    }
     return await fetch(url, { signal: ctl.signal, headers })
   } catch (err: any) {
     if (err?.name !== 'AbortError') {
-      console.warn(`[Kambi] fetch error`, { url: url.slice(0, 120), message: err?.message ?? String(err) })
+      console.warn(`[Kambi] fetch error`, { url: url.slice(0, 120), proxied: !!proxied, message: err?.message ?? String(err) })
     }
     return null
   } finally {
@@ -144,12 +143,12 @@ async function fetchWithTimeout(
  * Discover all upcoming events for a sport path.
  * Uses the listView endpoint (confirmed working) not event/group.
  */
-async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS, origin?: string): Promise<KambiEvent[]> {
+async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS, origin?: string, proxied?: boolean): Promise<KambiEvent[]> {
   const url = `${base}/listView/${sportPath}/all/all/matches.json?${params}`
   // 12s timeout: a misconfigured operator host (bad DNS / slow TLS) must
   // never hang the serial per-operator loop — we'd block every subsequent
   // operator until the 300s function timeout triggers.
-  const resp = await fetchWithTimeout(url, 12_000, undefined, origin)
+  const resp = await fetchWithTimeout(url, 12_000, undefined, origin, proxied)
   if (!resp) return []
   if (!resp.ok) {
     console.warn(`[Kambi] listView non-ok`, { base, sportPath, status: resp.status })
@@ -187,6 +186,7 @@ async function fetchAllBetOffers(
   signal?: AbortSignal,
   params: string = DEFAULT_PARAMS,
   origin?: string,
+  proxied?: boolean,
 ): Promise<KambiBetOffer[]> {
   const idStr = eventIds.join(',')
   const allOffers: KambiBetOffer[] = []
@@ -194,7 +194,7 @@ async function fetchAllBetOffers(
 
   while (true) {
     const url = `${base}/betoffer/event/${idStr}.json?${params}&range_start=${start}&range_size=${PAGE_SIZE}&includeParticipants=true`
-    const resp = await fetchWithTimeout(url, 15_000, signal, origin)
+    const resp = await fetchWithTimeout(url, 15_000, signal, origin, proxied)
     if (!resp) break
     if (!resp.ok) break
 
@@ -501,7 +501,7 @@ export async function scrapeAllKambiOperators(
 
     // Per-operator event discovery.
     const sportEvents = await Promise.all(
-      KAMBI_SPORT_PATHS.map(sp => fetchEvents(base, sp.path, params, operator.origin)),
+      KAMBI_SPORT_PATHS.map(sp => fetchEvents(base, sp.path, params, operator.origin, operator.proxied)),
     )
     const opEvents = sportEvents.flat()
     console.log(`[Kambi:${operator.sourceSlug}] discovered ${opEvents.length} events (host=${host}, market=${operator.market ?? 'CA-ON'})`)
@@ -524,7 +524,7 @@ export async function scrapeAllKambiOperators(
       const batchResults = await Promise.all(
         chunk.map(async (batch) => {
           const eventIds = batch.map(e => e.eventId)
-          const offers = await fetchAllBetOffers(base, eventIds, signal, params, operator.origin)
+          const offers = await fetchAllBetOffers(base, eventIds, signal, params, operator.origin, operator.proxied)
           const propsByEvent = parseBetOffers(offers)
           const gameMarketsByEvent = parseGameMarkets(offers)
 
