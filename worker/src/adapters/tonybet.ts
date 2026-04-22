@@ -376,24 +376,22 @@ export const tonybetAdapter: BookAdapter = {
       // Let the SPA set its session cookies (sid, _bsid, etc) and CSRF token.
       await page.waitForTimeout(8_000)
 
-      // In-page fetch from tonybet.ca → platform.tonybet.ca is cross-origin.
-      // CORS preflights non-simple headers (Content-Type: application/json,
-      // X-Requested-With, Client-Timezone), and platform.tonybet.ca doesn't
-      // reply with the right Access-Control-Allow-Headers, so "Failed to
-      // fetch". Keep only Accept (simple) and credentials:include — the
-      // server needs session cookies but not custom headers on GET.
+      // Using Playwright's APIRequestContext (via page.context().request)
+      // instead of in-page fetch(): shares cookies + proxy settings with the
+      // browser context but bypasses CORS and respects ignoreHTTPSErrors on
+      // cross-subdomain calls (tonybet.ca -> platform.tonybet.ca). In-page
+      // fetch kept throwing "Failed to fetch" because Chromium's request
+      // layer doesn't honor our context cert-bypass on XHRs the same way
+      // navigations get it.
       const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
-        return page.evaluate(async (u: string) => {
-          try {
-            const r = await fetch(u, {
-              headers: { Accept: 'application/json' },
-              credentials: 'include',
-            })
-            return { status: r.status, text: await r.text() }
-          } catch (e: any) {
-            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
-          }
-        }, url)
+        try {
+          const r = await page.context().request.get(url, {
+            headers: { Accept: 'application/json' },
+          })
+          return { status: r.status(), text: await r.text() }
+        } catch (e: any) {
+          return { status: -1, text: `request threw: ${e?.message ?? String(e)}` }
+        }
       }
 
       // Actively call /api/event/list with relations=odds so odds ship
