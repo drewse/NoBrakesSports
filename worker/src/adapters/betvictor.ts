@@ -23,15 +23,14 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket, NormalizedEvent } from '../lib/types.js'
 
-// Deep-seed directly into NBA so the sportsbook component fires — the
-// bare /en-ca/sports route renders a promo that doesn't hydrate market data.
-const SEED_URL = 'https://www.betvictor.com/en-ca/sports/basketball/nba'
-// Actual data endpoints observed on the NBA page:
-//   /horizon/betvictor       — main sportsbook data API
-//   /api/left_components     — left-rail components (often carry the event list)
-//   /api/right_components    — right-rail components (featured / odds boosts)
-//   /sportsbook_components/… — legacy home-page featured components (rare on league pages)
-const FEATURED_URL_RE = /\/horizon\/betvictor|\/api\/(left|right)_components|\/sportsbook_components\//
+// Real CA URL uses locale /en-on/ (Ontario-specific) and sport-id paths.
+// Basketball is sport 227 (epId); NBA grid lives at /en-on/sports/227.
+// (/horizon/betvictor turned out to be Quantum Metric analytics, not BV.)
+const SEED_URL = 'https://www.betvictor.com/en-on/sports/227'
+// The real sportsbook data lives in /bv_api/* and /bv_in_play/* endpoints,
+// confirmed via DevTools curls. We capture everything under those prefixes
+// plus the legacy /sportsbook_components/ path.
+const FEATURED_URL_RE = /\/bv_api\/|\/bv_in_play\/|\/sportsbook_components\//
 
 const LEAGUE_MAP: Array<{ match: RegExp; leagueSlug: string; sport: string }> = [
   { match: /\bNBA\b/i,               leagueSlug: 'nba',        sport: 'basketball' },
@@ -358,14 +357,16 @@ export const betvictorAdapter: BookAdapter = {
       // Give SPA time to fetch all home-component blocks.
       await page.waitForTimeout(12_000)
 
-      // Drill into sport pages to surface more components if home didn't carry them.
-      for (const path of ['basketball/nba', 'ice-hockey/nhl', 'baseball/mlb']) {
+      // Drill into each sport page by sport-id (227=basketball/NBA family,
+      // 229 seen in discovery for sport_id 601601/3x3 etc; 600002=NHL;
+      // tournaments are filtered downstream).
+      for (const sportId of [227, 1, 3]) {
         if (signal.aborted) break
         try {
-          await page.goto(`https://www.betvictor.com/en-ca/sports/${path}`, {
+          await page.goto(`https://www.betvictor.com/en-on/sports/${sportId}`, {
             waitUntil: 'domcontentloaded', timeout: 30_000,
           })
-          await page.waitForTimeout(6_000)
+          await page.waitForTimeout(7_000)
         } catch { /* ignore */ }
       }
       page.off('response', responseHandler)
@@ -400,25 +401,28 @@ export const betvictorAdapter: BookAdapter = {
         markets: agg.markets.size,
         outcomes: agg.outcomes.size,
       })
-      // If extraction found nothing, dump the first body so we can see the
-      // real shape the new endpoints ship. Log the raw text even when
-      // JSON.parse fails — silent catches were eating the diagnostic before.
+      // If extraction found nothing, dump up to 3 body samples (different
+      // /bv_api/ vs /bv_in_play/ endpoints ship different shapes) so we
+      // can target the one that actually carries events.
       if (agg.events.size === 0 && bodies.length > 0) {
-        const raw = bodies[0]
-        let topKeys: string[] | null = null
-        try {
-          const parsed = JSON.parse(raw)
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            topKeys = Object.keys(parsed).slice(0, 30)
-          } else if (Array.isArray(parsed)) {
-            topKeys = [`__array__len=${parsed.length}`]
-          }
-        } catch { /* parse may fail; still log raw */ }
-        log.info('betvictor raw body sample', {
-          topKeys,
-          rawLen: raw.length,
-          body: raw.slice(0, 2500),
-        })
+        for (let i = 0; i < Math.min(3, bodies.length); i++) {
+          const raw = bodies[i]
+          let topKeys: string[] | null = null
+          try {
+            const parsed = JSON.parse(raw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+              topKeys = Object.keys(parsed).slice(0, 30)
+            } else if (Array.isArray(parsed)) {
+              topKeys = [`__array__len=${parsed.length}`]
+            }
+          } catch { /* parse may fail; still log raw */ }
+          log.info('betvictor raw body sample', {
+            index: i,
+            topKeys,
+            rawLen: raw.length,
+            body: raw.slice(0, 2500),
+          })
+        }
       }
 
       for (const [eid, ev] of agg.events) {
