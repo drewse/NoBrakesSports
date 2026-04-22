@@ -13,6 +13,10 @@
       "schedule": "30 * * * *"
     },
     {
+      "path": "/api/cron/sync-underdog",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/sync-pipelines",
       "schedule": "*/5 * * * *"
     },
@@ -37,6 +41,7 @@
     "app/api/pipelines/run/route.ts": { "maxDuration": 300 },
     "app/api/cron/sync-props/route.ts": { "maxDuration": 300 },
     "app/api/cron/random-arb-alert/route.ts": { "maxDuration": 30 },
-    "app/api/cron/random-ev-alert/route.ts": { "maxDuration": 30 }
+    "app/api/cron/random-ev-alert/route.ts": { "maxDuration": 30 },
+    "app/api/cron/sync-underdog/route.ts": { "maxDuration": 120 }
   }
 }
