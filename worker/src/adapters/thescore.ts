@@ -465,6 +465,6 @@ export const thescoreAdapter: BookAdapter = {
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
       })
       return { events: scraped, errors }
-    }, { useProxy: true, ignoreHTTPSErrors: true })
+    }, { useProxy: 'mobile', ignoreHTTPSErrors: true })
   },
 }

@@ -437,7 +437,7 @@ export const bet365Adapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: true, rotateSession: true })
+    }, { useProxy: 'mobile', rotateSession: true })
     // Residential proxy (IPRoyal) restored: PacketStream DC IPs were
     // blocked but Starlink residential exits clear CF. Also rotate
     // sessions so repeat-request heuristics don't flag us.

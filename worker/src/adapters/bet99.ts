@@ -54,6 +54,6 @@ export const bet99Adapter: BookAdapter = {
       logXhrSummary(log, 'bet99', captured)
       log.info('bet99 discovery run done', { xhrsCaptured: captured.length })
       return { events: [], errors }
-    }, { useProxy: true })
+    }, { useProxy: 'mobile' })
   },
 }

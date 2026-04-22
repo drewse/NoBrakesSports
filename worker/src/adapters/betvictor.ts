@@ -378,7 +378,7 @@ export const betvictorAdapter: BookAdapter = {
           scraped.push({ event, gameMarkets, props: [] })
         }
             leagueOk = true
-          }, { useProxy: true, ignoreHTTPSErrors: true })
+          }, { useProxy: 'mobile', ignoreHTTPSErrors: true })
         } catch (e: any) {
           if (e?.message === '__RETRY__') continue   // new context, new exit IP
           log.warn('betvictor league threw', { league: L.leagueSlug, message: e?.message ?? String(e) })

@@ -719,7 +719,7 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: true, rotateSession: true })
+    }, { useProxy: 'mobile', rotateSession: true })
     // Residential proxy (IPRoyal Starlink) restored. The earlier
     // PacketStream ERR_EMPTY_RESPONSE is gone — AWS WAF treats residential
     // CA IPs as clean consumer traffic.

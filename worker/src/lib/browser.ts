@@ -70,15 +70,29 @@ export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
   extraHeaders?: Record<string, string>
-  useProxy?: boolean
+  useProxy?: boolean | 'mobile'
   rotateSession?: boolean
-  ignoreHTTPSErrors?: boolean   // when PacketStream's MITM breaks cert chains
+  ignoreHTTPSErrors?: boolean
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
+  // Two-tier proxy selection:
+  //   useProxy: true     -> PROXY_URL         (cheap residential, e.g. PacketStream)
+  //   useProxy: 'mobile' -> MOBILE_PROXY_URL  (premium, e.g. IPRoyal mobile)
+  //   useProxy: false    -> direct Railway IP (free)
+  // Adapters choose based on what the target site's WAF accepts.
+  let proxyUrl: string | undefined
+  if (opts.useProxy === 'mobile') {
+    proxyUrl = process.env.MOBILE_PROXY_URL || process.env.PROXY_URL
+    if (!process.env.MOBILE_PROXY_URL && process.env.PROXY_URL) {
+      log.warn('mobile proxy requested but MOBILE_PROXY_URL unset — falling back to PROXY_URL')
+    }
+  } else if (opts.useProxy === true) {
+    proxyUrl = process.env.PROXY_URL
+  }
   let proxy: { server: string; username?: string; password?: string } | undefined
-  if (opts.useProxy && process.env.PROXY_URL) {
+  if (proxyUrl) {
     try {
-      const u = new URL(process.env.PROXY_URL)
+      const u = new URL(proxyUrl)
       let host = u.host
       let password = u.password
       // PacketStream legacy: sticky=31112, rotating=31113.
@@ -86,8 +100,8 @@ export async function openContext(opts: {
         host = `${u.hostname}:31113`
       }
       // IPRoyal: session encoded in password as `_session-<id>_lifetime-..`.
-      // Unconditionally swap the session ID to a fresh random one so we
-      // don't reuse expired 30-min-sticky tokens across worker cycles.
+      // Swap the session ID to a fresh random one per context so we don't
+      // reuse expired stickies across cycles.
       if (password && /_session-[^_]+/.test(password)) {
         password = password.replace(/_session-[^_]+/, `_session-${randomSessionId()}`)
       }
@@ -97,7 +111,7 @@ export async function openContext(opts: {
         password: password || undefined,
       }
     } catch {
-      log.warn('PROXY_URL invalid — falling back to direct')
+      log.warn('proxy URL invalid — falling back to direct', { tier: opts.useProxy })
     }
   }
   return browser.newContext({

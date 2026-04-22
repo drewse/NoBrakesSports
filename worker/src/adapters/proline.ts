@@ -244,6 +244,6 @@ export const prolineAdapter: BookAdapter = {
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
       })
       return { events: scraped, errors }
-    }, { useProxy: true })
+    }, { useProxy: false })   // Kambi offering-api is public CDN — no proxy needed.
   },
 }
