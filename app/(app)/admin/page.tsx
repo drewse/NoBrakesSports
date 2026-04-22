@@ -142,16 +142,14 @@ const USA_BOOK_TRACKER: UsaBookEntry[] = [
   // ── Shut-down / defunct US operations ─────────────────────────────────
   { name: 'Unibet US',           slug: 'unibet-us',          operator: 'Kindred Group',                   url: 'https://unibet.com',                 platform: 'Kambi',                      category: 'regional', states: [],                                          status: 'dead',    notes: 'Kindred exited US market May 2024. US domain dormant. CA Unibet adapter still live for Canadian customers.' },
 
-  // ── Offshore / grey-market books (not US-licensed) ────────────────────
-  //     Included for reference only. These operate from Curaçao/Antigua/
-  //     Costa Rica and serve US customers without state licensing — lines
-  //     are often decent but ingestion raises compliance questions for a
-  //     US product. Keep planned=false-ish (status 'planned') until the
-  //     user explicitly greenlights them.
-  { name: 'Bovada',              slug: 'bovada',             operator: 'Harp Media B.V.',                 url: 'https://www.bovada.lv',              platform: 'Proprietary',                category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Curaçao-licensed, accepts US customers. Largest offshore book. Compliance risk for a US product.' },
-  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Panama-licensed, accepts US customers. Compliance risk.' },
-  { name: 'BetAnySports',        slug: 'betanysports',       operator: 'BetAnySports Curaçao',            url: 'https://www.betanysports.eu',        platform: 'ASI / DGS',                  category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Reduced-juice offshore book. Compliance risk.' },
-  { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Reduced-juice sister of BetOnline. Same stack. Compliance risk.' },
+  // ── Offshore books (Curaçao / Panama-licensed, accept US customers) ──
+  //     Greenlit for ingestion — serve nationwide without state licensing.
+  //     Lines are often competitive; LowVig/BetAnySports specifically run
+  //     reduced juice which makes them useful for EV/arb surfaces.
+  { name: 'Bovada',              slug: 'bovada',             operator: 'Harp Media B.V.',                 url: 'https://www.bovada.lv',              platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Curaçao-licensed. Largest offshore book by US customer volume. Proprietary JSON API — DevTools needed to map odds endpoints.' },
+  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Panama-licensed. Proprietary API — needs DevTools investigation to map odds feed.' },
+  { name: 'BetAnySports',        slug: 'betanysports',       operator: 'BetAnySports Curaçao',            url: 'https://www.betanysports.eu',        platform: 'ASI / DGS',                  category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Reduced-juice book on the ASI (Digital Gaming) platform — same stack as several other Curaçao books. One adapter may cover multiple.' },
+  { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Reduced-juice sister of BetOnline; same stack — single adapter likely serves both.' },
 ]
 
 function StatusPill({ status }: { status: ImplStatus }) {
