@@ -9,7 +9,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { scrapeSleeper } from '@/lib/pipelines/adapters/sleeper-props'
+import { scrapeSleeper, __lastScrapeStats as sleeperStats } from '@/lib/pipelines/adapters/sleeper-props'
 import { computePropOddsHash, americanToImpliedProb, type NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
 export const runtime = 'nodejs'
@@ -43,7 +43,16 @@ export async function GET(request: NextRequest) {
     clearTimeout(timer)
   }
   if (results.length === 0) {
-    return NextResponse.json({ ok: true, games: 0, props: 0, matched: 0 })
+    // Echo the adapter's skip counters so we can diagnose why no games
+    // came through without waiting on Vercel log indexing.
+    return NextResponse.json({
+      ok: true, games: 0, props: 0, matched: 0,
+      debug: {
+        ...sleeperStats,
+        topUnmappedWagerTypes: Object.entries(sleeperStats.unmappedWagerTypes)
+          .sort((a, b) => b[1] - a[1]).slice(0, 10),
+      },
+    })
   }
 
   // 2) Source row

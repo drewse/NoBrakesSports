@@ -26,7 +26,10 @@
  */
 
 import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
-import { pipeFetch } from '../proxy-fetch'
+// Sleeper endpoints are public and free of geo/rate gates. Using raw fetch
+// instead of pipeFetch (PacketStream) avoids one possible failure point on
+// a 5MB + 5MB payload path and keeps proxy bandwidth for adapters that
+// actually need it.
 
 const LINES_URL = 'https://api.sleeper.com/lines/available'
 const PLAYERS_URL = (sport: string) => `https://api.sleeper.com/players/${sport}`
@@ -126,7 +129,7 @@ function decimalToAmerican(s: string | undefined): number | null {
 
 async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null> {
   try {
-    const resp = await pipeFetch(url, {
+    const resp = await fetch(url, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
@@ -144,12 +147,37 @@ async function fetchJson<T>(url: string, signal?: AbortSignal): Promise<T | null
   }
 }
 
+// Diagnostic counters — exposed so the cron endpoint can echo them in
+// its response, letting us see adapter-level failure reasons without
+// waiting on Vercel log indexing.
+export const __lastScrapeStats: {
+  linesReceived: number
+  sportsNeeded: string[]
+  skippedSport: number
+  skippedStat: number
+  skippedShape: number
+  gamesWithOneTeam: number
+  unmappedWagerTypes: Record<string, number>
+} = {
+  linesReceived: 0, sportsNeeded: [],
+  skippedSport: 0, skippedStat: 0, skippedShape: 0,
+  gamesWithOneTeam: 0, unmappedWagerTypes: {},
+}
+
 export async function scrapeSleeper(
   signal?: AbortSignal,
 ): Promise<SLResult[]> {
+  __lastScrapeStats.linesReceived = 0
+  __lastScrapeStats.sportsNeeded = []
+  __lastScrapeStats.skippedSport = 0
+  __lastScrapeStats.skippedStat = 0
+  __lastScrapeStats.skippedShape = 0
+  __lastScrapeStats.gamesWithOneTeam = 0
+  __lastScrapeStats.unmappedWagerTypes = {}
   // 1) Fetch the lines list.
   const lines = await fetchJson<SLLine[]>(LINES_URL, signal)
   if (!lines || !Array.isArray(lines) || lines.length === 0) return []
+  __lastScrapeStats.linesReceived = lines.length
 
   // 2) Discover which sports we need player indexes for. Only pull the
   //    indexes for sports present in our SPORT_TO_LEAGUE map — skip
@@ -158,6 +186,7 @@ export async function scrapeSleeper(
   for (const l of lines) {
     if (l.sport && SPORT_TO_LEAGUE[l.sport]) sportsNeeded.add(l.sport)
   }
+  __lastScrapeStats.sportsNeeded = [...sportsNeeded]
   if (sportsNeeded.size === 0) return []
 
   const playersBySport: Record<string, Record<string, SLPlayer>> = {}
@@ -188,7 +217,14 @@ export async function scrapeSleeper(
     if (l.outcome_type && l.outcome_type !== 'over_under') { skippedShape++; continue }
 
     const category = l.wager_type ? STAT_TO_CATEGORY[l.wager_type] : undefined
-    if (!category) { skippedStat++; continue }
+    if (!category) {
+      skippedStat++
+      if (l.wager_type) {
+        __lastScrapeStats.unmappedWagerTypes[l.wager_type] =
+          (__lastScrapeStats.unmappedWagerTypes[l.wager_type] ?? 0) + 1
+      }
+      continue
+    }
 
     const player = l.subject_id ? playersBySport[l.sport]?.[l.subject_id] : undefined
     if (!player?.first_name && !player?.last_name) { skippedShape++; continue }
@@ -242,7 +278,11 @@ export async function scrapeSleeper(
   //    for those, and they'll fail downstream event matching anyway.
   const out: SLResult[] = []
   for (const [key, teams] of gameTeams) {
-    if (teams.size !== 2) { skippedShape++; continue }
+    if (teams.size !== 2) {
+      if (teams.size === 1) __lastScrapeStats.gamesWithOneTeam++
+      skippedShape++
+      continue
+    }
     const meta = gameMeta.get(key)!
     const leagueMap = SPORT_TO_LEAGUE[meta.sport]!
     const [a, b] = [...teams]
@@ -273,6 +313,9 @@ export async function scrapeSleeper(
   if (skippedSport || skippedStat || skippedShape) {
     console.log(`[Sleeper] skipped: sport=${skippedSport} unmapped_stat=${skippedStat} shape=${skippedShape}`)
   }
+  __lastScrapeStats.skippedSport = skippedSport
+  __lastScrapeStats.skippedStat = skippedStat
+  __lastScrapeStats.skippedShape = skippedShape
 
   return out
 }
