@@ -256,6 +256,16 @@ export const thescoreAdapter: BookAdapter = {
       // multiple queries on the same page.
       const gqlBodies: Array<{ url: string; body: string }> = []
       const seenOps = new Map<string, number>()
+      // Grab the x-anonymous-authorization JWT the SPA mints on first
+      // load so we can actively call the persisted-query URL for the
+      // game-lines sectionId (which the SPA doesn't auto-fire on our
+      // #lines hash — it defaults to a Featured Parlays section instead).
+      let anonAuth: string | null = null
+      page.on('request', (req) => {
+        const h = req.headers()
+        const tok = h['x-anonymous-authorization'] ?? h['X-Anonymous-Authorization']
+        if (tok && !anonAuth) anonAuth = tok
+      })
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         if (!GQL_PATH_RE.test(u)) return
@@ -292,11 +302,78 @@ export const thescoreAdapter: BookAdapter = {
           log.warn('thescore nav failed', { url: L.url, message: e?.message ?? String(e) })
         }
       }
+      // Active fetch: call CompetitionPageSectionLinesTabNode ourselves
+      // for each league's game-lines sectionId. The passive capture gives
+      // us whatever section the SPA chose to render (often the Featured
+      // Parlays widget on the #lines hash), not necessarily the game
+      // moneyline/spread/total grid. These IDs are from DevTools curls.
+      const GAME_LINE_SECTIONS: Array<{ leagueSlug: string; sport: string; sectionId: string }> = [
+        { leagueSlug: 'nba', sport: 'basketball', sectionId: 'Section:2c557d0d-18c7-40e5-890f-b59fb895b66e' },
+        // MLB / NHL sectionIds unknown — add when user supplies them.
+      ]
+      const GQL_HOST = 'https://sportsbook.ca-on.thescore.bet'
+      const SHA = '35c91eef7459e3a5edbc18424f85dfd6905fb0abf0a2a77660f6f34b51d4a72b'
+      if (anonAuth) {
+        for (const sec of GAME_LINE_SECTIONS) {
+          const vars = {
+            isSubscription: false, pageType: 'PAGE',
+            includeRecommendedProps: true, isBrandingImageEnabled: false,
+            isNewFeaturedBetParticipantLogoEnabled: true,
+            isFeaturedBetCarouselHeaderRedesignEnabled: true,
+            includeStandardizedBoxscore: true, isCfpRankingEnabled: true,
+            isCombatSportsRedesignEnabled: true, isFeaturedMarketCardRedesignEnabled: true,
+            isDsModelRecommendedPropsEnabled: true, includeRichEvent: true,
+            oddsFormat: 'AMERICAN',
+            sectionId: sec.sectionId, selectedFilterId: '',
+          }
+          const ext = { persistedQuery: { version: 1, sha256Hash: SHA } }
+          const url = `${GQL_HOST}/graphql/persisted_queries/${SHA}`
+            + `?operationName=CompetitionPageSectionLinesTabNode`
+            + `&variables=${encodeURIComponent(JSON.stringify(vars))}`
+            + `&extensions=${encodeURIComponent(JSON.stringify(ext))}`
+          try {
+            const r = await page.context().request.get(url, {
+              headers: {
+                Accept: 'application/json',
+                'apollographql-client-name': 'tsb-tsb-web',
+                'apollographql-client-version': '26.8.0',
+                'content-type': 'application/json',
+                'x-anonymous-authorization': anonAuth,
+                'x-app': 'tsb',
+                'x-app-version': '26.8.0',
+                'x-client': 'tsb',
+                'x-platform': 'web',
+                'origin': 'https://sportsbook.thescore.bet',
+                'referer': 'https://sportsbook.thescore.bet/',
+              },
+            })
+            if (r.status() === 200) {
+              const text = await r.text()
+              gqlBodies.push({ url, body: text })
+              log.info('thescore active fetch ok', {
+                league: sec.leagueSlug, bodyLen: text.length,
+              })
+            } else {
+              log.warn('thescore active fetch non-200', {
+                league: sec.leagueSlug, status: r.status(),
+              })
+            }
+          } catch (e: any) {
+            log.warn('thescore active fetch threw', {
+              league: sec.leagueSlug, message: e?.message ?? String(e),
+            })
+          }
+        }
+      } else {
+        log.warn('thescore no anonAuth captured — skipping active fetch')
+      }
+
       page.off('response', responseHandler)
 
       log.info('thescore captured', {
         responses: gqlBodies.length,
         operations: Array.from(seenOps.entries()).sort((a, b) => b[1] - a[1]).slice(0, 12),
+        haveAnonAuth: !!anonAuth,
       })
 
       if (gqlBodies.length === 0) return { events: scraped, errors }

@@ -26,13 +26,14 @@ interface League {
   meetingUrl: string
 }
 
-// Meeting IDs per league (DevTools-confirmed for NBA = 367476010). MLB +
-// NHL meeting IDs we discover by navigating to the sport root and letting
-// the SPA redirect to the current season's meeting.
+// Meeting IDs per league — DevTools-confirmed.
+//   NBA:  sport 227,  meeting 367476010
+//   MLB:  sport 226,  meeting 511759910
+//   NHL:  sport 2100, meeting 369519410
 const LEAGUES: League[] = [
   { leagueSlug: 'nba', sport: 'basketball', meetingUrl: 'https://www.betvictor.com/en-on/sports/227/meetings/367476010/all' },
-  { leagueSlug: 'mlb', sport: 'baseball',   meetingUrl: 'https://www.betvictor.com/en-on/sports/3/' },
-  { leagueSlug: 'nhl', sport: 'ice_hockey', meetingUrl: 'https://www.betvictor.com/en-on/sports/1/' },
+  { leagueSlug: 'mlb', sport: 'baseball',   meetingUrl: 'https://www.betvictor.com/en-on/sports/226/meetings/511759910/all' },
+  { leagueSlug: 'nhl', sport: 'ice_hockey', meetingUrl: 'https://www.betvictor.com/en-on/sports/2100/meetings/369519410/all' },
 ]
 
 const MARKET_URL = 'https://www.betvictor.com/bv_api/en-on/1/overview/markets'
