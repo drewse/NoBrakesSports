@@ -19,6 +19,7 @@ import { scrapeBetMGM, type MGMResult } from '@/lib/pipelines/adapters/betmgm-pr
 import { scrapeBwin, type BWINResult } from '@/lib/pipelines/adapters/bwin-props'
 import { scrapePartypoker, type PPResult } from '@/lib/pipelines/adapters/partypoker-props'
 import { scrapePrizePicks, type PrizePicksResult } from '@/lib/pipelines/adapters/prizepicks'
+import { scrapeUnderdog, type UDResult } from '@/lib/pipelines/adapters/underdog-props'
 import { computePropOddsHash, americanToImpliedProb } from '@/lib/pipelines/prop-normalizer'
 import { canonicalEventKey } from '@/lib/pipelines/normalize'
 
@@ -111,6 +112,7 @@ export async function GET(req: NextRequest) {
   let bwinResults: BWINResult[] = []
   let ppResults: PPResult[] = []
   let prizepicksResults: PrizePicksResult[] = []
+  let underdogResults: UDResult[] = []
 
   // 1. Scrape all sources in parallel
   const controller = new AbortController()
@@ -122,7 +124,7 @@ export async function GET(req: NextRequest) {
     // and produces garbage player names / stale lines that collide with the
     // worker's writes on the same (source_id, event_id, prop_category, player,
     // line_value) key and cause fake arbs/+EV.
-    const [kambi, dk, fd, bw, mgm, bwinRes, ppRes, prizepicksRes] = await Promise.allSettled([
+    const [kambi, dk, fd, bw, mgm, bwinRes, ppRes, prizepicksRes, underdogRes] = await Promise.allSettled([
       scrapeAllKambiOperators(controller.signal),
       scrapeDraftKings(controller.signal),
       scrapeFanDuel(controller.signal),
@@ -131,6 +133,7 @@ export async function GET(req: NextRequest) {
       scrapeBwin(controller.signal),
       scrapePartypoker(controller.signal),
       scrapePrizePicks(controller.signal),
+      scrapeUnderdog(controller.signal),
     ])
 
     if (kambi.status === 'fulfilled') {
@@ -188,6 +191,13 @@ export async function GET(req: NextRequest) {
       if (prizepicksResults.length === 0) errors.push('prizepicks: scrape succeeded but returned 0 events')
     } else {
       errors.push(`prizepicks scrape failed: ${String(prizepicksRes.reason)}`)
+    }
+
+    if (underdogRes.status === 'fulfilled') {
+      underdogResults = underdogRes.value
+      if (underdogResults.length === 0) errors.push('underdog: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`underdog scrape failed: ${String(underdogRes.reason)}`)
     }
 
   } finally {
@@ -457,6 +467,33 @@ export async function GET(req: NextRequest) {
       }
     }
     console.log(`[PrizePicks] games matched=${ppMatched} unmatched=${ppUnmatched} props=${prizepicksResults.reduce((s, r) => s + r.props.length, 0)}`)
+  }
+
+  // Process Underdog Fantasy (DFS pick-em with real per-side prices — Model B).
+  // Unlike PrizePicks, Underdog quotes american_price on each higher/lower
+  // option, so over_price and under_price are populated. source_type='dfs'
+  // to keep it grouped with PrizePicks in the /books selector.
+  let underdogSourceId = sourceMap.get('underdog')
+  if (!underdogSourceId && underdogResults.length > 0) {
+    const { data: newSource } = await db
+      .from('market_sources')
+      .insert({ name: 'Underdog', slug: 'underdog', source_type: 'dfs', is_active: true })
+      .select('id')
+      .single()
+    if (newSource) { underdogSourceId = newSource.id; sourceMap.set('underdog', newSource.id) }
+  }
+  if (underdogSourceId) {
+    let udMatched = 0
+    let udUnmatched = 0
+    for (const result of underdogResults) {
+      const eventId = findEvent(result.event.leagueSlug, result.event.startTime, result.event.homeTeam, result.event.awayTeam)
+      if (!eventId) { udUnmatched++; continue }
+      udMatched++
+      for (const prop of result.props) {
+        propRows.push(buildPropRow(eventId, underdogSourceId, prop, now))
+      }
+    }
+    console.log(`[Underdog] games matched=${udMatched} unmatched=${udUnmatched} props=${underdogResults.reduce((s, r) => s + r.props.length, 0)}`)
   }
 
   // 4b. Write Kambi game-level markets (ML, spread, total) into current_market_odds.
