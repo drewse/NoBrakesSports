@@ -78,6 +78,8 @@ const STAT_TO_CATEGORY: Record<string, string> = {
   'hits_allowed':        'player_hits_allowed',
   'earned_runs':         'player_earned_runs',
   'outs':                'pitcher_outs',
+  'hits_runs_rbis':      'player_hits_runs_rbis',
+  'walks':               'player_walks',   // non-batter variant seen in debug
   // NHL
   'goals':               'player_goals',
   'shots':               'player_shots_on_goal',
@@ -239,8 +241,12 @@ export async function scrapeSleeper(
     const fullName = [player.first_name, player.last_name].filter(Boolean).join(' ').trim()
     if (!fullName) { bumpShape('empty_player_name'); continue }
 
-    const gameId = l.game_id
-    const teamAbbr = l.subject_team
+    // subject_team lives on options[], not on the top-level line. game_id
+    // is on both but options[] is the authoritative source. Fall back to
+    // top-level as a safety net.
+    const firstOpt = (l.options ?? [])[0] as any
+    const gameId = l.game_id ?? firstOpt?.game_id
+    const teamAbbr = (l as any).subject_team ?? firstOpt?.subject_team ?? player.team
     if (!gameId || !teamAbbr) { bumpShape('no_game_or_team'); continue }
 
     // Extract over/under prices + line from options[].
