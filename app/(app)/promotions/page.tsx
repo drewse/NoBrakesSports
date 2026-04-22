@@ -1,10 +1,11 @@
-import { Badge } from '@/components/ui/badge'
+'use client'
+
+import { useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { ExternalLink } from 'lucide-react'
 
-export const metadata = { title: 'Promotions' }
-
 type PromoType = 'Welcome Bonus' | 'Reload' | 'Odds Boost' | 'Risk-Free' | 'Referral' | 'Free Bet'
+type Region = 'CA' | 'US'
 
 interface Promo {
   id: string
@@ -35,13 +36,26 @@ const PROMOS: Promo[] = []
 
 const TYPE_ORDER: PromoType[] = ['Welcome Bonus', 'Risk-Free', 'Reload', 'Odds Boost', 'Free Bet', 'Referral']
 
+/** Region match heuristic: check `states` first (explicit "CA Only" /
+ *  "US Only"), otherwise leave undefined-region promos visible in both
+ *  views so we don't accidentally hide promos that haven't been tagged. */
+function matchesRegion(p: Promo, region: Region): boolean {
+  const s = (p.states ?? '').toLowerCase()
+  if (!s) return true
+  if (region === 'CA') return s.includes('ca')
+  return s.includes('us')
+}
+
 export default function PromotionsPage() {
+  const [region, setRegion] = useState<Region>('CA')
+
+  const visible = PROMOS.filter(p => matchesRegion(p, region))
   const grouped = TYPE_ORDER.map(type => ({
     type,
-    promos: PROMOS.filter(p => p.type === type),
+    promos: visible.filter(p => p.type === type),
   })).filter(g => g.promos.length > 0)
 
-  const totalValue = PROMOS.filter(p => p.type === 'Welcome Bonus').length
+  const totalValue = visible.filter(p => p.type === 'Welcome Bonus').length
 
   return (
     <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-6 max-w-[1200px]">
@@ -52,6 +66,34 @@ export default function PromotionsPage() {
           Curated sportsbook promotions — maximize your value from welcome bonuses, reloads, and ongoing offers.
           {' '}<span className="text-white font-medium">{totalValue} welcome bonuses</span> currently available.
         </p>
+      </div>
+
+      {/* Region toggle */}
+      <div className="inline-flex rounded-lg border border-nb-800 bg-nb-900 p-0.5 gap-0.5">
+        <button
+          type="button"
+          onClick={() => setRegion('CA')}
+          className={`text-xs font-semibold px-3.5 py-1.5 rounded-md transition-colors ${
+            region === 'CA'
+              ? 'bg-nb-700 text-white'
+              : 'text-nb-400 hover:text-white'
+          }`}
+          aria-pressed={region === 'CA'}
+        >
+          Canada Promotions
+        </button>
+        <button
+          type="button"
+          onClick={() => setRegion('US')}
+          className={`text-xs font-semibold px-3.5 py-1.5 rounded-md transition-colors ${
+            region === 'US'
+              ? 'bg-nb-700 text-white'
+              : 'text-nb-400 hover:text-white'
+          }`}
+          aria-pressed={region === 'US'}
+        >
+          USA Promotions
+        </button>
       </div>
 
       {/* Disclaimer */}
@@ -66,7 +108,9 @@ export default function PromotionsPage() {
       {/* Empty state */}
       {grouped.length === 0 && (
         <div className="rounded-lg border border-nb-800 bg-nb-900 px-6 py-10 text-center">
-          <p className="text-sm text-nb-300 font-medium">No promotions yet</p>
+          <p className="text-sm text-nb-300 font-medium">
+            No {region === 'CA' ? 'Canadian' : 'US'} promotions yet
+          </p>
           <p className="text-[11px] text-nb-500 mt-1">
             Promotions will appear here as they're researched and added.
           </p>
