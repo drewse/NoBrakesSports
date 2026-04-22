@@ -6,7 +6,9 @@
  *   Client:  bcscaon   (Bally Canada Sports CA-ON)
  *   ListView: /listView/{sport}/{league}/all/all/competitions.json
  *   Origin:  https://play.ballybet.ca  (referer)
- *   Market:  CA-ON, lang: en_US (yes — Bally uses en_US for CA; confirmed)
+ *   Market:  CA-ON, lang: en_CA (en_US returns abbreviated team names like
+ *            "DET Pistons" which don't match our canonical event rows and
+ *            create orphan events in the Markets view).
  *
  * Same Kambi offering-api surface as BetRivers / Proline. Different
  * regional host (eu1.offering-api).
@@ -119,7 +121,7 @@ export const ballybetAdapter: BookAdapter = {
         const url =
           `${KAMBI_HOST}/offering/v2018/${CLIENT}/listView/`
           + `${league.sportPath}/${league.leaguePath}/all/all/matches.json`
-          + `?channel_id=1&client_id=200&lang=en_US&market=CA-ON&useCombined=true&useCombinedLive=true`
+          + `?channel_id=1&client_id=200&lang=en_CA&market=CA-ON&useCombined=true&useCombinedLive=true`
         const { status, text } = await pageFetch(url)
         if (status !== 200) {
           log.warn('ballybet listview failed', { league: league.termKey, status })
@@ -150,7 +152,7 @@ export const ballybetAdapter: BookAdapter = {
       for (let i = 0; i < ids.length; i += BATCH) {
         if (signal.aborted) break
         const chunk = ids.slice(i, i + BATCH).join(',')
-        const url = `${BETOFFER_BASE}/${chunk}.json?lang=en_US&market=CA-ON&includeParticipants=true`
+        const url = `${BETOFFER_BASE}/${chunk}.json?lang=en_CA&market=CA-ON&includeParticipants=true`
         const { status, text } = await pageFetch(url)
         if (status !== 200) { errors.push(`betoffer batch HTTP ${status}`); continue }
         try {
