@@ -667,7 +667,9 @@ export const caesarsAdapter: BookAdapter = {
 
       // Dump one sample body per distinct competition sub-endpoint so we
       // can see which (tabs / quick-picks / events-with-markets) holds the
-      // events graph and wire a parser next iteration.
+      // events graph and wire a parser next iteration. For /tabs bodies,
+      // sample further in (default view = Games tab, events embedded after
+      // the tab nav).
       const subSeen = new Set<string>()
       for (const { path, body } of compSubBodies) {
         if (subSeen.has(path)) continue
@@ -681,9 +683,13 @@ export const caesarsAdapter: BookAdapter = {
             topKeys = [`__array__len=${parsed.length}`]
           }
         } catch { /* log anyway */ }
+        // /tabs bodies lead with ~3KB of tab nav; dump a deeper window to
+        // reach the events[] / competitions[] payload.
+        const sampleLen = path.includes('/tabs') ? 6000 : 2500
+        const sampleOff = path.includes('/tabs') ? 3000 : 0
         log.info('caesars comp sub-endpoint sample', {
           path, topKeys, bodyLen: body.length,
-          sample: body.slice(0, 2500),
+          sample: body.slice(sampleOff, sampleOff + sampleLen),
         })
       }
 
@@ -698,8 +704,11 @@ export const caesarsAdapter: BookAdapter = {
           ?? compUuids.get(comp.leagueSlug.toUpperCase())
         if (uuid) compByUuid.set(uuid, comp)
       }
+      // Both /quick-picks and /tabs bodies embed events with the same
+      // Liberty shape: { id, name: "|Away| |at| |Home|", startTime,
+      // competitionId, markets }. Walk each.
       for (const { path, body } of compSubBodies) {
-        if (!path.includes('/quick-picks')) continue
+        if (!/\/(quick-picks|tabs)(?:\?|$)/.test(path)) continue
         try {
           const parsed = JSON.parse(body)
           const evs = extractEventsFromQuickPicks(parsed)

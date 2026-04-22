@@ -442,6 +442,15 @@ export const thescoreAdapter: BookAdapter = {
             // Extract the first header/marker we can find to ID the section.
             const firstChild = json?.data?.node?.sectionChildren?.[0] ?? {}
             const firstCarousel = firstChild?.featuredBetsCarouselChildren?.[0] ?? {}
+            const sectionChildren: any[] = Array.isArray(json?.data?.node?.sectionChildren) ? json.data.node.sectionChildren : []
+            const childTypes = sectionChildren.map((c: any) => c?.__typename ?? Object.keys(c ?? {}).slice(0, 3).join(',')).slice(0, 20)
+            // Count occurrences of interesting types throughout the whole body
+            // — if game-lines (RichEvent with markets) live further down the
+            // tree, the count tells us to dig there.
+            const richEventCount = (body.match(/"__typename":"RichEvent"/g) ?? []).length
+            const standardEventCount = (body.match(/"__typename":"StandardEvent"/g) ?? []).length
+            const marketGridCount = (body.match(/"__typename":"MarketGrid/g) ?? []).length
+            const moneylineMarketCount = (body.match(/"type":"MONEYLINE"/g) ?? []).length
             log.info('thescore section body', {
               sectionIdFromUrl,
               sectionNodeId: nodeId,
@@ -450,7 +459,14 @@ export const thescoreAdapter: BookAdapter = {
               hasFallback: !!json?.data?.node?.fallbackChild,
               fallbackTitle: json?.data?.node?.fallbackChild?.title ?? null,
               bodyLen: body.length,
-              headSample: body.slice(0, 3000),
+              sectionChildrenCount: sectionChildren.length,
+              childTypes,
+              richEventCount, standardEventCount,
+              marketGridCount, moneylineMarketCount,
+              // Dump a window past the first parlay card to see if there
+              // are grid/market nodes below it.
+              midSample: body.slice(20000, 24000),
+              tailSample: body.slice(Math.max(0, body.length - 4000)),
             })
           }
         }
