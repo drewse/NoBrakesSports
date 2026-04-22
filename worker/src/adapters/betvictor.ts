@@ -250,8 +250,18 @@ export const betvictorAdapter: BookAdapter = {
             }
           }, { u: url, tok: csrfToken ?? '' })
 
+          // Unconditional diagnostic: log every markets call so we see
+          // whether CSRF fires, whether body is empty, etc.
+          log.info('betvictor markets call', {
+            league: L.leagueSlug,
+            status,
+            bodyLen: text.length,
+            csrfCaptured: !!csrfToken,
+            eventCount: chunk.length,
+            sample: text.slice(0, 400),
+          })
+
           if (status !== 200) {
-            log.warn('betvictor markets non-200', { league: L.leagueSlug, status, sample: text.slice(0, 200) })
             errors.push(`${L.leagueSlug} markets HTTP ${status}`)
             continue
           }
