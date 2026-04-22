@@ -245,6 +245,15 @@ export const thescoreAdapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
+    // Parked: IPRoyal's Starlink residential pool is collectively
+    // rejected by sportsbook.thescore.bet's edge (ERR_TUNNEL_CONNECTION_FAILED
+    // on every session). Flip THESCORE_ENABLED=1 to retry once we have
+    // mobile/4G IPs or a different residential provider.
+    if (process.env.THESCORE_ENABLED !== '1') {
+      log.info('skipped — theScore pool-blocked; set THESCORE_ENABLED=1 to retry')
+      return { events: [], errors: [] }
+    }
+
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
