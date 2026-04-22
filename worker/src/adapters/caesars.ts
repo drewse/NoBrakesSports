@@ -236,6 +236,56 @@ interface CaesarsEvent {
   competitors: Array<{ id?: string; name: string; home: boolean }>
 }
 
+/** Parse Caesars quick-picks event name: "|Phoenix Suns| |at| |Oklahoma City Thunder|".
+ *  Caesars wraps team-name tokens in pipes with "|at|" as the delimiter. */
+function parseQuickPickName(name: string): { away: string; home: string } | null {
+  if (!name || typeof name !== 'string') return null
+  const idx = name.indexOf('|at|')
+  if (idx < 0) return null
+  const strip = (s: string) => s.replace(/^\s*\|+\s*|\s*\|+\s*$/g, '').trim()
+  const away = strip(name.slice(0, idx))
+  const home = strip(name.slice(idx + 4))
+  if (!away || !home) return null
+  return { away, home }
+}
+
+/** Walk a /quick-picks body for events with the Liberty quick-picks shape:
+ *  { id, name: "|Away| |at| |Home|", startTime, competitionId, markets }. */
+function extractEventsFromQuickPicks(body: any): Array<CaesarsEvent & { competitionId?: string }> {
+  const out: Array<CaesarsEvent & { competitionId?: string }> = []
+  const seen = new Set<string>()
+  const walk = (node: any) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) { for (const n of node) walk(n); return }
+    const id = node.id ?? node.eventId
+    const name = node.name ?? node.eventName
+    const startTime = node.startTime ?? node.scheduledStartTime ?? node.eventDate
+    if (
+      typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id) &&
+      typeof name === 'string' && name.includes('|at|') &&
+      startTime && !seen.has(id)
+    ) {
+      const parsed = parseQuickPickName(name)
+      if (parsed) {
+        seen.add(id)
+        out.push({
+          id,
+          name,
+          startTime: String(startTime),
+          competitors: [
+            { name: parsed.away, home: false },
+            { name: parsed.home, home: true },
+          ],
+          competitionId: node.competitionId ?? node.competition?.id,
+        })
+      }
+    }
+    for (const v of Object.values(node)) walk(v)
+  }
+  walk(body)
+  return out
+}
+
 /** Pull events out of a competition-events response. Tries several shape
  *  variants since Liberty has slight per-endpoint differences. */
 function extractEventsFromList(body: any): CaesarsEvent[] {
@@ -634,16 +684,36 @@ export const caesarsAdapter: BookAdapter = {
         })
       }
 
-      // Build a master event list: prefer passively-captured events-list
-      // bodies, fall back to mining the menu.
+      // Build a master event list. Preferred source is /quick-picks bodies
+      // (Liberty moved events here from /competitions/:uuid/events). Each
+      // event carries competitionId inline, so we group by that directly
+      // rather than guessing via serialized-substring.
       const eventsByComp = new Map<string, CaesarsEvent[]>()
+      const compByUuid = new Map<string, Competition>()
+      for (const comp of COMPETITIONS) {
+        const uuid = compUuids.get(comp.menuName.toUpperCase())
+          ?? compUuids.get(comp.leagueSlug.toUpperCase())
+        if (uuid) compByUuid.set(uuid, comp)
+      }
+      for (const { path, body } of compSubBodies) {
+        if (!path.includes('/quick-picks')) continue
+        try {
+          const parsed = JSON.parse(body)
+          const evs = extractEventsFromQuickPicks(parsed)
+          for (const ev of evs) {
+            const comp = ev.competitionId ? compByUuid.get(ev.competitionId) : undefined
+            if (!comp) continue
+            const prior = eventsByComp.get(comp.menuName) ?? []
+            eventsByComp.set(comp.menuName, [...prior, ev])
+          }
+        } catch { /* skip malformed */ }
+      }
+      // Legacy fallback — /events body shape. Kept in case Caesars restores it.
       for (const body of eventsListBodies) {
         try {
           const parsed = JSON.parse(body)
           const evs = extractEventsFromList(parsed)
           if (evs.length === 0) continue
-          // Attach to whatever comp UUID shows up in the body (Liberty wraps
-          // events in a competition node). Guess by sampling each known comp.
           for (const comp of COMPETITIONS) {
             const uuid = compUuids.get(comp.menuName.toUpperCase())
               ?? compUuids.get(comp.leagueSlug.toUpperCase())

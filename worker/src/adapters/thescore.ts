@@ -398,15 +398,27 @@ export const thescoreAdapter: BookAdapter = {
         // Dump EVERY CompetitionPageSectionLinesTabNode body we see — the
         // Lines tab fires one per section (Featured, SGP, Moneyline,
         // Spread, Total, etc.), each with a distinct sectionId in its
-        // URL variables. We need them all to find the game-lines one.
+        // URL variables. Dedup key is the URL-supplied sectionId (not the
+        // response node.id) so we see all 3 leagues' sections independently
+        // — the response id sometimes collides across leagues on the same
+        // section template.
         if (bodyUrl.includes('CompetitionPageSectionLinesTabNode')) {
+          let sectionIdFromUrl = '(unparsed)'
+          try {
+            const vm = bodyUrl.match(/variables=([^&]+)/)
+            if (vm) {
+              const parsed = JSON.parse(decodeURIComponent(vm[1]))
+              sectionIdFromUrl = parsed?.sectionId ?? '(missing)'
+            }
+          } catch { /* leave as unparsed */ }
           const nodeId = json?.data?.node?.id ?? '(unknown)'
-          if (!loggedSections.has(nodeId)) {
-            loggedSections.add(nodeId)
+          if (!loggedSections.has(sectionIdFromUrl)) {
+            loggedSections.add(sectionIdFromUrl)
             // Extract the first header/marker we can find to ID the section.
             const firstChild = json?.data?.node?.sectionChildren?.[0] ?? {}
             const firstCarousel = firstChild?.featuredBetsCarouselChildren?.[0] ?? {}
             log.info('thescore section body', {
+              sectionIdFromUrl,
               sectionNodeId: nodeId,
               firstHeader: firstCarousel?.header ?? '(no featured card)',
               parlayType: firstCarousel?.parlayType ?? null,
