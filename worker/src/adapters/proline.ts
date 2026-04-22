@@ -1,21 +1,93 @@
 /**
- * PROLINE+ (OLG, Ontario) — discovery-mode adapter.
+ * PROLINE+ (OLG, Ontario) — real adapter (Kambi white-label).
  *
- * OLG's sportsbook platform is a custom build; front-end lives at
- * proline.olg.ca. First pass captures every JSON XHR so we can identify the
- * events-list and event-detail shapes for a real parser.
+ * Confirmed via DevTools curl:
+ *   Base:    https://us.offering-api.kambicdn.com/offering/v2018/olgsportscaon
+ *   Client:  olgsportscaon   (OLG Sports CA-ON)
+ *   ListView: /listView/{sport}/{league}/all/all/competitions.json
+ *   Origin:  https://www.olg.ca  (referer must match)
+ *   Market:  CA-ON, lang: en_CA
+ *
+ * Same Kambi offering-api surface as BetRivers / BallyBet — just a
+ * different client id and a slightly different regional host
+ * (us.offering-api instead of eu.).
  */
 
 import { withPage } from '../lib/browser.js'
-import { attachXhrCapture, logXhrSummary } from '../lib/discovery.js'
 import type { BookAdapter } from '../lib/adapter.js'
+import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
-const SEED_URL = 'https://proline.olg.ca/en-ca/sports'
+const CLIENT = 'olgsportscaon'
+const KAMBI_HOST = 'https://us.offering-api.kambicdn.com'
+const BETOFFER_BASE = `${KAMBI_HOST}/offering/v2018/${CLIENT}/betoffer/event`
+const ORIGIN = 'https://www.olg.ca'
+
+interface KLeagueConfig {
+  termKey: string
+  leagueSlug: string
+  sport: string
+  sportPath: string
+  leaguePath: string
+}
+
+const LEAGUES: KLeagueConfig[] = [
+  { termKey: 'nba',            leagueSlug: 'nba',        sport: 'basketball', sportPath: 'basketball', leaguePath: 'nba' },
+  { termKey: 'mlb',            leagueSlug: 'mlb',        sport: 'baseball',   sportPath: 'baseball',   leaguePath: 'mlb' },
+  { termKey: 'nhl',            leagueSlug: 'nhl',        sport: 'ice_hockey', sportPath: 'ice_hockey', leaguePath: 'nhl' },
+  { termKey: 'premier_league', leagueSlug: 'epl',        sport: 'soccer',     sportPath: 'football',   leaguePath: 'premier_league' },
+  { termKey: 'la_liga',        leagueSlug: 'laliga',     sport: 'soccer',     sportPath: 'football',   leaguePath: 'la_liga' },
+  { termKey: 'bundesliga',     leagueSlug: 'bundesliga', sport: 'soccer',     sportPath: 'football',   leaguePath: 'bundesliga' },
+  { termKey: 'serie_a',        leagueSlug: 'seria_a',    sport: 'soccer',     sportPath: 'football',   leaguePath: 'serie_a' },
+  { termKey: 'ligue_1',        leagueSlug: 'ligue_one',  sport: 'soccer',     sportPath: 'football',   leaguePath: 'ligue_1' },
+]
+
+interface KEvent {
+  id: number
+  name?: string
+  homeName?: string
+  awayName?: string
+  start?: string
+  state?: string
+}
+
+interface KOutcome {
+  id: number
+  label?: string
+  englishLabel?: string
+  odds?: number
+  oddsAmerican?: string
+  line?: number
+  participant?: string
+  type?: string
+}
+
+interface KBetOffer {
+  id: number
+  eventId: number
+  criterion?: { id?: number; label?: string; englishLabel?: string }
+  betOfferType?: { id?: number; name?: string; englishName?: string }
+  outcomes?: KOutcome[]
+  main?: boolean
+}
+
+function kambiToAmerican(o: KOutcome | undefined): number | null {
+  if (!o) return null
+  if (o.oddsAmerican) {
+    const n = parseInt(o.oddsAmerican.replace(/^\+/, ''), 10)
+    return isNaN(n) ? null : n
+  }
+  if (typeof o.odds === 'number' && o.odds > 1000) {
+    const decimal = o.odds / 1000
+    if (decimal >= 2) return Math.round((decimal - 1) * 100)
+    return Math.round(-100 / (decimal - 1))
+  }
+  return null
+}
 
 export const prolineAdapter: BookAdapter = {
   slug: 'proline',
-  name: 'PROLINE+ (Ontario) [discovery]',
-  pollIntervalSec: 600,
+  name: 'PROLINE+ (Ontario)',
+  pollIntervalSec: 180,
   needsBrowser: true,
 
   async scrape({ signal, log }) {
@@ -23,40 +95,148 @@ export const prolineAdapter: BookAdapter = {
 
     return withPage(async (page) => {
       const errors: string[] = []
-      const { captured, detach } = attachXhrCapture(page, log, {
-        hostIncludes: ['proline.olg.ca', 'olg.ca'],
-        bookSlug: 'proline',
-        maxBodyBytes: 300,
-      })
+      const scraped: ScrapeResult['events'] = []
+      const eventsById = new Map<number, KEvent & { league: KLeagueConfig }>()
 
-      log.info('proline seeding', { url: SEED_URL })
+      // Seed an olg.ca context so the fetch's origin / referer match what
+      // Kambi expects. Kambi endpoints are public but some regions check
+      // cross-origin markers; olg.ca is the SPA's real origin.
       try {
-        await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-      } catch (e: any) {
-        log.error('proline nav failed', { message: e?.message ?? String(e) })
-        errors.push(`nav: ${e?.message ?? e}`)
-        detach()
-        return { events: [], errors }
-      }
-      // Give the SPA time to hydrate, fire navigation XHRs, and load at least
-      // one league's events.
-      await page.waitForTimeout(20_000)
+        await page.goto(ORIGIN, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+      } catch { /* proceed — endpoints are public */ }
 
-      // Click into each major sport to fan out XHRs. Best-effort; skip on miss.
-      for (const path of ['basketball', 'baseball', 'hockey']) {
-        if (signal.aborted) break
+      const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
+        return page.evaluate(async (u: string) => {
+          try {
+            const r = await fetch(u, { headers: { Accept: '*/*' } })
+            return { status: r.status, text: await r.text() }
+          } catch (e: any) {
+            return { status: -1, text: `fetch threw: ${e?.message ?? String(e)}` }
+          }
+        }, url)
+      }
+
+      // 1) Pull event lists per league in parallel.
+      await Promise.all(LEAGUES.map(async (league) => {
+        const url =
+          `${KAMBI_HOST}/offering/v2018/${CLIENT}/listView/`
+          + `${league.sportPath}/${league.leaguePath}/all/all/competitions.json`
+          + `?channel_id=1&client_id=200&lang=en_CA&market=CA-ON&useCombined=true&useCombinedLive=true`
+        const { status, text } = await pageFetch(url)
+        if (status !== 200) {
+          log.warn('proline listview failed', { league: league.termKey, status })
+          errors.push(`${league.termKey} listView HTTP ${status}`)
+          return
+        }
         try {
-          await page.goto(`https://proline.olg.ca/en-ca/sports/${path}`, {
-            waitUntil: 'domcontentloaded', timeout: 30_000,
-          })
-          await page.waitForTimeout(6_000)
-        } catch { /* ignore */ }
+          const body = JSON.parse(text)
+          const events: KEvent[] =
+            body.events
+            ?? (body.competitions ?? []).flatMap((c: any) => c.events ?? [])
+          for (const e of events) {
+            if (e.state === 'FINISHED' || e.state === 'STARTED') continue
+            eventsById.set(e.id, { ...e, league })
+          }
+        } catch {
+          errors.push(`${league.termKey} listView non-JSON`)
+        }
+      }))
+
+      log.info('proline events collected', { count: eventsById.size })
+      if (eventsById.size === 0) return { events: scraped, errors }
+
+      // 2) Batch betoffer lookups (Kambi accepts up to ~40 ids per URL).
+      const ids = [...eventsById.keys()]
+      const BATCH = 40
+      const offersByEvent = new Map<number, KBetOffer[]>()
+      for (let i = 0; i < ids.length; i += BATCH) {
+        if (signal.aborted) break
+        const chunk = ids.slice(i, i + BATCH).join(',')
+        const url = `${BETOFFER_BASE}/${chunk}.json?lang=en_CA&market=CA-ON&includeParticipants=true`
+        const { status, text } = await pageFetch(url)
+        if (status !== 200) { errors.push(`betoffer batch HTTP ${status}`); continue }
+        try {
+          const body = JSON.parse(text)
+          for (const bo of body.betOffers ?? []) {
+            const list = offersByEvent.get(bo.eventId) ?? []
+            list.push(bo); offersByEvent.set(bo.eventId, list)
+          }
+        } catch { errors.push('betoffer batch non-JSON') }
       }
 
-      detach()
-      logXhrSummary(log, 'proline', captured)
-      log.info('proline discovery run done', { xhrsCaptured: captured.length })
-      return { events: [], errors }
+      // 3) Normalize to game markets.
+      for (const [eventId, meta] of eventsById) {
+        if (!meta.homeName || !meta.awayName) continue
+        const offers = offersByEvent.get(eventId) ?? []
+        const gameMarkets: GameMarket[] = []
+
+        const ml = offers.find(o =>
+          o.betOfferType?.englishName === 'Match'
+          || o.criterion?.englishLabel === 'Full Time')
+        if (ml) {
+          const home = ml.outcomes?.find(o => o.type === 'OT_ONE')
+          const away = ml.outcomes?.find(o => o.type === 'OT_TWO')
+          const draw = ml.outcomes?.find(o => o.type === 'OT_CROSS')
+          gameMarkets.push({
+            marketType: 'moneyline',
+            homePrice: kambiToAmerican(home), awayPrice: kambiToAmerican(away),
+            drawPrice: kambiToAmerican(draw),
+            spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+          })
+        }
+
+        const spread = offers.find(o =>
+          o.betOfferType?.englishName === 'Handicap'
+          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('handicap'))
+        if (spread) {
+          const home = spread.outcomes?.find(o => o.type === 'OT_ONE')
+          const away = spread.outcomes?.find(o => o.type === 'OT_TWO')
+          const rawLine = home?.line ?? (away?.line != null ? -(away.line) : null)
+          const spreadValue = rawLine != null ? rawLine / 1000 : null
+          gameMarkets.push({
+            marketType: 'spread',
+            homePrice: kambiToAmerican(home), awayPrice: kambiToAmerican(away),
+            drawPrice: null, spreadValue,
+            totalValue: null, overPrice: null, underPrice: null,
+          })
+        }
+
+        const total = offers.find(o =>
+          o.betOfferType?.englishName === 'Over/Under'
+          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('total'))
+        if (total) {
+          const over = total.outcomes?.find(o => o.type === 'OT_OVER')
+          const under = total.outcomes?.find(o => o.type === 'OT_UNDER')
+          const rawLine = over?.line ?? under?.line ?? null
+          const totalValue = rawLine != null ? rawLine / 1000 : null
+          gameMarkets.push({
+            marketType: 'total',
+            homePrice: null, awayPrice: null, drawPrice: null, spreadValue: null,
+            totalValue,
+            overPrice: kambiToAmerican(over), underPrice: kambiToAmerican(under),
+          })
+        }
+
+        if (gameMarkets.length === 0) continue
+        scraped.push({
+          event: {
+            externalId: String(eventId),
+            homeTeam: meta.homeName,
+            awayTeam: meta.awayName,
+            startTime: meta.start ?? '',
+            leagueSlug: meta.league.leagueSlug,
+            sport: meta.league.sport,
+          },
+          gameMarkets,
+          props: [],
+        })
+      }
+
+      log.info('proline scrape summary', {
+        events: scraped.length,
+        totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
+      })
+      return { events: scraped, errors }
     }, { useProxy: true })
   },
 }
