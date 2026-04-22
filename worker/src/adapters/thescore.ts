@@ -19,10 +19,15 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket, NormalizedEvent } from '../lib/types.js'
 
+// Real competition-page deep links — confirmed user-facing URL shape:
+//   /sport/<sport>/organization/<country>/competition/<league>#lines
+// The #lines hash is what switches the SPA to the lines tab and causes
+// Apollo to fire CompetitionPageSectionLinesTabNode. Without it, the SPA
+// only fires Startup / Menu / LiveEventsCount queries.
 const LEAGUE_URLS: Array<{ url: string; leagueSlug: string; sport: string; match: RegExp }> = [
-  { url: 'https://sportsbook.thescore.bet/basketball/nba',   leagueSlug: 'nba', sport: 'basketball', match: /\bnba\b/i },
-  { url: 'https://sportsbook.thescore.bet/baseball/mlb',     leagueSlug: 'mlb', sport: 'baseball',   match: /\bmlb\b/i },
-  { url: 'https://sportsbook.thescore.bet/hockey/nhl',       leagueSlug: 'nhl', sport: 'ice_hockey', match: /\bnhl\b/i },
+  { url: 'https://sportsbook.thescore.bet/sport/basketball/organization/united-states/competition/nba#lines', leagueSlug: 'nba', sport: 'basketball', match: /\bnba\b/i },
+  { url: 'https://sportsbook.thescore.bet/sport/baseball/organization/united-states/competition/mlb#lines',   leagueSlug: 'mlb', sport: 'baseball',   match: /\bmlb\b/i },
+  { url: 'https://sportsbook.thescore.bet/sport/hockey/organization/united-states/competition/nhl#lines',     leagueSlug: 'nhl', sport: 'ice_hockey', match: /\bnhl\b/i },
 ]
 
 // GraphQL persisted-query URL — SHA hash changes per client version but
@@ -269,6 +274,9 @@ export const thescoreAdapter: BookAdapter = {
       page.on('response', responseHandler)
 
       // Drive the SPA through NBA / MLB / NHL competition pages.
+      // Give Apollo a long dwell — the #lines hash handler fires the
+      // CompetitionPageSectionLinesTabNode query asynchronously after
+      // hydration, and on slow-load it can take ~10s to land.
       let leagueHit: typeof LEAGUE_URLS[number] | null = null
       for (const L of LEAGUE_URLS) {
         if (signal.aborted) break
@@ -276,8 +284,10 @@ export const thescoreAdapter: BookAdapter = {
         try {
           log.info('thescore seeding', { url: L.url })
           await page.goto(L.url, { waitUntil: 'domcontentloaded', timeout: 60_000 })
-          // Apollo client fires the persisted queries right after hydration.
-          await page.waitForTimeout(8_000)
+          // Belt-and-suspenders: re-set the hash client-side in case
+          // page.goto swallowed it (sometimes happens on redirect chains).
+          try { await page.evaluate(() => { if (!location.hash) location.hash = '#lines' }) } catch { /* ignore */ }
+          await page.waitForTimeout(12_000)
         } catch (e: any) {
           log.warn('thescore nav failed', { url: L.url, message: e?.message ?? String(e) })
         }

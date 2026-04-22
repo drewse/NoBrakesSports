@@ -16,14 +16,15 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult } from '../lib/types.js'
 
-// League IDs pulled from DevTools on betano.ca. NBA = 441g confirmed;
-// MLB / NHL IDs are likely neighbors in the same letter-suffix scheme.
+// Real league URL shape (DevTools curl referer):
+//   /sport/<sport>/<region>/<league>/<leagueId>/
+// NBA confirmed: basketball/north-america/nba/441g. MLB / NHL IDs unknown;
+// let the SPA route land on the correct page and we capture whatever
+// events-list XHR fires.
 const LEAGUE_SEEDS: Array<{ url: string; leagueSlug: string; sport: string }> = [
-  { url: 'https://www.betano.ca/sport/basketball/leagues/441g/', leagueSlug: 'nba', sport: 'basketball' },
-  // Best-effort MLB / NHL seeds — the SPA may redirect to the correct
-  // league if the ID shape is wrong, and we capture whatever XHRs fire.
-  { url: 'https://www.betano.ca/sport/baseball/',   leagueSlug: 'mlb', sport: 'baseball' },
-  { url: 'https://www.betano.ca/sport/ice-hockey/', leagueSlug: 'nhl', sport: 'ice_hockey' },
+  { url: 'https://www.betano.ca/sport/basketball/north-america/nba/441g/', leagueSlug: 'nba', sport: 'basketball' },
+  { url: 'https://www.betano.ca/sport/baseball/north-america/mlb/',        leagueSlug: 'mlb', sport: 'baseball' },
+  { url: 'https://www.betano.ca/sport/ice-hockey/north-america/nhl/',      leagueSlug: 'nhl', sport: 'ice_hockey' },
 ]
 
 export const betanoAdapter: BookAdapter = {
