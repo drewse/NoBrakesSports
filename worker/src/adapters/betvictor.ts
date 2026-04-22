@@ -103,30 +103,44 @@ export const betvictorAdapter: BookAdapter = {
       return { events: [], errors: [] }
     }
 
-    return withPage(async (page) => {
-      const errors: string[] = []
-      const scraped: ScrapeResult['events'] = []
+    const errors: string[] = []
+    const scraped: ScrapeResult['events'] = []
 
-      // Track CSRF + csrf cookie via passive capture (the SPA sets a
-      // cookie named `csrf` on first load and sends it back as header
-      // X-CSRF-Token on every /bv_api call).
-      let csrfToken: string | null = null
-      page.on('request', (req) => {
-        const tok = req.headers()['x-csrf-token']
-        if (tok && !csrfToken) csrfToken = tok
-      })
+    // Per-league isolation: each league gets its own browser context, which
+    // mints a fresh IPRoyal session ID => fresh Toronto residential exit IP.
+    // BetVictor blacklists some IPRoyal exits; by rotating per league (plus
+    // one retry per league on TUNNEL_CONNECTION_FAILED) we avoid a single
+    // bad exit poisoning the whole run.
+    const MAX_RETRIES = 2
+    for (const L of LEAGUES) {
+      if (signal.aborted) break
 
-      for (const L of LEAGUES) {
+      let leagueOk = false
+      for (let attempt = 0; attempt < MAX_RETRIES && !leagueOk; attempt++) {
         if (signal.aborted) break
-
-        log.info('betvictor seeding', { url: L.meetingUrl, league: L.leagueSlug })
         try {
-          await page.goto(L.meetingUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-        } catch (e: any) {
-          log.warn('betvictor nav failed', { league: L.leagueSlug, message: e?.message ?? String(e) })
-          errors.push(`${L.leagueSlug} nav: ${e?.message ?? e}`)
-          continue
-        }
+          await withPage(async (page) => {
+            // Track CSRF: the SPA sets a cookie named `csrf` on first load
+            // and echoes it on /bv_api calls via X-CSRF-Token.
+            let csrfToken: string | null = null
+            page.on('request', (req) => {
+              const tok = req.headers()['x-csrf-token']
+              if (tok && !csrfToken) csrfToken = tok
+            })
+
+            log.info('betvictor seeding', { url: L.meetingUrl, league: L.leagueSlug, attempt: attempt + 1 })
+            try {
+              await page.goto(L.meetingUrl, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+            } catch (e: any) {
+              const msg = e?.message ?? String(e)
+              if (/ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_CLOSED/.test(msg) && attempt < MAX_RETRIES - 1) {
+                log.warn('betvictor nav transient — retrying with new exit IP', { league: L.leagueSlug, attempt: attempt + 1, message: msg })
+                throw new Error('__RETRY__')
+              }
+              log.warn('betvictor nav failed', { league: L.leagueSlug, message: msg })
+              errors.push(`${L.leagueSlug} nav: ${msg}`)
+              return
+            }
         // Wait for event cards to hydrate — React ships the layout before
         // populating cards, and a flat 6s sleep wasn't enough.
         try {
@@ -205,7 +219,7 @@ export const betvictorAdapter: BookAdapter = {
             sample: scrape.firstCardHtml,
           })
         }
-        if (htmlEvents.length === 0) continue
+        if (htmlEvents.length === 0) { leagueOk = true; return }
 
         // 2) Batch a markets call for up to ~50 events per URL (the real
         // SPA batched 8 in its sample but the endpoint tolerates more).
@@ -363,13 +377,21 @@ export const betvictorAdapter: BookAdapter = {
           }
           scraped.push({ event, gameMarkets, props: [] })
         }
+            leagueOk = true
+          }, { useProxy: true, ignoreHTTPSErrors: true })
+        } catch (e: any) {
+          if (e?.message === '__RETRY__') continue   // new context, new exit IP
+          log.warn('betvictor league threw', { league: L.leagueSlug, message: e?.message ?? String(e) })
+          errors.push(`${L.leagueSlug}: ${e?.message ?? e}`)
+          break
+        }
       }
+    }
 
-      log.info('betvictor scrape summary', {
-        events: scraped.length,
-        totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
-      })
-      return { events: scraped, errors }
-    }, { useProxy: true, ignoreHTTPSErrors: true })
+    log.info('betvictor scrape summary', {
+      events: scraped.length,
+      totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
+    })
+    return { events: scraped, errors }
   },
 }
