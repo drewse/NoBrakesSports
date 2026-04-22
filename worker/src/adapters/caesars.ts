@@ -663,7 +663,9 @@ export const caesarsAdapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: false })   // PacketStream consistently gets ERR_EMPTY_RESPONSE
-                              // from Caesars — try the Railway IP direct instead.
+    }, { useProxy: true, rotateSession: true })
+    // Residential proxy (IPRoyal Starlink) restored. The earlier
+    // PacketStream ERR_EMPTY_RESPONSE is gone — AWS WAF treats residential
+    // CA IPs as clean consumer traffic.
   },
 }

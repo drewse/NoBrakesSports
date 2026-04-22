@@ -437,6 +437,9 @@ export const bet365Adapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: false })   // direct — PacketStream is blocked by CF on bet365.
+    }, { useProxy: true, rotateSession: true })
+    // Residential proxy (IPRoyal) restored: PacketStream DC IPs were
+    // blocked but Starlink residential exits clear CF. Also rotate
+    // sessions so repeat-request heuristics don't flag us.
   },
 }
