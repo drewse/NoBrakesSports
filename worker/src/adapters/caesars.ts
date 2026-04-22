@@ -26,12 +26,12 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket } from '../lib/types.js'
 
-// Caesars supports BOTH the new bare path (/basketball?id=...) AND the
-// explicit /ca/on/bet/ region prefix. The bare path is geo-dependent —
-// Starlink residential IPs sometimes get pinned to Colorado, leaving the
-// events-list XHR firing against the US-CO API stack. The explicit prefix
-// forces the Ontario region stack unambiguously.
-const SEED_ROOT = 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c'
+// Caesars' bare `/basketball?id=...` path accepts our residential IP
+// (prev cycle extracted 287 UUIDs). The explicit `/ca/on/bet/` prefix
+// is stricter and gets ERR_TUNNEL_CONNECTION_FAILED from the same IPs
+// — presumably a different WAF rule-set. Stick with the bare path; the
+// CA-ON sports-menu fires regardless (confirmed from path log).
+const SEED_ROOT = 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c'
 const API_HOST = 'https://api.americanwagering.com'
 const API_BASE = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v4`
 const SPORTS_MENU_URL = `${API_HOST}/regions/ca/locations/on/brands/czr/sb/v3/sports-menu`
@@ -58,9 +58,9 @@ const CAESARS_API_HEADERS: Record<string, string> = {
 // new URL scheme — landing on the bare sport path lets the SPA pick the
 // default competition and fire its own XHRs, which we still capture.
 const LEAGUE_URLS: Record<string, string> = {
-  NBA: 'https://sportsbook.caesars.com/ca/on/bet/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
-  MLB: 'https://sportsbook.caesars.com/ca/on/bet/baseball',
-  NHL: 'https://sportsbook.caesars.com/ca/on/bet/hockey',
+  NBA: 'https://sportsbook.caesars.com/basketball?id=5806c896-4eec-4de1-874f-afed93114b8c',
+  MLB: 'https://sportsbook.caesars.com/baseball',
+  NHL: 'https://sportsbook.caesars.com/hockey',
 }
 
 interface Competition {
@@ -502,11 +502,30 @@ export const caesarsAdapter: BookAdapter = {
       page.on('response', responseHandler)
 
       log.info('seeding caesars session via homepage')
-      try {
-        await page.goto(SEED_ROOT, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-      } catch (e: any) {
-        log.error('homepage seed failed', { message: e?.message ?? String(e) })
-        errors.push(`seed: ${e?.message ?? e}`)
+      // Retry the seed up to 3 times on proxy-level tunnel errors —
+      // IPRoyal sometimes hands us a Starlink exit that can't reach
+      // sportsbook.caesars.com; a 2nd/3rd attempt often lands on a
+      // different exit that succeeds.
+      let seedOk = false
+      let lastSeedErr: any = null
+      for (let attempt = 1; attempt <= 3 && !seedOk; attempt++) {
+        try {
+          await page.goto(SEED_ROOT, { waitUntil: 'domcontentloaded', timeout: 45_000 })
+          seedOk = true
+        } catch (e: any) {
+          lastSeedErr = e
+          const msg = e?.message ?? String(e)
+          const transient = /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_CONNECTION_CLOSED|ERR_CONNECTION_RESET/.test(msg)
+          if (attempt < 3 && transient) {
+            log.warn('caesars seed transient — retrying', { attempt, message: msg })
+            await page.waitForTimeout(1_500)
+            continue
+          }
+          log.error('homepage seed failed', { attempt, message: msg })
+        }
+      }
+      if (!seedOk) {
+        errors.push(`seed: ${lastSeedErr?.message ?? lastSeedErr}`)
         page.off('response', responseHandler)
         return { events: scraped, errors }
       }
