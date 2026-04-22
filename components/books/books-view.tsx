@@ -23,20 +23,49 @@ interface BooksViewProps {
   canadianSlugs?: string[]
 }
 
-type Section = 'canada' | 'usa' | 'prediction' | 'offshore'
+type Section = 'sportsbooks' | 'prediction' | 'offshore'
+type Region = 'canada' | 'usa'
+
+// Display names for prediction-market and offshore slugs that may not be
+// present in the `market_sources` DB table yet. We inject these into the
+// view so the Prediction Markets and Offshore Books sections render even
+// before their pipelines are wired up / marked healthy in the DB.
+const PREDICTION_MARKET_DISPLAY: Record<string, string> = {
+  'kalshi':                'Kalshi',
+  'polymarket':            'Polymarket',
+  'polymarket-us':         'Polymarket (US)',
+  'robinhood-prediction':  'Robinhood Predict',
+  'sporttrade':            'Sporttrade',
+  'novig':                 'Novig',
+  'prophet-exchange':      'Prophet Exchange',
+}
+
+const OFFSHORE_DISPLAY: Record<string, string> = {
+  'bovada':                'Bovada',
+  'betus':                 'BetUS',
+  'betanysports':          'BetAnySports',
+  'lowvig':                'LowVig',
+  'mybookie':              'MyBookie',
+  'betonline':             'BetOnline',
+}
+
+const REGION_LABEL: Record<Region, string> = { canada: 'CA', usa: 'USA' }
+const REGION_CLASSES: Record<Region, string> = {
+  canada: 'bg-red-900/50 text-red-300',
+  usa:    'bg-blue-900/50 text-blue-300',
+}
 
 const SECTION_META: Record<Section, {
   title: string
   subtitle: string
-  accent: string        // active-button background
+  accent: string
 }> = {
-  canada:     { title: 'Canadian Books',     subtitle: 'CA-ON licensed sportsbooks',              accent: 'bg-red-700 text-white' },
-  usa:        { title: 'USA Books',          subtitle: 'State-regulated US sportsbooks',           accent: 'bg-blue-600 text-white' },
-  prediction: { title: 'Prediction Markets', subtitle: 'Event-contract & peer-to-peer exchanges',  accent: 'bg-violet-600 text-white' },
-  offshore:   { title: 'Offshore Books',     subtitle: 'Curaçao / Panama-licensed, US-facing',     accent: 'bg-amber-600 text-white' },
+  sportsbooks: { title: 'Sportsbooks',        subtitle: 'Licensed operators — Canada & USA',        accent: 'bg-white text-nb-950' },
+  prediction:  { title: 'Prediction Markets', subtitle: 'Event-contract & peer-to-peer exchanges',  accent: 'bg-violet-600 text-white' },
+  offshore:    { title: 'Offshore Books',     subtitle: 'Curaçao / Panama-licensed, US-facing',     accent: 'bg-amber-600 text-white' },
 }
 
-const SECTION_ORDER: Section[] = ['canada', 'usa', 'prediction', 'offshore']
+const SECTION_ORDER: Section[] = ['sportsbooks', 'prediction', 'offshore']
 
 export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewProps) {
   const router = useRouter()
@@ -45,25 +74,43 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
     ? new Set(canadianSlugs)
     : CANADA_BOOK_SLUGS_FALLBACK
 
-  // Classify a slug. Priority: offshore > prediction > canada > usa, so
-  // shared brand-name slugs resolve to the more specific bucket first.
   function sectionOf(slug: string): Section | null {
     if (OFFSHORE_BOOK_SLUGS.has(slug)) return 'offshore'
     if (PREDICTION_MARKET_SLUGS.has(slug)) return 'prediction'
-    if (canadianSet.has(slug)) return 'canada'
-    if (USA_BOOK_SLUGS.has(slug)) return 'usa'
+    if (canadianSet.has(slug) || USA_BOOK_SLUGS.has(slug)) return 'sportsbooks'
     return null
   }
 
+  function regionsOf(slug: string): Set<Region> {
+    const out = new Set<Region>()
+    if (canadianSet.has(slug)) out.add('canada')
+    if (USA_BOOK_SLUGS.has(slug)) out.add('usa')
+    return out
+  }
+
+  // Merge DB sources with static fallback entries for prediction/offshore
+  // slugs that aren't in market_sources yet, so those sections always render.
+  const mergedSources = useMemo(() => {
+    const byslug = new Map<string, Source>()
+    for (const s of sources) byslug.set(s.slug, s)
+    for (const [slug, name] of Object.entries(PREDICTION_MARKET_DISPLAY)) {
+      if (!byslug.has(slug)) byslug.set(slug, { slug, name })
+    }
+    for (const [slug, name] of Object.entries(OFFSHORE_DISPLAY)) {
+      if (!byslug.has(slug)) byslug.set(slug, { slug, name })
+    }
+    return [...byslug.values()]
+  }, [sources])
+
   const scopedSources = useMemo(
-    () => sources.filter(s => sectionOf(s.slug) !== null),
-    [sources, canadianSet],
+    () => mergedSources.filter(s => sectionOf(s.slug) !== null),
+    [mergedSources, canadianSet],
   )
   const allSlugs = useMemo(() => scopedSources.map(s => s.slug), [scopedSources])
 
   const grouped = useMemo(() => {
     const out: Record<Section, Source[]> = {
-      canada: [], usa: [], prediction: [], offshore: [],
+      sportsbooks: [], prediction: [], offshore: [],
     }
     for (const s of scopedSources) {
       const sec = sectionOf(s.slug)
@@ -99,8 +146,15 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
     persist(new Set(grouped[section].map(s => s.slug)))
   }
 
-  const isAll = allSlugs.every(s => enabled.has(s))
+  // Region sub-presets inside the Sportsbooks section.
+  function pickRegion(region: Region) {
+    const slugs = grouped.sportsbooks
+      .filter(s => regionsOf(s.slug).has(region))
+      .map(s => s.slug)
+    persist(new Set(slugs))
+  }
 
+  const isAll = allSlugs.every(s => enabled.has(s))
   function isSectionPreset(section: Section): boolean {
     if (isAll) return false
     const inside = grouped[section]
@@ -108,6 +162,15 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
     if (!inside.every(s => enabled.has(s.slug))) return false
     return scopedSources.every(s =>
       sectionOf(s.slug) === section ? enabled.has(s.slug) : !enabled.has(s.slug),
+    )
+  }
+  function isRegionPreset(region: Region): boolean {
+    if (isAll) return false
+    const insideRegion = grouped.sportsbooks.filter(s => regionsOf(s.slug).has(region))
+    if (insideRegion.length === 0) return false
+    if (!insideRegion.every(s => enabled.has(s.slug))) return false
+    return scopedSources.every(s =>
+      regionsOf(s.slug).has(region) ? enabled.has(s.slug) : !enabled.has(s.slug),
     )
   }
 
@@ -127,23 +190,38 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
           >
             All Books
           </button>
-          {SECTION_ORDER.map(section => {
-            const meta = SECTION_META[section]
-            const active = isSectionPreset(section)
-            const hasAny = grouped[section].length > 0
-            if (!hasAny) return null
-            return (
-              <button
-                key={section}
-                onClick={() => pickSection(section)}
-                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-                  active ? meta.accent : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
-                }`}
-              >
-                {meta.title}
-              </button>
-            )
-          })}
+          <button
+            onClick={() => pickRegion('canada')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              isRegionPreset('canada') ? 'bg-red-700 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
+            }`}
+          >
+            🇨🇦 Canada
+          </button>
+          <button
+            onClick={() => pickRegion('usa')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              isRegionPreset('usa') ? 'bg-blue-600 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
+            }`}
+          >
+            🇺🇸 USA
+          </button>
+          <button
+            onClick={() => pickSection('prediction')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              isSectionPreset('prediction') ? 'bg-violet-600 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
+            }`}
+          >
+            Prediction Markets
+          </button>
+          <button
+            onClick={() => pickSection('offshore')}
+            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+              isSectionPreset('offshore') ? 'bg-amber-600 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
+            }`}
+          >
+            Offshore
+          </button>
           <button
             onClick={clearAll}
             className="rounded px-3 py-1.5 text-xs font-medium bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white transition-colors"
@@ -161,6 +239,7 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
         const meta = SECTION_META[section]
         const rows = grouped[section]
         if (rows.length === 0) return null
+        const showRegionPill = section === 'sportsbooks'
         return (
           <div key={section} className="space-y-2">
             <div className="flex items-baseline justify-between">
@@ -178,6 +257,7 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-border">
                 {rows.map(source => {
                   const isChecked = enabled.has(source.slug)
+                  const regions = showRegionPill ? regionsOf(source.slug) : new Set<Region>()
                   return (
                     <button
                       key={source.slug}
@@ -197,6 +277,20 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
                       <span className={`text-xs flex-1 ${isChecked ? 'text-white' : 'text-nb-400'}`}>
                         {source.name}
                       </span>
+                      {showRegionPill && (
+                        <div className="flex gap-1">
+                          {(['canada', 'usa'] as const)
+                            .filter(r => regions.has(r))
+                            .map(r => (
+                              <span
+                                key={r}
+                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${REGION_CLASSES[r]}`}
+                              >
+                                {REGION_LABEL[r]}
+                              </span>
+                            ))}
+                        </div>
+                      )}
                     </button>
                   )
                 })}
