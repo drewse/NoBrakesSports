@@ -137,15 +137,18 @@ function detectPropCategory(title: string, groupCName: string): string | null {
     // markets that happen to share these stat words.
   } else {
     // Reject MLB multi-stat combos we don't have categories for.
-    // "Total Hits + Runs + RBI - <Player>", "Total Hits + RBI", etc.
-    // Without this they fall through to the single-stat baseball section
-    // below and get stored as plain player_hits / player_rbis, which shows
-    // up in the UI as e.g. "Nick Kurtz Hits 1.5" when the real market is
-    // Hits + Runs + RBI.
-    const plusCount = (lower.match(/\s\+\s/g) ?? []).length
+    // Formats seen at Betway:
+    //   "Total Hits + Runs + RBI - <Player>"    (plus)
+    //   "Hits/Runs/RBI - <Player>"              (slash)
+    //   "Hits, Runs, or RBI - <Player>"         (comma+or)
+    //   "Runs or RBI - <Player>"                (or)
+    // Any of these falling through would land as plain player_rbis /
+    // player_hits because the single-stat matcher below is a substring
+    // check and hits "rbi" or "hit" inside the combo title.
+    const hasComboSeparator = /\s\+\s|\s\/\s|\/|,\s|\bor\b/.test(lower)
     const mlbStatWords = ['hit', 'run', 'rbi', 'home run', 'total base', 'strikeout']
     const mlbMatchCount = mlbStatWords.filter(w => lower.includes(w)).length
-    if (plusCount >= 1 && mlbMatchCount >= 2) return null
+    if (hasComboSeparator && mlbMatchCount >= 2) return null
 
     // 3-pointers / threes
     if (lower.includes('3-pointer') || lower.includes('three pointer') || lower.includes('threes made') || lower.includes('3-point field goal')) {
@@ -189,12 +192,16 @@ function detectPropCategory(title: string, groupCName: string): string | null {
     return 'player_pts_reb_ast'
   }
 
-  // Baseball
+  // Baseball — most-specific FIRST so multi-word stats ("total bases",
+  // "home runs") aren't swallowed by shorter substring matches. Word-boundary
+  // the "rbi" check so it can't match titles like "Total Bases (Hits Only)"
+  // that happen to contain "rbi" as part of a combo variant name elsewhere
+  // in the string.
+  if (lower.includes('total bases')) return 'player_total_bases'
   if (lower.includes('total hits')) return 'player_hits'
   if (lower.includes('home run')) return 'player_home_runs'
-  if (lower.includes('rbi')) return 'player_rbis'
   if (lower.includes('strikeout')) return 'player_strikeouts_p'
-  if (lower.includes('total bases')) return 'player_total_bases'
+  if (/\brbis?\b/.test(lower)) return 'player_rbis'
   if (lower.includes('earned run')) return 'player_earned_runs'
   if (lower.includes('stolen base')) return 'player_stolen_bases'
 
@@ -206,8 +213,19 @@ function detectPropCategory(title: string, groupCName: string): string | null {
   // Soccer
   if (lower.includes('shots on target')) return 'player_shots_target'
 
-  // Fallback: try group name
-  return BW_PROP_GROUPS[groupCName] ?? null
+  // Fallback: try group name — but title wins when the title clearly
+  // names a DIFFERENT stat than the group claims. Common Betway case:
+  // a "Total Bases (Hits Only)" market filed under the rbis group;
+  // mapping by group would mislabel it as player_rbis and create phantom
+  // arbs vs real RBI lines from other books.
+  const fromGroup = BW_PROP_GROUPS[groupCName] ?? null
+  if (fromGroup === 'player_rbis' && /hits?|total bases|home run|strikeout/.test(lower)) {
+    return null
+  }
+  if (fromGroup === 'player_hits' && /total bases|rbi|home run|strikeout/.test(lower)) {
+    return null
+  }
+  return fromGroup
 }
 
 
@@ -497,6 +515,21 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               // Determine prop category from title + group
               const propCategory = detectPropCategory(market.Title ?? '', groupCName)
               if (!propCategory) continue
+
+              // Diagnostic: flag titles that classify as MLB stats but
+              // contain a disambiguating phrase we might be mishandling
+              // ("hits only", parenthetical variants, or a stat name that
+              // doesn't match the category we assigned). Logs at most once
+              // per category per event to keep the signal readable.
+              if (
+                (league.category === 'baseball') &&
+                (/hits only|\(|\/|,/i.test(market.Title ?? '')) &&
+                Math.random() < 0.2   // sample — don't spam
+              ) {
+                console.log(
+                  `[Betway:${league.group}] classified "${market.Title}" as ${propCategory} (group=${groupCName})`,
+                )
+              }
 
               // Extract player name: "Total Points - Brandon Miller (CHA)"
               const playerRaw = extractPlayerName(market.Title ?? '')
