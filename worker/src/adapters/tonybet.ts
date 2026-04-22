@@ -464,16 +464,23 @@ export const tonybetAdapter: BookAdapter = {
           }
 
           seen.add(id)
-          // Log the first item that HAS odds so we can see exactly what
-          // BetConstruct ships (shape varies; our extractor is permissive).
-          if (!loggedOddsShape && (Array.isArray(item.odds) ? item.odds.length > 0 : Array.isArray(item.markets) ? item.markets.length > 0 : false)) {
+          // Dump the first extracted item's full shape (including odds /
+          // markets field in whatever form they take — array, object, or
+          // missing) so we can tune extractGameMarkets.
+          if (!loggedOddsShape) {
             loggedOddsShape = true
-            const odds = Array.isArray(item.odds) ? item.odds : Array.isArray(item.markets) ? item.markets : []
+            const itemKeys = Object.keys(item)
             log.info('tonybet odds shape', {
               id, slug,
-              oddsLen: odds.length,
-              firstOddsKeys: odds[0] ? Object.keys(odds[0]) : [],
-              firstOdds: JSON.stringify(odds[0] ?? {}).slice(0, 1500),
+              itemKeys,
+              oddsType: Array.isArray(item.odds) ? 'array' : typeof item.odds,
+              oddsLen: Array.isArray(item.odds) ? item.odds.length
+                : (item.odds && typeof item.odds === 'object') ? Object.keys(item.odds as any).length
+                : null,
+              marketsType: Array.isArray(item.markets) ? 'array' : typeof item.markets,
+              firstOdds: JSON.stringify(item.odds ?? {}).slice(0, 1200),
+              firstMarkets: JSON.stringify(item.markets ?? {}).slice(0, 1200),
+              fullItem: JSON.stringify(item).slice(0, 2500),
             })
           }
           const gameMarkets = extractGameMarkets(item, teams.home, teams.away)
