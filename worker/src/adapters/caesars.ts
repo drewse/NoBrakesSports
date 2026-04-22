@@ -422,6 +422,15 @@ export const caesarsAdapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
+    // Caesars (AWS WAF) returns ERR_EMPTY_RESPONSE via PacketStream and
+    // 403 via direct Railway IP — same geo/IP-reputation class as
+    // BetVictor. Park until a CA residential proxy is wired in. Flip
+    // CAESARS_ENABLED=1 to retry.
+    if (process.env.CAESARS_ENABLED !== '1') {
+      log.info('skipped — Caesars WAF blocks Railway/PacketStream IPs; set CAESARS_ENABLED=1 to retry')
+      return { events: [], errors: [] }
+    }
+
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []

@@ -396,23 +396,33 @@ export const tonybetAdapter: BookAdapter = {
       }
 
       // Actively call /api/event/list with relations=odds so odds ship inline.
-      // (The SPA fires a version of this without odds on the landing page;
-      // only league/sport drill-downs add the odds relation. By calling it
-      // ourselves we get odds in one shot.)
-      const relations = [
-        'odds', 'competitors', 'league', 'marketOrder',
-        'sportCategories',
-      ].map(r => `relations=${r}`).join('&')
-      const listUrl = `${API_BASE}/event/list?lang=en&isLive=0&${relations}`
-      log.info('tonybet fetching event list', { url: listUrl })
+      // The real SPA uses bracket syntax (relations[]=odds), the _trlang
+      // param, and a trailing slash on the path. Try the fully-matching
+      // URL first; fall back to the no-bracket variant on 400.
+      const bracket = (r: string) => `relations%5B%5D=${r}`
+      const rels = ['odds', 'competitors', 'league', 'marketOrder', 'sportCategories']
+      const candidates = [
+        `${API_BASE}/event/list/?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`,
+        `${API_BASE}/event/list?lang=en&isLive=0&_trlang=en&${rels.map(bracket).join('&')}`,
+        `${API_BASE}/event/list?lang=en&isLive=0&${rels.map(r => `relations=${r}`).join('&')}`,
+      ]
       const listBodies: string[] = []
-      const firstList = await pageFetch(listUrl)
-      log.info('tonybet event list response', {
-        status: firstList.status,
-        bodyLen: firstList.text.length,
-      })
-      if (firstList.status === 200) listBodies.push(firstList.text)
-      else errors.push(`event/list HTTP ${firstList.status}`)
+      for (const url of candidates) {
+        log.info('tonybet fetching event list', { url })
+        const r = await pageFetch(url)
+        log.info('tonybet event list response', {
+          url,
+          status: r.status,
+          bodyLen: r.text.length,
+          // Always capture a body sample on non-200 so we can diagnose.
+          sample: r.status === 200 ? null : r.text.slice(0, 500),
+        })
+        if (r.status === 200 && r.text.length > 100) {
+          listBodies.push(r.text)
+          break
+        }
+        errors.push(`event/list HTTP ${r.status}`)
+      }
 
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()

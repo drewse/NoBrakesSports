@@ -306,6 +306,16 @@ export const betvictorAdapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
+    // BetVictor geo-blocks Railway's US datacenter IP — all /bv_api/*
+    // endpoints responded with empty {events:[],markets:[],outcomes:[]}
+    // arrays and /geoblock was the top hit on the second cycle. Skip
+    // until a CA residential proxy is wired in. Flip BETVICTOR_ENABLED=1
+    // to try.
+    if (process.env.BETVICTOR_ENABLED !== '1') {
+      log.info('skipped — BetVictor geo-blocked; set BETVICTOR_ENABLED=1 to retry')
+      return { events: [], errors: [] }
+    }
+
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
