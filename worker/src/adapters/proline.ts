@@ -115,10 +115,13 @@ export const prolineAdapter: BookAdapter = {
       }
 
       // 1) Pull event lists per league in parallel.
+      //    Kambi's listView wraps each event row as { event: {...}, betOffers: [...] }
+      //    — we only need event metadata here; betoffers are fetched in
+      //    step 2 for full moneyline/spread/total coverage.
       await Promise.all(LEAGUES.map(async (league) => {
         const url =
           `${KAMBI_HOST}/offering/v2018/${CLIENT}/listView/`
-          + `${league.sportPath}/${league.leaguePath}/all/all/competitions.json`
+          + `${league.sportPath}/${league.leaguePath}/all/all/matches.json`
           + `?channel_id=1&client_id=200&lang=en_CA&market=CA-ON&useCombined=true&useCombinedLive=true`
         const { status, text } = await pageFetch(url)
         if (status !== 200) {
@@ -128,10 +131,10 @@ export const prolineAdapter: BookAdapter = {
         }
         try {
           const body = JSON.parse(text)
-          const events: KEvent[] =
-            body.events
-            ?? (body.competitions ?? []).flatMap((c: any) => c.events ?? [])
-          for (const e of events) {
+          const rows: Array<{ event: KEvent }> = Array.isArray(body.events) ? body.events : []
+          for (const row of rows) {
+            const e = row?.event
+            if (!e || !e.id) continue
             if (e.state === 'FINISHED' || e.state === 'STARTED') continue
             eventsById.set(e.id, { ...e, league })
           }
@@ -168,9 +171,13 @@ export const prolineAdapter: BookAdapter = {
         const offers = offersByEvent.get(eventId) ?? []
         const gameMarkets: GameMarket[] = []
 
-        const ml = offers.find(o =>
-          o.betOfferType?.englishName === 'Match'
-          || o.criterion?.englishLabel === 'Full Time')
+        const ml = offers.find(o => {
+          const bName = (o.betOfferType?.englishName ?? '').toLowerCase()
+          const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
+          if (bName === 'match' || bName === 'money line' || bName === 'moneyline' || bName === 'winner') return true
+          if (cLabel === 'full time' || cLabel.includes('moneyline') || cLabel.includes('money line')) return true
+          return false
+        })
         if (ml) {
           const home = ml.outcomes?.find(o => o.type === 'OT_ONE')
           const away = ml.outcomes?.find(o => o.type === 'OT_TWO')
