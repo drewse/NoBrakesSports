@@ -15,11 +15,12 @@ export default async function BooksPage() {
   const [{ data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
     // Match the topbar count: only sources currently producing data.
     // Filtering by health_status='healthy' hides the ~70 planned/blocked/
-    // dead seed rows that would otherwise bloat the selector.
+    // dead seed rows that would otherwise bloat the selector. Includes
+    // prediction_market type so Kalshi/Polymarket surface with real names.
     supabase
       .from('market_sources')
       .select('name, slug')
-      .eq('source_type', 'sportsbook')
+      .in('source_type', ['sportsbook', 'prediction_market'])
       .eq('is_active', true)
       .eq('health_status', 'healthy')
       .order('display_order', { ascending: true }),
