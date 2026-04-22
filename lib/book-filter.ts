@@ -1,14 +1,15 @@
 export const BOOK_FILTER_COOKIE = 'nb_books'
 
-// US-licensed / US-facing sportsbooks (Odds API region: us, us2)
+// US-licensed, state-regulated sportsbooks. Offshore and prediction-market
+// books live in their own sets below so the /books page can render them as
+// distinct sections.
 export const USA_BOOK_SLUGS = new Set([
   'draftkings', 'fanduel', 'betmgm', 'caesars', 'pointsbet',
-  'betrivers', 'unibet', 'mybookie', 'bovada', 'barstool',
-  'betonline', 'betanysports', 'lowvig', 'betus', 'wynnbet',
-  'espnbet', 'hardrockbet', 'fanatics', 'ballybet', 'betparx',
-  'circa', 'fliff', 'novig', 'foxbet', 'twinspires', 'superbook',
-  'williamhill', 'bet365', 'pinnacle', 'betsson', 'betway',
-  'williamhill_us', 'station', 'wynn', 'golden_nugget',
+  'betrivers', 'unibet', 'barstool', 'wynnbet', 'espnbet',
+  'hardrockbet', 'fanatics', 'ballybet', 'betparx', 'circa',
+  'fliff', 'foxbet', 'twinspires', 'superbook', 'williamhill',
+  'bet365', 'pinnacle', 'betsson', 'betway', 'williamhill_us',
+  'station', 'wynn', 'golden_nugget',
 ])
 
 // Canadian-licensed sportsbooks — static fallback.
@@ -19,6 +20,21 @@ export const CANADA_BOOK_SLUGS_FALLBACK = new Set([
   'bet99', 'northstarbets', 'proline', '888sport', 'bwin', 'betano',
   'leovegas', 'tonybet', 'casumo', 'ballybet', 'partypoker', 'jackpotbet',
   'fanduel', 'draftkings', 'betmgm', 'caesars', 'betrivers', 'bet365', 'pinnacle',
+])
+
+// Prediction markets / event-contract exchanges — priced as order books
+// rather than traditional sportsbook lines. Separate surface from the
+// licensed US sportsbooks.
+export const PREDICTION_MARKET_SLUGS = new Set([
+  'kalshi', 'polymarket', 'polymarket-us', 'robinhood-prediction',
+  'sporttrade', 'novig', 'prophet-exchange',
+])
+
+// Offshore (Curaçao / Panama-licensed) books that accept US customers
+// without state licensing. Grouped separately so users can opt them in
+// or out as a bloc.
+export const OFFSHORE_BOOK_SLUGS = new Set([
+  'bovada', 'betus', 'betanysports', 'lowvig', 'mybookie', 'betonline',
 ])
 
 /**

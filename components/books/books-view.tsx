@@ -8,6 +8,8 @@ import {
   BOOK_FILTER_COOKIE,
   USA_BOOK_SLUGS,
   CANADA_BOOK_SLUGS_FALLBACK,
+  PREDICTION_MARKET_SLUGS,
+  OFFSHORE_BOOK_SLUGS,
 } from '@/lib/book-filter'
 
 interface Source {
@@ -21,13 +23,20 @@ interface BooksViewProps {
   canadianSlugs?: string[]
 }
 
-type Region = 'canada' | 'usa'
+type Section = 'canada' | 'usa' | 'prediction' | 'offshore'
 
-const REGION_LABEL: Record<Region, string> = { canada: 'CA', usa: 'USA' }
-const REGION_CLASSES: Record<Region, string> = {
-  canada: 'bg-red-900/50 text-red-300',
-  usa: 'bg-blue-900/50 text-blue-300',
+const SECTION_META: Record<Section, {
+  title: string
+  subtitle: string
+  accent: string        // active-button background
+}> = {
+  canada:     { title: 'Canadian Books',     subtitle: 'CA-ON licensed sportsbooks',              accent: 'bg-red-700 text-white' },
+  usa:        { title: 'USA Books',          subtitle: 'State-regulated US sportsbooks',           accent: 'bg-blue-600 text-white' },
+  prediction: { title: 'Prediction Markets', subtitle: 'Event-contract & peer-to-peer exchanges',  accent: 'bg-violet-600 text-white' },
+  offshore:   { title: 'Offshore Books',     subtitle: 'Curaçao / Panama-licensed, US-facing',     accent: 'bg-amber-600 text-white' },
 }
+
+const SECTION_ORDER: Section[] = ['canada', 'usa', 'prediction', 'offshore']
 
 export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewProps) {
   const router = useRouter()
@@ -36,22 +45,35 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
     ? new Set(canadianSlugs)
     : CANADA_BOOK_SLUGS_FALLBACK
 
-  // Only show CA or USA books — no intl
+  // Classify a slug. Priority: offshore > prediction > canada > usa, so
+  // shared brand-name slugs resolve to the more specific bucket first.
+  function sectionOf(slug: string): Section | null {
+    if (OFFSHORE_BOOK_SLUGS.has(slug)) return 'offshore'
+    if (PREDICTION_MARKET_SLUGS.has(slug)) return 'prediction'
+    if (canadianSet.has(slug)) return 'canada'
+    if (USA_BOOK_SLUGS.has(slug)) return 'usa'
+    return null
+  }
+
   const scopedSources = useMemo(
-    () => sources.filter(s => canadianSet.has(s.slug) || USA_BOOK_SLUGS.has(s.slug)),
+    () => sources.filter(s => sectionOf(s.slug) !== null),
     [sources, canadianSet],
   )
   const allSlugs = useMemo(() => scopedSources.map(s => s.slug), [scopedSources])
 
-  function getRegions(slug: string): Set<Region> {
-    const regions = new Set<Region>()
-    if (canadianSet.has(slug)) regions.add('canada')
-    if (USA_BOOK_SLUGS.has(slug)) regions.add('usa')
-    return regions
-  }
-  function primaryRegion(slug: string): Region {
-    return canadianSet.has(slug) ? 'canada' : 'usa'
-  }
+  const grouped = useMemo(() => {
+    const out: Record<Section, Source[]> = {
+      canada: [], usa: [], prediction: [], offshore: [],
+    }
+    for (const s of scopedSources) {
+      const sec = sectionOf(s.slug)
+      if (sec) out[sec].push(s)
+    }
+    for (const sec of SECTION_ORDER) {
+      out[sec].sort((a, b) => a.name.localeCompare(b.name))
+    }
+    return out
+  }, [scopedSources, canadianSet])
 
   const [enabled, setEnabled] = useState<Set<string>>(
     () => initialEnabled ? new Set(initialEnabled) : new Set(allSlugs),
@@ -73,29 +95,21 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
   }
   function selectAll() { persist(new Set(allSlugs)) }
   function clearAll() { persist(new Set()) }
-  function pickRegion(region: Region) {
-    const slugs = scopedSources.filter(s => getRegions(s.slug).has(region)).map(s => s.slug)
-    persist(new Set(slugs))
+  function pickSection(section: Section) {
+    persist(new Set(grouped[section].map(s => s.slug)))
   }
 
-  const sorted = useMemo(() => {
-    return [...scopedSources].sort((a, b) => {
-      const order: Record<Region, number> = { canada: 0, usa: 1 }
-      const diff = order[primaryRegion(a.slug)] - order[primaryRegion(b.slug)]
-      if (diff !== 0) return diff
-      return a.name.localeCompare(b.name)
-    })
-  }, [scopedSources, canadianSet])
-
   const isAll = allSlugs.every(s => enabled.has(s))
-  const isCanadaPreset = !isAll
-    && scopedSources.filter(s => getRegions(s.slug).has('canada')).every(s => enabled.has(s.slug))
-    && scopedSources.filter(s => !getRegions(s.slug).has('canada')).every(s => !enabled.has(s.slug))
-    && scopedSources.some(s => getRegions(s.slug).has('canada'))
-  const isUsaPreset = !isAll
-    && scopedSources.filter(s => getRegions(s.slug).has('usa')).every(s => enabled.has(s.slug))
-    && scopedSources.filter(s => !getRegions(s.slug).has('usa')).every(s => !enabled.has(s.slug))
-    && scopedSources.some(s => getRegions(s.slug).has('usa'))
+
+  function isSectionPreset(section: Section): boolean {
+    if (isAll) return false
+    const inside = grouped[section]
+    if (inside.length === 0) return false
+    if (!inside.every(s => enabled.has(s.slug))) return false
+    return scopedSources.every(s =>
+      sectionOf(s.slug) === section ? enabled.has(s.slug) : !enabled.has(s.slug),
+    )
+  }
 
   return (
     <div className="space-y-4">
@@ -113,22 +127,23 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
           >
             All Books
           </button>
-          <button
-            onClick={() => pickRegion('canada')}
-            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              isCanadaPreset ? 'bg-red-700 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
-            }`}
-          >
-            🇨🇦 Canada
-          </button>
-          <button
-            onClick={() => pickRegion('usa')}
-            className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
-              isUsaPreset ? 'bg-blue-600 text-white' : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
-            }`}
-          >
-            🇺🇸 USA
-          </button>
+          {SECTION_ORDER.map(section => {
+            const meta = SECTION_META[section]
+            const active = isSectionPreset(section)
+            const hasAny = grouped[section].length > 0
+            if (!hasAny) return null
+            return (
+              <button
+                key={section}
+                onClick={() => pickSection(section)}
+                className={`rounded px-3 py-1.5 text-xs font-medium transition-colors ${
+                  active ? meta.accent : 'bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white'
+                }`}
+              >
+                {meta.title}
+              </button>
+            )
+          })}
           <button
             onClick={clearAll}
             className="rounded px-3 py-1.5 text-xs font-medium bg-nb-800 text-nb-300 hover:bg-nb-700 hover:text-white transition-colors"
@@ -141,48 +156,55 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
         </p>
       </div>
 
-      {/* Book grid */}
-      <div className="rounded-lg border border-border bg-nb-900 overflow-hidden">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-border">
-          {sorted.map(source => {
-            const regions = getRegions(source.slug)
-            const isChecked = enabled.has(source.slug)
-            return (
-              <button
-                key={source.slug}
-                onClick={() => toggle(source.slug)}
-                className={`flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
-                  isChecked ? 'bg-nb-900 hover:bg-nb-800' : 'bg-nb-950 hover:bg-nb-900'
-                }`}
-              >
-                <div
-                  className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
-                    isChecked ? 'bg-white border-white' : 'border-nb-600'
-                  }`}
-                >
-                  {isChecked && <Check className="h-3 w-3 text-nb-950" strokeWidth={3} />}
-                </div>
-                <BookLogo name={source.slug ?? source.name} size="sm" />
-                <span className={`text-xs flex-1 ${isChecked ? 'text-white' : 'text-nb-400'}`}>
-                  {source.name}
-                </span>
-                <div className="flex gap-1">
-                  {(['canada', 'usa'] as const)
-                    .filter(r => regions.has(r))
-                    .map(r => (
-                      <span
-                        key={r}
-                        className={`text-[9px] font-semibold px-1.5 py-0.5 rounded ${REGION_CLASSES[r]}`}
+      {/* Sections */}
+      {SECTION_ORDER.map(section => {
+        const meta = SECTION_META[section]
+        const rows = grouped[section]
+        if (rows.length === 0) return null
+        return (
+          <div key={section} className="space-y-2">
+            <div className="flex items-baseline justify-between">
+              <div>
+                <h2 className="text-xs font-bold text-white uppercase tracking-wider">
+                  {meta.title}
+                </h2>
+                <p className="text-[10px] text-nb-500 mt-0.5">{meta.subtitle}</p>
+              </div>
+              <span className="text-[10px] text-nb-500 font-mono">
+                {rows.filter(s => enabled.has(s.slug)).length}/{rows.length}
+              </span>
+            </div>
+            <div className="rounded-lg border border-border bg-nb-900 overflow-hidden">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-px bg-border">
+                {rows.map(source => {
+                  const isChecked = enabled.has(source.slug)
+                  return (
+                    <button
+                      key={source.slug}
+                      onClick={() => toggle(source.slug)}
+                      className={`flex items-center gap-3 px-3 py-2.5 text-left transition-colors ${
+                        isChecked ? 'bg-nb-900 hover:bg-nb-800' : 'bg-nb-950 hover:bg-nb-900'
+                      }`}
+                    >
+                      <div
+                        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
+                          isChecked ? 'bg-white border-white' : 'border-nb-600'
+                        }`}
                       >
-                        {REGION_LABEL[r]}
+                        {isChecked && <Check className="h-3 w-3 text-nb-950" strokeWidth={3} />}
+                      </div>
+                      <BookLogo name={source.slug ?? source.name} size="sm" />
+                      <span className={`text-xs flex-1 ${isChecked ? 'text-white' : 'text-nb-400'}`}>
+                        {source.name}
                       </span>
-                    ))}
-                </div>
-              </button>
-            )
-          })}
-        </div>
-      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        )
+      })}
     </div>
   )
 }
