@@ -140,36 +140,70 @@ export const betvictorAdapter: BookAdapter = {
         await page.waitForTimeout(3_000)
 
         // 1) Scrape the meeting HTML for event cards.
-        const htmlEvents: HtmlEvent[] = await page.evaluate(() => {
+        const scrape = await page.evaluate(() => {
           const out: Array<{ eventId: number; startIso: string; teams: string[] }> = []
-          const cards = document.querySelectorAll('[data-event-id]')
-          cards.forEach(card => {
+          const cards = Array.from(document.querySelectorAll('[data-event-id]'))
+          let firstCardHtml: string | null = null
+
+          for (const card of cards) {
             const idStr = card.getAttribute('data-event-id')
             const dateStr = card.getAttribute('data-event-date')
-            if (!idStr || !dateStr) return
+            if (!idStr || !dateStr) continue
             const eventId = Number(idStr)
-            if (!isFinite(eventId)) return
+            if (!isFinite(eventId)) continue
+
             const teams: string[] = []
-            // .inplay-coupon-team .inplay-coupon-name
-            card.querySelectorAll('.inplay-coupon-name').forEach(el => {
-              const name = (el.textContent ?? '').trim()
-              if (name) teams.push(name)
-            })
-            // Fallback: older layout uses .coupon-team-name
-            if (teams.length < 2) {
-              card.querySelectorAll('.coupon-team-name, .event-team-name').forEach(el => {
+            // Broaden the selector sweep: try every class variant BetVictor
+            // has shipped across desktop/mobile/meetings/inplay layouts,
+            // then fall back to "any span/div inside each immediate child
+            // div whose text looks like a team name".
+            const nameSelectors = [
+              '.inplay-coupon-name',
+              '.coupon-team-name',
+              '.event-team-name',
+              '.participant-name',
+              '.team-name',
+              '.competition-team-name',
+              '[class*="team-name"]',
+              '[class*="participant"]',
+            ]
+            for (const sel of nameSelectors) {
+              if (teams.length >= 2) break
+              card.querySelectorAll(sel).forEach(el => {
                 const name = (el.textContent ?? '').trim()
-                if (name && !teams.includes(name)) teams.push(name)
+                if (name && name.length >= 2 && !teams.includes(name) && teams.length < 2) {
+                  teams.push(name)
+                }
               })
             }
+
+            // Stash outerHTML of first card so we can see the real DOM if
+            // none of the selectors landed.
+            if (firstCardHtml == null) {
+              firstCardHtml = card.outerHTML.slice(0, 2500)
+            }
+
             if (teams.length >= 2) {
               out.push({ eventId, startIso: dateStr, teams: teams.slice(0, 2) })
             }
-          })
-          return out
+          }
+          return { events: out, firstCardHtml, cardCount: cards.length }
         })
 
-        log.info('betvictor html events', { league: L.leagueSlug, count: htmlEvents.length })
+        const htmlEvents: HtmlEvent[] = scrape.events
+        log.info('betvictor html events', {
+          league: L.leagueSlug,
+          count: htmlEvents.length,
+          cardsInDom: scrape.cardCount,
+        })
+        // If we found cards but couldn't extract teams, dump the first
+        // card's outerHTML so next cycle tells us which selector to use.
+        if (htmlEvents.length === 0 && scrape.cardCount > 0 && scrape.firstCardHtml) {
+          log.info('betvictor card html sample', {
+            league: L.leagueSlug,
+            sample: scrape.firstCardHtml,
+          })
+        }
         if (htmlEvents.length === 0) continue
 
         // 2) Batch a markets call for up to ~50 events per URL (the real
