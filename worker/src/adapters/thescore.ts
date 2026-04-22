@@ -381,25 +381,32 @@ export const thescoreAdapter: BookAdapter = {
       // Parse every captured body; collect distinct events across all of them.
       const seen = new Set<string>()
       let loggedSample = false
-      let loggedLinesBody = false
+      const loggedSections = new Set<string>()
       for (const { url: bodyUrl, body } of gqlBodies) {
         let json: any
         try { json = JSON.parse(body) } catch { continue }
 
-        // Dump the first full CompetitionPageSectionLinesTabNode body so
-        // we can see where markets/prices live in the Apollo response.
-        // The event-summary walker only grabs the StandardEvent leaves; the
-        // line prices hang off a sibling shape we haven't mapped yet.
-        if (!loggedLinesBody && bodyUrl.includes('CompetitionPageSectionLinesTabNode')) {
-          loggedLinesBody = true
-          const roots = json?.data && typeof json.data === 'object' ? Object.keys(json.data) : []
-          log.info('thescore lines body shape', {
-            dataKeys: roots,
-            bodyLen: body.length,
-            // First 4000 chars is enough to see the graph structure
-            // without flooding the log.
-            headSample: body.slice(0, 4000),
-          })
+        // Dump EVERY CompetitionPageSectionLinesTabNode body we see — the
+        // Lines tab fires one per section (Featured, SGP, Moneyline,
+        // Spread, Total, etc.), each with a distinct sectionId in its
+        // URL variables. We need them all to find the game-lines one.
+        if (bodyUrl.includes('CompetitionPageSectionLinesTabNode')) {
+          const nodeId = json?.data?.node?.id ?? '(unknown)'
+          if (!loggedSections.has(nodeId)) {
+            loggedSections.add(nodeId)
+            // Extract the first header/marker we can find to ID the section.
+            const firstChild = json?.data?.node?.sectionChildren?.[0] ?? {}
+            const firstCarousel = firstChild?.featuredBetsCarouselChildren?.[0] ?? {}
+            log.info('thescore section body', {
+              sectionNodeId: nodeId,
+              firstHeader: firstCarousel?.header ?? '(no featured card)',
+              parlayType: firstCarousel?.parlayType ?? null,
+              hasFallback: !!json?.data?.node?.fallbackChild,
+              fallbackTitle: json?.data?.node?.fallbackChild?.title ?? null,
+              bodyLen: body.length,
+              headSample: body.slice(0, 3000),
+            })
+          }
         }
 
         const events = walkForEvents(json)
