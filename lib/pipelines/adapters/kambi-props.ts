@@ -48,12 +48,17 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
-  // ── US Kambi regionals ─────────────────────────────────────────────
-  // BetParx is rate-limited (HTTP 429) on Vercel's shared serverless IP
-  // pool, even though CA operators on the same host/IPs return 200.
-  // Route through PacketStream residential (PROXY_URL) to bypass.
-  { clientId: 'parx',         sourceSlug: 'betparx',      displayName: 'BetParx',
-    lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: true },
+  // ── US Kambi regionals (PARKED) ────────────────────────────────────
+  // BetParx was tested both directly from Vercel IPs and via PacketStream
+  // (CA residential). Both paths returned HTTP 429 on Kambi's /parx/
+  // endpoint — never HTTP 403, so the block is endpoint-level rate
+  // limiting, not IP-geographic. A USA PacketStream pool would very
+  // likely hit the same rate limit. Real unlock requires a browser
+  // session scrape from play.betparx.com (cookies + licensing tokens);
+  // revisit on the Railway worker, not Vercel cron.
+  //
+  // { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
+  //   lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: true },
 ]
 
 // Sports and their Kambi group paths
