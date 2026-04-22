@@ -39,10 +39,11 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
   // ── US Kambi regionals ─────────────────────────────────────────────
-  // Different Kambi platform (c3.sb.kambicdn.com), distinct event IDs
-  // from CA operators — each US op discovers its own event list.
+  // Same eu-offering-api host as CA operators (confirmed returning 429
+  // rate-limit rather than 404 for /parx/, i.e. host is valid). Distinct
+  // event IDs from CA operators — each US op discovers its own event list.
   { clientId: 'parx',         sourceSlug: 'betparx',      displayName: 'BetParx',
-    host: 'https://c3.sb.kambicdn.com/offering/v2018', lang: 'en_US', market: 'US-PA' },
+    lang: 'en_US', market: 'US-PA' },
 ]
 
 // Sports and their Kambi group paths
@@ -87,16 +88,42 @@ export interface KambiPropResult {
   gameMarkets: KambiGameMarket[]
 }
 
+/** Fetch with a hard timeout + outer AbortSignal. Returns null on timeout
+ *  or network error; caller treats null as "no data, continue". */
+async function fetchWithTimeout(
+  url: string,
+  timeoutMs: number,
+  outerSignal?: AbortSignal,
+): Promise<Response | null> {
+  const ctl = new AbortController()
+  const timer = setTimeout(() => ctl.abort(new Error('timeout')), timeoutMs)
+  const onOuterAbort = () => ctl.abort(outerSignal?.reason)
+  outerSignal?.addEventListener('abort', onOuterAbort)
+  try {
+    return await fetch(url, { signal: ctl.signal })
+  } catch (err: any) {
+    if (err?.name !== 'AbortError') {
+      console.warn(`[Kambi] fetch error`, { url: url.slice(0, 120), message: err?.message ?? String(err) })
+    }
+    return null
+  } finally {
+    clearTimeout(timer)
+    outerSignal?.removeEventListener('abort', onOuterAbort)
+  }
+}
+
 /**
  * Discover all upcoming events for a sport path.
  * Uses the listView endpoint (confirmed working) not event/group.
  */
 async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS): Promise<KambiEvent[]> {
   const url = `${base}/listView/${sportPath}/all/all/matches.json?${params}`
-  const resp = await fetch(url)
+  // 12s timeout: a misconfigured operator host (bad DNS / slow TLS) must
+  // never hang the serial per-operator loop — we'd block every subsequent
+  // operator until the 300s function timeout triggers.
+  const resp = await fetchWithTimeout(url, 12_000)
+  if (!resp) return []
   if (!resp.ok) {
-    // Surface non-ok responses — host/market guesses for US Kambi regionals
-    // return 404 silently otherwise, making new operators impossible to debug.
     console.warn(`[Kambi] listView non-ok`, { base, sportPath, status: resp.status })
     return []
   }
@@ -138,7 +165,8 @@ async function fetchAllBetOffers(
 
   while (true) {
     const url = `${base}/betoffer/event/${idStr}.json?${params}&range_start=${start}&range_size=${PAGE_SIZE}&includeParticipants=true`
-    const resp = await fetch(url, { signal })
+    const resp = await fetchWithTimeout(url, 15_000, signal)
+    if (!resp) break
     if (!resp.ok) break
 
     const data = await resp.json()
