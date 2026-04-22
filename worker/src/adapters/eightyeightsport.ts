@@ -249,7 +249,20 @@ export const eightyEightSportAdapter: BookAdapter = {
         }, url)
       }
 
+      // Probe candidate market-fetch URL templates on the first run so we
+      // find out which Spectate endpoint actually serves market prices.
+      // selection_pointers (event_id + market_id) is our only bridge: the
+      // event object itself doesn't embed odds. Once we've confirmed the
+      // real URL, drop the probe.
+      const MARKET_PROBE_TEMPLATES = [
+        `${API_HOST}/spectate/sportsbook-req/getMarkets/`,
+        `${API_HOST}/spectate/sportsbook-req/getMarketData/`,
+        `${API_HOST}/spectate/sportsbook-req/getMarket/`,
+        `${API_HOST}/spectate/sportsbook-req/getSelections/`,
+      ]
       let loggedSample = false
+      let rawSampleLogged = false
+      let marketProbeDone = false
       for (const L of LEAGUES) {
         if (signal.aborted) break
         const url = `${API_HOST}/spectate/sportsbook-req/getTournamentMatches/${L.sport}/${L.country}/${L.league}`
@@ -266,7 +279,41 @@ export const eightyEightSportAdapter: BookAdapter = {
         }
         const eventsObj: Record<string, SpectateEvent> = json?.events ?? {}
         const order: number[] = Array.isArray(json?.event_order) ? json.event_order : Object.keys(eventsObj).map(Number)
-        log.info('888sport league events', { league: L.leagueSlug, count: order.length })
+        const pointers: Array<{ event_id: number; market_id: number }> = Array.isArray(json?.selection_pointers) ? json.selection_pointers : []
+        log.info('888sport league events', { league: L.leagueSlug, count: order.length, pointers: pointers.length })
+
+        // One-time raw dump — we cannot yet see the actual event/market shape
+        // because previous discovery captures got truncated. Log the first
+        // event body + the full list-response top-level keys so we can iterate.
+        if (!rawSampleLogged && order.length > 0) {
+          rawSampleLogged = true
+          const firstEid = order[0]
+          const firstEv = eventsObj[String(firstEid)] ?? eventsObj[firstEid as any]
+          log.info('888sport raw sample', {
+            listTopKeys: Object.keys(json).slice(0, 20),
+            pointerSample: pointers.slice(0, 3),
+            eventKeys: firstEv ? Object.keys(firstEv) : null,
+            eventBody: JSON.stringify(firstEv).slice(0, 2000),
+          })
+        }
+
+        // Probe market-fetch URLs exactly once — only need one success.
+        if (!marketProbeDone && pointers.length > 0) {
+          marketProbeDone = true
+          const sampleIds = pointers.slice(0, 3).map(p => p.market_id).join(',')
+          for (const base of MARKET_PROBE_TEMPLATES) {
+            if (signal.aborted) break
+            const probeUrl = `${base}${sampleIds}`
+            const r = await pageFetch(probeUrl)
+            log.info('888sport market probe', {
+              url: probeUrl,
+              status: r.status,
+              bodyLen: r.text.length,
+              sample: r.text.slice(0, 400),
+            })
+            if (r.status === 200) break
+          }
+        }
 
         for (const eid of order) {
           const ev = eventsObj[String(eid)] ?? eventsObj[eid as any]

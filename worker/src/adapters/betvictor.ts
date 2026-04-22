@@ -23,8 +23,10 @@ import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket, NormalizedEvent } from '../lib/types.js'
 
-const SEED_URL = 'https://www.betvictor.com/en-ca/sports'
-const FEATURED_URL_RE = /\/sportsbook_components\/home_components\/components\/\d+/
+// Deep-seed directly into NBA so the sportsbook component fires — the
+// bare /en-ca/sports route renders a promo that doesn't hydrate market data.
+const SEED_URL = 'https://www.betvictor.com/en-ca/sports/basketball/nba'
+const FEATURED_URL_RE = /\/sportsbook_components\/|\/sports?_components\/|\/home_components\/components\//
 
 const LEAGUE_MAP: Array<{ match: RegExp; leagueSlug: string; sport: string }> = [
   { match: /\bNBA\b/i,               leagueSlug: 'nba',        sport: 'basketball' },
@@ -304,10 +306,22 @@ export const betvictorAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
-      // Passive capture of FeaturedComponent bodies the SPA fetches on render.
+      // Passive capture of component bodies the SPA fetches on render,
+      // plus a diagnostic tally of every JSON path seen so we can confirm
+      // which components fire on NBA/MLB/NHL pages.
       const bodies: string[] = []
+      const seenPaths = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
+        const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
+        if (ct.includes('json') && u.includes('betvictor.com')) {
+          try {
+            const p = new URL(u).pathname
+              .replace(/\/\d{3,}/g, '/:id')
+              .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/:uuid')
+            seenPaths.set(p, (seenPaths.get(p) ?? 0) + 1)
+          } catch { /* ignore */ }
+        }
         if (!FEATURED_URL_RE.test(u)) return
         if (resp.status() !== 200) return
         try { bodies.push(await resp.text()) } catch { /* stream closed */ }
@@ -337,7 +351,10 @@ export const betvictorAdapter: BookAdapter = {
         } catch { /* ignore */ }
       }
       page.off('response', responseHandler)
-      log.info('betvictor captured', { componentBodies: bodies.length })
+      log.info('betvictor captured', {
+        componentBodies: bodies.length,
+        topJsonPaths: Array.from(seenPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20),
+      })
 
       const agg = {
         events: new Map<number | string, BvEvent>(),

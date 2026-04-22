@@ -435,6 +435,10 @@ export const caesarsAdapter: BookAdapter = {
       const eventsListBodies: string[] = []
       const eventBodies = new Map<string, string>()  // eventId → body
       const wafTokenCandidates = new Set<string>()
+      // Diagnostic: count every Caesars-host JSON path we see, regardless
+      // of whether it matches our menu/events regex. If the SPA fires no
+      // sports-menu call at all, this tells us what it IS firing.
+      const seenCaesarsPaths = new Map<string, number>()
 
       const menuUrlRe = /\/sb\/v\d+\/sports-menu(\?|$)/
       const eventsListRe = /\/competitions\/[0-9a-f-]{36}\/events(\?|$)/
@@ -450,6 +454,12 @@ export const caesarsAdapter: BookAdapter = {
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         if (!CAESARS_API_HOST_RE.test(u)) return
+        try {
+          const p = new URL(u).pathname
+            .replace(/\/[0-9a-f-]{36}/g, '/:uuid')
+            .replace(/\/\d{3,}/g, '/:id')
+          seenCaesarsPaths.set(p, (seenCaesarsPaths.get(p) ?? 0) + 1)
+        } catch { /* ignore */ }
         if (resp.status() !== 200) return
         try {
           if (menuUrlRe.test(u) && !menuBodyText) {
@@ -477,12 +487,15 @@ export const caesarsAdapter: BookAdapter = {
         page.off('response', responseHandler)
         return { events: scraped, errors }
       }
-      // Wait up to 25s for menu to fire passively. If it doesn't, we'll
-      // still try the league-page navigations below which also warm things up.
+      // Nudge the SPA: Caesars' app is lazy — until the user scrolls or
+      // interacts, it can leave the sports-menu + events XHRs unfired.
+      // Scroll the viewport and wait for the menu response (longer window
+      // since direct Railway IP seems to take longer to warm than PacketStream).
+      try { await page.mouse.wheel(0, 800) } catch { /* ignore */ }
       try {
         await page.waitForResponse(
           (r) => menuUrlRe.test(r.url()) && r.status() === 200,
-          { timeout: 25_000 },
+          { timeout: 35_000 },
         )
       } catch { /* proceed without passive menu */ }
 
@@ -553,6 +566,7 @@ export const caesarsAdapter: BookAdapter = {
       log.info('caesars capture', {
         eventsListCount: eventsListBodies.length,
         eventBodyCount: eventBodies.size,
+        topApiPaths: Array.from(seenCaesarsPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 25),
       })
 
       // Build a master event list: prefer passively-captured events-list

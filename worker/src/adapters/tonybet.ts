@@ -319,6 +319,19 @@ export const tonybetAdapter: BookAdapter = {
         const items: TonyBetEvent[] = json?.data?.items ?? json?.items ?? []
         if (!Array.isArray(items)) continue
 
+        // Unconditional raw dump of the first item we see each run, even
+        // if extraction later fails — we need to see what fields BetConstruct
+        // ships so the extractTeams/extractStart/league lookup can target
+        // them correctly.
+        if (!loggedSample && items.length > 0) {
+          loggedSample = true
+          const first = items[0]
+          log.info('tonybet raw sample', {
+            keys: Object.keys(first).slice(0, 40),
+            body: JSON.stringify(first).slice(0, 2500),
+          })
+        }
+
         for (const item of items) {
           const id = String(item.id ?? (item as any).sbEventId ?? '')
           if (!id || seen.has(id)) continue
@@ -330,18 +343,6 @@ export const tonybetAdapter: BookAdapter = {
           const teams = extractTeams(item)
           const startIso = extractStartIso(item)
           if (!teams || !startIso) continue
-
-          // First item we process this run: dump it so we can iterate.
-          if (!loggedSample) {
-            loggedSample = true
-            log.info('tonybet sample item', {
-              id, leagueName, teams, startIso,
-              keys: Object.keys(item).slice(0, 30),
-              oddsShape: Array.isArray(item.odds)
-                ? { len: item.odds.length, firstKeys: item.odds[0] ? Object.keys(item.odds[0]).slice(0, 20) : [] }
-                : null,
-            })
-          }
 
           seen.add(id)
           const gameMarkets = extractGameMarkets(item, teams.home, teams.away)

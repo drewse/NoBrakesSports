@@ -231,15 +231,12 @@ export const bet365Adapter: BookAdapter = {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
     // bet365 is CF-gated and its hash-SPA only fires market XHRs after
-    // tab/league clicks. We use rotateSession so each run gets a fresh exit
-    // IP (CF flags repeat hits fast) and click the league tab after load to
-    // trigger matchmarketscontentapi. Env guard remains for a cheap off-switch.
+    // tab/league clicks. PacketStream gets ERR_EMPTY_RESPONSE on every
+    // attempt — Cloudflare apparently blocks the residential pool hard.
+    // Try direct from Railway IP instead (same tactic as Caesars v3). Env
+    // guard remains for a cheap off-switch.
     if (process.env.BET365_ENABLED === '0') {
       log.info('skipped — BET365_ENABLED=0')
-      return { events: [], errors: [] }
-    }
-    if (!process.env.PROXY_URL) {
-      log.info('skipped — no PROXY_URL configured')
       return { events: [], errors: [] }
     }
 
@@ -440,6 +437,6 @@ export const bet365Adapter: BookAdapter = {
       }
 
       return { events: scraped, errors }
-    }, { useProxy: true, rotateSession: true })
+    }, { useProxy: false })   // direct — PacketStream is blocked by CF on bet365.
   },
 }
