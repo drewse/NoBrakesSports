@@ -52,9 +52,20 @@ export async function shutdownBrowser(): Promise<void> {
 /** Open an isolated context with sane anti-bot defaults. Caller must close it.
  *  Pass `useProxy: true` to route this context through PROXY_URL (residential
  *  proxy, required for sites that hard-block the Railway IP via CF).
- *  Pass `rotateSession: true` to route through the provider's rotating
- *  (per-request exit IP) pool instead of the sticky pool. PacketStream uses
- *  port 31112 for sticky, 31113 for rotating — we rewrite the port. */
+ *  Pass `rotateSession: true` to force a fresh sticky-session ID on this
+ *  context — required for IPRoyal because their sticky sessions expire
+ *  after `lifetime-<N>m` and re-using an expired session ID gets
+ *  ERR_TUNNEL_CONNECTION_FAILED. Every context gets a new short ID so we
+ *  always land on a fresh 30-min sticky exit. (PacketStream legacy: port
+ *  31112 sticky / 31113 rotating — preserved as a fallback.) */
+function randomSessionId(): string {
+  // 8-char alphanumeric — matches IPRoyal's session token shape.
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  let s = ''
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
+  return s
+}
+
 export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
@@ -69,15 +80,21 @@ export async function openContext(opts: {
     try {
       const u = new URL(process.env.PROXY_URL)
       let host = u.host
-      // PacketStream: sticky=31112, rotating=31113. If caller asked for
-      // rotation and URL points at the sticky port, swap to rotating.
+      let password = u.password
+      // PacketStream legacy: sticky=31112, rotating=31113.
       if (opts.rotateSession && u.port === '31112') {
         host = `${u.hostname}:31113`
+      }
+      // IPRoyal: session encoded in password as `_session-<id>_lifetime-..`.
+      // Unconditionally swap the session ID to a fresh random one so we
+      // don't reuse expired 30-min-sticky tokens across worker cycles.
+      if (password && /_session-[^_]+/.test(password)) {
+        password = password.replace(/_session-[^_]+/, `_session-${randomSessionId()}`)
       }
       proxy = {
         server: `${u.protocol}//${host}`,
         username: u.username || undefined,
-        password: u.password || undefined,
+        password: password || undefined,
       }
     } catch {
       log.warn('PROXY_URL invalid — falling back to direct')
