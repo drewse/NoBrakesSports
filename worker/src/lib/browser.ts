@@ -61,6 +61,7 @@ export async function openContext(opts: {
   extraHeaders?: Record<string, string>
   useProxy?: boolean
   rotateSession?: boolean
+  ignoreHTTPSErrors?: boolean   // when PacketStream's MITM breaks cert chains
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
   let proxy: { server: string; username?: string; password?: string } | undefined
@@ -89,6 +90,7 @@ export async function openContext(opts: {
     timezoneId: 'America/Toronto',
     extraHTTPHeaders: opts.extraHeaders,
     bypassCSP: true,
+    ignoreHTTPSErrors: opts.ignoreHTTPSErrors ?? false,
     ...(proxy ? { proxy } : {}),
   })
 }

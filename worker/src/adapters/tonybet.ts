@@ -501,6 +501,9 @@ export const tonybetAdapter: BookAdapter = {
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
       })
       return { events: scraped, errors }
-    }, { useProxy: true })
+    }, { useProxy: true, ignoreHTTPSErrors: true })
+    // PacketStream intermittently returns ERR_CERT_AUTHORITY_INVALID when
+    // proxying tonybet.ca — relaxing cert validation is safe here since we
+    // only read public market data.
   },
 }
