@@ -73,7 +73,7 @@ const CA_BOOK_TRACKER: CaBookEntry[] = [
 ]
 
 // ── USA Legal Book Tracker — all planned, prioritized by category ─────
-type UsaCategory = 'major' | 'regional' | 'exchange' | 'dfs-sweepstakes'
+type UsaCategory = 'major' | 'regional' | 'exchange' | 'dfs-sweepstakes' | 'offshore'
 
 interface UsaBookEntry {
   name: string
@@ -130,6 +130,28 @@ const USA_BOOK_TRACKER: UsaBookEntry[] = [
   { name: 'PrizePicks',          slug: 'prizepicks',         operator: 'PrizePicks LLC',                  url: 'https://www.prizepicks.com',         platform: 'DFS pick-em',                category: 'dfs-sweepstakes', states: ['AK','CA','DC','FL','GA','IA','IL','IN','KS','KY','MN','NC','ND','NE','NM','OK','OR','RI','SC','SD','TX','UT','VA','WI'], status: 'planned', notes: 'Pick-em DFS; props-only.' },
   { name: 'Underdog Fantasy',    slug: 'underdog',           operator: 'Underdog Sports',                 url: 'https://underdogfantasy.com',        platform: 'DFS pick-em',                category: 'dfs-sweepstakes', states: ['AK','CA','DC','FL','GA','IL','IN','KS','KY','MN','NC','ND','NE','NM','OK','OR','RI','SC','SD','TX','UT','WI'], status: 'planned', notes: 'Pick-em DFS; props-only.' },
   { name: 'Sleeper Picks',       slug: 'sleeper',            operator: 'Sleeper Fantasy',                 url: 'https://sleeper.com/picks',          platform: 'DFS pick-em',                category: 'dfs-sweepstakes', states: ['AK','CA','FL','GA','IL','KS','KY','MN','NC','ND','NE','NM','OK','OR','RI','SC','TX','UT','WI'], status: 'planned', notes: 'Pick-em DFS.' },
+
+  // ── Additional regionals surfaced from The Odds API book list ─────────
+  { name: 'BetParx',             slug: 'betparx',            operator: 'Parx Casino',                     url: 'https://betparx.com',                platform: 'Kambi',                      category: 'regional', states: ['IL','MD','NJ','OH','PA'],                  status: 'planned', notes: 'Parx Casino sportsbook. Kambi operator — likely reusable from CA Kambi shell with a different client slug.' },
+  { name: 'Betsson US',          slug: 'betsson-us',         operator: 'Betsson Group',                   url: 'https://www.betsson.us',             platform: 'Betsson (Strive)',           category: 'regional', states: ['CO'],                                      status: 'planned', notes: 'CO-only via Strive/Dostal Alley partnership. Small footprint.' },
+
+  // ── William Hill family → merged into Caesars ─────────────────────────
+  { name: 'Caesars (William Hill US)', slug: 'williamhill-us', operator: 'Caesars Entertainment',         url: 'https://sportsbook.williamhill.com', platform: 'Liberty (proprietary)',      category: 'major',    states: ['AZ','CO','DC','IL','IN','IA','LA','MI','NJ','NV','NY','OH','PA','TN','VA','WV'], status: 'covered', notes: 'William Hill US rebranded under Caesars after the 2021 merger; runs on the same Liberty stack. Reuse CA Caesars feed.' },
+  { name: 'William Hill',        slug: 'williamhill',        operator: 'Caesars Entertainment',           url: 'https://sportsbook.williamhill.com', platform: 'Liberty (proprietary)',      category: 'major',    states: ['NJ','NV'], status: 'covered', notes: 'Legacy William Hill brand — surviving in NJ/NV as a Caesars skin. Reuse CA Caesars feed.' },
+
+  // ── Shut-down / defunct US operations ─────────────────────────────────
+  { name: 'Unibet US',           slug: 'unibet-us',          operator: 'Kindred Group',                   url: 'https://unibet.com',                 platform: 'Kambi',                      category: 'regional', states: [],                                          status: 'dead',    notes: 'Kindred exited US market May 2024. US domain dormant. CA Unibet adapter still live for Canadian customers.' },
+
+  // ── Offshore / grey-market books (not US-licensed) ────────────────────
+  //     Included for reference only. These operate from Curaçao/Antigua/
+  //     Costa Rica and serve US customers without state licensing — lines
+  //     are often decent but ingestion raises compliance questions for a
+  //     US product. Keep planned=false-ish (status 'planned') until the
+  //     user explicitly greenlights them.
+  { name: 'Bovada',              slug: 'bovada',             operator: 'Harp Media B.V.',                 url: 'https://www.bovada.lv',              platform: 'Proprietary',                category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Curaçao-licensed, accepts US customers. Largest offshore book. Compliance risk for a US product.' },
+  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Panama-licensed, accepts US customers. Compliance risk.' },
+  { name: 'BetAnySports',        slug: 'betanysports',       operator: 'BetAnySports Curaçao',            url: 'https://www.betanysports.eu',        platform: 'ASI / DGS',                  category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Reduced-juice offshore book. Compliance risk.' },
+  { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL (unlicensed)'],                        status: 'planned', notes: 'Reduced-juice sister of BetOnline. Same stack. Compliance risk.' },
 ]
 
 function StatusPill({ status }: { status: ImplStatus }) {
@@ -169,6 +191,7 @@ function CategoryPill({ category }: { category: UsaCategory }) {
     regional:         { label: 'Regional',  bg: 'bg-amber-500/10',  text: 'text-amber-400' },
     exchange:         { label: 'Exchange',  bg: 'bg-violet-500/10', text: 'text-violet-400' },
     'dfs-sweepstakes': { label: 'DFS/Sweeps', bg: 'bg-sky-500/10',  text: 'text-sky-400' },
+    offshore:         { label: 'Offshore',  bg: 'bg-red-500/10',    text: 'text-red-400' },
   }
   const c = config[category]
   return (
@@ -383,11 +406,12 @@ export default async function AdminPage() {
           <div>
             <h2 className="text-sm font-bold text-white">USA Book Implementation Tracker</h2>
             <p className="text-[10px] text-nb-500 mt-0.5">
-              {USA_BOOK_TRACKER.length} legal US books catalogued ·{' '}
+              {USA_BOOK_TRACKER.length} US books catalogued ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.category === 'major').length} majors ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.category === 'regional').length} regionals ·{' '}
               {USA_BOOK_TRACKER.filter(b => b.category === 'exchange').length} exchanges ·{' '}
-              {USA_BOOK_TRACKER.filter(b => b.category === 'dfs-sweepstakes').length} DFS/sweeps
+              {USA_BOOK_TRACKER.filter(b => b.category === 'dfs-sweepstakes').length} DFS/sweeps ·{' '}
+              {USA_BOOK_TRACKER.filter(b => b.category === 'offshore').length} offshore
             </p>
             <p className="text-[10px] text-nb-500 mt-0.5">
               <span className="text-sky-400 font-semibold">{USA_BOOK_TRACKER.filter(b => b.status === 'covered').length} covered by CA adapter</span> ·{' '}
