@@ -376,16 +376,17 @@ export const tonybetAdapter: BookAdapter = {
       // Let the SPA set its session cookies (sid, _bsid, etc) and CSRF token.
       await page.waitForTimeout(8_000)
 
+      // In-page fetch from tonybet.ca → platform.tonybet.ca is cross-origin.
+      // CORS preflights non-simple headers (Content-Type: application/json,
+      // X-Requested-With, Client-Timezone), and platform.tonybet.ca doesn't
+      // reply with the right Access-Control-Allow-Headers, so "Failed to
+      // fetch". Keep only Accept (simple) and credentials:include — the
+      // server needs session cookies but not custom headers on GET.
       const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
         return page.evaluate(async (u: string) => {
           try {
             const r = await fetch(u, {
-              headers: {
-                Accept: 'application/json',
-                'Content-Type': 'application/json',
-                'Client-Timezone': 'America/Toronto',
-                'X-Requested-With': 'XMLHttpRequest',
-              },
+              headers: { Accept: 'application/json' },
               credentials: 'include',
             })
             return { status: r.status, text: await r.text() }
