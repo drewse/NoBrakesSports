@@ -313,13 +313,16 @@ export const betvictorAdapter: BookAdapter = {
 
       // Passive capture of component bodies the SPA fetches on render,
       // plus a diagnostic tally of every JSON path seen so we can confirm
-      // which components fire on NBA/MLB/NHL pages.
+      // which components fire on NBA/MLB/NHL pages. We ONLY push JSON
+      // bodies — /horizon/betvictor returns HTML/JS on some request types
+      // and JSON.parse would silently nuke our diagnostics.
       const bodies: string[] = []
       const seenPaths = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
-        if (ct.includes('json') && u.includes('betvictor.com')) {
+        const isJson = ct.includes('json')
+        if (isJson && u.includes('betvictor.com')) {
           try {
             const p = new URL(u).pathname
               .replace(/\/\d{3,}/g, '/:id')
@@ -327,6 +330,7 @@ export const betvictorAdapter: BookAdapter = {
             seenPaths.set(p, (seenPaths.get(p) ?? 0) + 1)
           } catch { /* ignore */ }
         }
+        if (!isJson) return
         if (!FEATURED_URL_RE.test(u)) return
         if (resp.status() !== 200) return
         try { bodies.push(await resp.text()) } catch { /* stream closed */ }
@@ -376,15 +380,24 @@ export const betvictorAdapter: BookAdapter = {
         outcomes: agg.outcomes.size,
       })
       // If extraction found nothing, dump the first body so we can see the
-      // real shape the new endpoints ship.
+      // real shape the new endpoints ship. Log the raw text even when
+      // JSON.parse fails — silent catches were eating the diagnostic before.
       if (agg.events.size === 0 && bodies.length > 0) {
+        const raw = bodies[0]
+        let topKeys: string[] | null = null
         try {
-          const parsed = JSON.parse(bodies[0])
-          log.info('betvictor raw body sample', {
-            topKeys: parsed && typeof parsed === 'object' ? Object.keys(parsed).slice(0, 30) : null,
-            body: JSON.stringify(parsed).slice(0, 2500),
-          })
-        } catch { /* skip */ }
+          const parsed = JSON.parse(raw)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            topKeys = Object.keys(parsed).slice(0, 30)
+          } else if (Array.isArray(parsed)) {
+            topKeys = [`__array__len=${parsed.length}`]
+          }
+        } catch { /* parse may fail; still log raw */ }
+        log.info('betvictor raw body sample', {
+          topKeys,
+          rawLen: raw.length,
+          body: raw.slice(0, 2500),
+        })
       }
 
       for (const [eid, ev] of agg.events) {

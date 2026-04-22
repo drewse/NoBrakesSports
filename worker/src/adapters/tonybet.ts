@@ -367,17 +367,24 @@ export const tonybetAdapter: BookAdapter = {
       const scraped: ScrapeResult['events'] = []
 
       // Passive capture of /api/event/list responses as the SPA fetches them.
-      // Also record every unique JSON host we see for diagnostics — lets us
-      // tell in one log line whether the SPA ever called our expected endpoint.
+      // Also record every JSON path on platform.tonybet.(com|ca) so we can
+      // find the odds/markets endpoint (event list ships no odds inline).
       const listBodies: string[] = []
       const seenJsonHosts = new Map<string, number>()
+      const seenPlatformPaths = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
         if (ct.includes('json')) {
           try {
-            const host = new URL(u).host
-            seenJsonHosts.set(host, (seenJsonHosts.get(host) ?? 0) + 1)
+            const parsed = new URL(u)
+            seenJsonHosts.set(parsed.host, (seenJsonHosts.get(parsed.host) ?? 0) + 1)
+            if (/platform\.tonybet\.(com|ca)$/i.test(parsed.host)) {
+              const shape = parsed.pathname
+                .replace(/\/\d{3,}/g, '/:id')
+                .replace(/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '/:uuid')
+              seenPlatformPaths.set(shape, (seenPlatformPaths.get(shape) ?? 0) + 1)
+            }
           } catch { /* ignore */ }
         }
         // Broadened: any event-list-shaped path on any tonybet host qualifies.
@@ -416,6 +423,7 @@ export const tonybetAdapter: BookAdapter = {
       log.info('tonybet captured', {
         listResponses: listBodies.length,
         jsonHostsSeen: Array.from(seenJsonHosts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
+        topPlatformPaths: Array.from(seenPlatformPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 20),
       })
 
       // Parse all captured bodies, dedupe by event id, and attach a league.

@@ -39,9 +39,25 @@ const LEAGUES: LeagueCfg[] = [
   { sport: 'ice-hockey', country: 'united-states', league: 'nhl', leagueSlug: 'nhl', sportCanonical: 'ice_hockey' },
 ]
 
-/** Spectate odds ship as decimal strings/numbers; convert to American. */
+/** Spectate selections ship `fraction_price` ("10/11") plus sometimes
+ *  `decimal_price` — convert either to American. */
+function fractionalToAmerican(frac: string): number | null {
+  const slash = frac.indexOf('/')
+  if (slash === -1) return null
+  const num = Number(frac.slice(0, slash))
+  const den = Number(frac.slice(slash + 1))
+  if (!isFinite(num) || !isFinite(den) || den === 0) return null
+  const f = num / den
+  return f >= 1 ? Math.round(f * 100) : Math.round(-(den / num) * 100)
+}
+
 function toAmerican(x: any): number | null {
   if (x == null) return null
+  if (typeof x === 'string') {
+    if (x.includes('/')) return fractionalToAmerican(x)
+    const n = Number(x)
+    if (!isNaN(n)) return toAmerican(n)
+  }
   const n = typeof x === 'number' ? x : Number(x)
   if (!isFinite(n)) return null
   if (n >= 1.01 && n <= 50) {
@@ -88,7 +104,11 @@ function extractTeams(e: SpectateEvent): { home: string; away: string } | null {
     const a = e.participants.find(p => p !== h)
     if (h?.name && a?.name) return { home: h.name, away: a.name }
   }
-  // Fall back to parsing "Home vs Away" from name
+  // Spectate event.name is "<away> @ <home>" (American convention).
+  if (typeof e.name === 'string' && e.name.includes(' @ ')) {
+    const [away, home] = e.name.split(' @ ').map(s => s.trim())
+    if (away && home) return { home, away }
+  }
   if (typeof e.name === 'string' && e.name.includes(' vs ')) {
     const [home, away] = e.name.split(' vs ').map(s => s.trim())
     if (home && away) return { home, away }
@@ -97,10 +117,11 @@ function extractTeams(e: SpectateEvent): { home: string; away: string } | null {
 }
 
 function extractStart(e: SpectateEvent): string | null {
+  // Spectate ships start_time as ISO with offset, e.g. "2026-04-22T02:30:00+00:00"
   if (typeof e.start_time === 'string' && e.start_time.length >= 10) return e.start_time
   if (typeof e.start_date === 'string' && e.start_date.length >= 10) return e.start_date
   if (typeof e.start_ts === 'number') return new Date(e.start_ts * 1000).toISOString()
-  const alt = (e as any).event_start_time ?? (e as any).scheduled_start
+  const alt = (e as any).event_start_time ?? (e as any).scheduled_start ?? (e as any).scheduled_date
   if (typeof alt === 'string') return alt
   return null
 }
@@ -123,13 +144,18 @@ function extractGameMarkets(e: SpectateEvent, home: string, away: string): GameM
   }
 
   const out: GameMarket[] = []
-  const outcomesOf = (m: any): any[] =>
-    Array.isArray(m?.outcomes) ? m.outcomes
-    : Array.isArray(m?.selections) ? m.selections
-    : m?.outcomes && typeof m.outcomes === 'object' ? Object.values(m.outcomes)
-    : []
+  const outcomesOf = (m: any): any[] => {
+    // Spectate: m.selections is an object keyed by selection_id.
+    if (m?.selections && typeof m.selections === 'object' && !Array.isArray(m.selections)) {
+      return Object.values(m.selections)
+    }
+    if (Array.isArray(m?.outcomes)) return m.outcomes
+    if (Array.isArray(m?.selections)) return m.selections
+    if (m?.outcomes && typeof m.outcomes === 'object') return Object.values(m.outcomes)
+    return []
+  }
   const nameOf = (o: any) => String(o?.name ?? o?.selection_name ?? o?.label ?? '').toLowerCase()
-  const priceOf = (o: any) => toAmerican(o?.decimal_odds ?? o?.odds ?? o?.price ?? o?.value)
+  const priceOf = (o: any) => toAmerican(o?.fraction_price ?? o?.decimal_price ?? o?.decimal_odds ?? o?.odds ?? o?.price ?? o?.value)
   const lineOf = (o: any): number | null => {
     for (const k of ['line', 'handicap', 'point', 'value', 'param', 'base']) {
       const v = o?.[k]
@@ -235,8 +261,10 @@ export const eightyEightSportAdapter: BookAdapter = {
         log.error('888sport seed failed', { message: e?.message ?? String(e) })
         return { events: scraped, errors }
       }
-      // Let Spectate's SPA mint its session cookies.
-      await page.waitForTimeout(5_000)
+      // Let Spectate's SPA mint its session cookies. First-cycle after a
+      // fresh context was returning HTTP 400 on league fetches when we
+      // only waited 5s; 10s eliminates the race.
+      await page.waitForTimeout(10_000)
 
       const pageFetch = async (url: string): Promise<{ status: number; text: string }> => {
         return page.evaluate(async (u: string) => {
@@ -249,20 +277,10 @@ export const eightyEightSportAdapter: BookAdapter = {
         }, url)
       }
 
-      // Probe candidate market-fetch URL templates on the first run so we
-      // find out which Spectate endpoint actually serves market prices.
-      // selection_pointers (event_id + market_id) is our only bridge: the
-      // event object itself doesn't embed odds. Once we've confirmed the
-      // real URL, drop the probe.
-      const MARKET_PROBE_TEMPLATES = [
-        `${API_HOST}/spectate/sportsbook-req/getMarkets/`,
-        `${API_HOST}/spectate/sportsbook-req/getMarketData/`,
-        `${API_HOST}/spectate/sportsbook-req/getMarket/`,
-        `${API_HOST}/spectate/sportsbook-req/getSelections/`,
-      ]
+      // Markets are inlined under events[id].markets[market_id] — confirmed
+      // from round-4 raw dump. No separate getMarkets call needed.
       let loggedSample = false
       let rawSampleLogged = false
-      let marketProbeDone = false
       for (const L of LEAGUES) {
         if (signal.aborted) break
         const url = `${API_HOST}/spectate/sportsbook-req/getTournamentMatches/${L.sport}/${L.country}/${L.league}`
@@ -278,7 +296,24 @@ export const eightyEightSportAdapter: BookAdapter = {
           continue
         }
         const eventsObj: Record<string, SpectateEvent> = json?.events ?? {}
-        const order: number[] = Array.isArray(json?.event_order) ? json.event_order : Object.keys(eventsObj).map(Number)
+        // event_order is an array of { event_id, grouped_market_ids, market_id }
+        // objects — not bare ids. Extract event_id from each and dedupe.
+        const rawOrder: any[] = Array.isArray(json?.event_order) ? json.event_order : []
+        const seenIds = new Set<number>()
+        const order: number[] = []
+        for (const entry of rawOrder) {
+          const eid = typeof entry === 'object' && entry !== null ? entry.event_id : Number(entry)
+          if (typeof eid === 'number' && isFinite(eid) && !seenIds.has(eid)) {
+            seenIds.add(eid)
+            order.push(eid)
+          }
+        }
+        if (order.length === 0) {
+          for (const k of Object.keys(eventsObj)) {
+            const n = Number(k)
+            if (isFinite(n)) order.push(n)
+          }
+        }
         const pointers: Array<{ event_id: number; market_id: number }> = Array.isArray(json?.selection_pointers) ? json.selection_pointers : []
         log.info('888sport league events', { league: L.leagueSlug, count: order.length, pointers: pointers.length })
 
@@ -302,24 +337,6 @@ export const eightyEightSportAdapter: BookAdapter = {
             // see where Spectate actually nested them.
             listSample: firstEv ? null : JSON.stringify(json).slice(0, 2000),
           })
-        }
-
-        // Probe market-fetch URLs exactly once — only need one success.
-        if (!marketProbeDone && pointers.length > 0) {
-          marketProbeDone = true
-          const sampleIds = pointers.slice(0, 3).map(p => p.market_id).join(',')
-          for (const base of MARKET_PROBE_TEMPLATES) {
-            if (signal.aborted) break
-            const probeUrl = `${base}${sampleIds}`
-            const r = await pageFetch(probeUrl)
-            log.info('888sport market probe', {
-              url: probeUrl,
-              status: r.status,
-              bodyLen: r.text.length,
-              sample: r.text.slice(0, 400),
-            })
-            if (r.status === 200) break
-          }
         }
 
         for (const eid of order) {
