@@ -17,13 +17,13 @@ import { bet99Adapter } from './adapters/bet99.js'
 import { eightyEightSportAdapter } from './adapters/eightyeightsport.js'
 import { betanoAdapter } from './adapters/betano.js'
 import { tonybetAdapter } from './adapters/tonybet.js'
-import { casumoAdapter } from './adapters/casumo.js'
 import { ballybetAdapter } from './adapters/ballybet.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
 //   betrivers_on — handled by the Vercel pipeline (kambi)
 //   jackpotbet   — domain is parked/dead (confirmed via discovery log)
+//   casumo       — Casumo CA has no sportsbook product, confirmed 2026-04-22
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
@@ -37,7 +37,6 @@ const ALL_ADAPTERS: BookAdapter[] = [
   eightyEightSportAdapter,
   betanoAdapter,
   tonybetAdapter,
-  casumoAdapter,
   ballybetAdapter,
 ]
 
