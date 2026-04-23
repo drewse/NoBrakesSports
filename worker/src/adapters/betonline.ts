@@ -210,7 +210,7 @@ function buildAdapter(op: Operator): BookAdapter {
   return {
     slug: op.slug,
     name: op.name,
-    pollIntervalSec: 300,   // 5 min — US-mobile proxy bandwidth conservation
+    pollIntervalSec: 7200,  // 2h — cap IPRoyal US-mobile cost
     needsBrowser: true,
 
     async scrape({ signal, log }) {

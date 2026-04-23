@@ -224,7 +224,7 @@ function buildMarkets(
 export const bet365Adapter: BookAdapter = {
   slug: 'bet365',
   name: 'Bet365 (Ontario)',
-  pollIntervalSec: 900,   // 15 min — conserves MOBILE_PROXY_URL bandwidth
+  pollIntervalSec: 7200,  // 2h — cap IPRoyal mobile cost
   needsBrowser: true,
 
   async scrape({ signal, log }) {

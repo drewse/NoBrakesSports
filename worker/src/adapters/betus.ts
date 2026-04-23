@@ -12,4 +12,5 @@ export const betusAdapter = buildOffshoreProbeAdapter({
     { url: 'https://www.betus.com.pa/sportsbook/mlb-baseball-lines',   leagueSlug: 'mlb' },
     { url: 'https://www.betus.com.pa/sportsbook/nhl-hockey-lines',     leagueSlug: 'nhl' },
   ],
+  pollIntervalSec: 7200,
 })

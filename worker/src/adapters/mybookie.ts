@@ -12,4 +12,5 @@ export const mybookieAdapter = buildOffshoreProbeAdapter({
     { url: 'https://www.mybookie.ag/sportsbook/mlb', leagueSlug: 'mlb' },
     { url: 'https://www.mybookie.ag/sportsbook/nhl', leagueSlug: 'nhl' },
   ],
+  pollIntervalSec: 7200,  // 2h — cap IPRoyal US-mobile cost
 })

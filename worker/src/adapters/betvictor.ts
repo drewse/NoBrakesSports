@@ -92,7 +92,7 @@ function priceOf(o: MarketOutcome): number | null {
 export const betvictorAdapter: BookAdapter = {
   slug: 'betvictor',
   name: 'BetVictor (Ontario)',
-  pollIntervalSec: 900,   // 15 min — conserves MOBILE_PROXY_URL bandwidth
+  pollIntervalSec: 7200,  // 2h — cap IPRoyal mobile cost
   needsBrowser: true,
 
   async scrape({ signal, log }) {

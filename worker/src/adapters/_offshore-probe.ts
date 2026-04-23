@@ -36,6 +36,10 @@ export interface OffshoreProbeConfig {
   /** When set, skip the scrape if none of the listed env vars is set.
    *  Default derived from useProxy. */
   requiresEnvVar?: string[]
+  /** Poll cadence in seconds. Defaults to 1800s (30 min). Override
+   *  per-adapter — we use 7200s (2h) for mobile-proxied books to cap
+   *  IPRoyal spend. */
+  pollIntervalSec?: number
 }
 
 export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter {
@@ -53,7 +57,7 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
   return {
     slug: cfg.slug,
     name: cfg.name,
-    pollIntervalSec: 1800,   // 30 min during discovery — don't burn proxy
+    pollIntervalSec: cfg.pollIntervalSec ?? 1800,
     needsBrowser: true,
 
     async scrape({ signal, log }) {

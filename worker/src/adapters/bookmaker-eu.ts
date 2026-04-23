@@ -12,4 +12,5 @@ export const bookmakerEuAdapter = buildOffshoreProbeAdapter({
     { url: 'https://www.bookmaker.eu/sports/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://www.bookmaker.eu/sports/hockey/nhl',     leagueSlug: 'nhl' },
   ],
+  pollIntervalSec: 7200,
 })

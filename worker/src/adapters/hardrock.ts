@@ -39,7 +39,7 @@ const LEAGUE_URLS: Array<{ url: string; leagueSlug: string; sport: string }> = [
 export const hardRockAdapter: BookAdapter = {
   slug: 'hard_rock_bet',
   name: 'Hard Rock Bet',
-  pollIntervalSec: 900,   // 15 min during discovery, revisit once parser lands
+  pollIntervalSec: 7200,  // 2h — cap IPRoyal US-mobile cost
   needsBrowser: true,
 
   async scrape({ signal, log }) {
