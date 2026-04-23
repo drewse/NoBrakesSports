@@ -336,10 +336,12 @@ function splitOverUnder(
 }
 
 /** Convert the market to our GameMarket shape. Returns null if the market
- *  isn't a recognized game-line type (or if prices are all missing). */
+ *  isn't a recognized game-line type (or if prices are all missing).
+ *  Handles main + alt-period + team-total + futures variants. */
 function buildGameMarket(ev: NovigEvent, market: NovigMarket): GameMarket | null {
   const t = market.type.toUpperCase()
 
+  // ── Moneyline (main) ────────────────────────────────────────────────
   if (t === 'MONEY' || t === 'MONEYLINE') {
     const { home, away } = splitHomeAway(ev, market.outcomes)
     if (!home || !away) return null
@@ -353,32 +355,83 @@ function buildGameMarket(ev: NovigEvent, market: NovigMarket): GameMarket | null
     }
   }
 
-  if (t === 'SPREAD' || t === 'HANDICAP' || t === 'POINT_SPREAD') {
+  // ── Spread (main + first-half) ──────────────────────────────────────
+  if (t === 'SPREAD' || t === 'HANDICAP' || t === 'POINT_SPREAD' || t === 'SPREAD_1H') {
     const { home, away } = splitHomeAway(ev, market.outcomes)
     if (!home || !away) return null
     const hp = pickPrice(market.ladders[home.outcomeId])
     const ap = pickPrice(market.ladders[away.outcomeId])
     if (hp == null && ap == null) return null
     return {
-      marketType: 'spread',
+      marketType: t === 'SPREAD_1H' ? 'spread_h1' : 'spread',
       homePrice: hp, awayPrice: ap, drawPrice: null,
       spreadValue: market.strike || null,
       totalValue: null, overPrice: null, underPrice: null,
     }
   }
 
-  if (t === 'OVERUNDER' || t === 'TOTAL' || t === 'TOTALS' || t === 'OVER_UNDER') {
+  // ── Total (main game total + alt period variants) ──────────────────
+  // Novig uses:
+  //   TOTAL             — main game total (NBA/NFL/NHL)
+  //   RUNS              — MLB game total (equivalent to TOTAL for baseball)
+  //   TOTAL_HOME_RUNS   — combined HR count for the game
+  //   TOTAL_1H          — first-half total
+  //   FIRST_INNING_TOTAL — first-inning total (baseball)
+  if (t === 'OVERUNDER' || t === 'TOTAL' || t === 'TOTALS' || t === 'OVER_UNDER' ||
+      t === 'RUNS' || t === 'TOTAL_HOME_RUNS' ||
+      t === 'TOTAL_1H' || t === 'FIRST_INNING_TOTAL') {
+    const { over, under } = splitOverUnder(market.outcomes)
+    if (!over && !under) return null
+    const op = pickPrice(over ? market.ladders[over.outcomeId] : undefined)
+    const up = pickPrice(under ? market.ladders[under.outcomeId] : undefined)
+    if (op == null && up == null) return null
+    // Alt-period variants get their own market_type; RUNS / TOTAL_HOME_RUNS
+    // are just baseball game totals → 'total'.
+    const mt = t === 'TOTAL_1H' ? 'total_h1'
+      : t === 'FIRST_INNING_TOTAL' ? 'total_i1'
+      : 'total'
+    return {
+      marketType: mt,
+      homePrice: null, awayPrice: null, drawPrice: null,
+      spreadValue: null,
+      totalValue: market.strike || null,
+      overPrice: op, underPrice: up,
+    }
+  }
+
+  // ── Team total (one team's over/under) ──────────────────────────────
+  // Outcomes are Over/Under against the specific team named in description.
+  if (t === 'TEAM_TOTAL') {
     const { over, under } = splitOverUnder(market.outcomes)
     if (!over && !under) return null
     const op = pickPrice(over ? market.ladders[over.outcomeId] : undefined)
     const up = pickPrice(under ? market.ladders[under.outcomeId] : undefined)
     if (op == null && up == null) return null
     return {
-      marketType: 'total',
+      marketType: 'team_total',
       homePrice: null, awayPrice: null, drawPrice: null,
       spreadValue: null,
       totalValue: market.strike || null,
       overPrice: op, underPrice: up,
+    }
+  }
+
+  // ── Futures (championship winner, division winner, etc.) ────────────
+  // Outcomes are Yes/No per team-or-entity. One market per candidate.
+  // Prices go into over/under fields (Yes → over, No → under) so the UI
+  // can render them without a schema change; marketType='futures' tags
+  // them as season-long.
+  if (t === 'CHAMPIONSHIP_WINNER' || t === 'DIVISION_WINNER' || t === 'CONFERENCE_WINNER' ||
+      t === 'MVP' || t === 'FUTURES' || t === 'TO_MAKE_PLAYOFFS') {
+    const yn = splitYesNo(market.outcomes)
+    const yp = pickPrice(yn.yes ? market.ladders[yn.yes.outcomeId] : undefined)
+    const np = pickPrice(yn.no ? market.ladders[yn.no.outcomeId] : undefined)
+    if (yp == null && np == null) return null
+    return {
+      marketType: 'futures',
+      homePrice: null, awayPrice: null, drawPrice: null,
+      spreadValue: null, totalValue: null,
+      overPrice: yp, underPrice: np,
     }
   }
 

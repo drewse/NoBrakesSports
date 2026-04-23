@@ -9,7 +9,10 @@ export interface NormalizedEvent {
   sport: string          // e.g. "basketball"
 }
 
-export type MarketType = 'moneyline' | 'spread' | 'total'
+export type MarketType =
+  | 'moneyline' | 'spread' | 'total'
+  | 'spread_h1' | 'total_h1' | 'total_i1' | 'team_total'
+  | 'futures'
 
 export interface GameMarket {
   marketType: MarketType
