@@ -25,10 +25,6 @@
       "schedule": "3-59/5 * * * *"
     },
     {
-      "path": "/api/cron/sync-betonline",
-      "schedule": "4-59/5 * * * *"
-    },
-    {
       "path": "/api/cron/sync-pipelines",
       "schedule": "*/5 * * * *"
     },

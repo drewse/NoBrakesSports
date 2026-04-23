@@ -70,18 +70,28 @@ export async function openContext(opts: {
   userAgent?: string
   viewport?: { width: number; height: number }
   extraHeaders?: Record<string, string>
-  useProxy?: boolean | 'mobile'
+  useProxy?: boolean | 'mobile' | 'us-mobile' | 'us'
   rotateSession?: boolean
   ignoreHTTPSErrors?: boolean
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
-  // Two-tier proxy selection:
-  //   useProxy: true     -> PROXY_URL         (cheap residential, e.g. PacketStream)
-  //   useProxy: 'mobile' -> MOBILE_PROXY_URL  (premium, e.g. IPRoyal mobile)
-  //   useProxy: false    -> direct Railway IP (free)
+  // Proxy tiers:
+  //   useProxy: true        -> PROXY_URL             (CA residential, e.g. PacketStream)
+  //   useProxy: 'mobile'    -> MOBILE_PROXY_URL      (CA mobile, e.g. IPRoyal)
+  //   useProxy: 'us'        -> PROXY_URL_US          (US residential)
+  //   useProxy: 'us-mobile' -> MOBILE_PROXY_URL_US   (US mobile — required for
+  //                                                   US sportsbooks behind CF)
+  //   useProxy: false       -> direct Railway IP     (free)
   // Adapters choose based on what the target site's WAF accepts.
   let proxyUrl: string | undefined
-  if (opts.useProxy === 'mobile') {
+  if (opts.useProxy === 'us-mobile') {
+    proxyUrl = process.env.MOBILE_PROXY_URL_US || process.env.PROXY_URL_US
+    if (!process.env.MOBILE_PROXY_URL_US && process.env.PROXY_URL_US) {
+      log.warn('us-mobile requested but MOBILE_PROXY_URL_US unset — falling back to PROXY_URL_US')
+    }
+  } else if (opts.useProxy === 'us') {
+    proxyUrl = process.env.PROXY_URL_US
+  } else if (opts.useProxy === 'mobile') {
     proxyUrl = process.env.MOBILE_PROXY_URL || process.env.PROXY_URL
     if (!process.env.MOBILE_PROXY_URL && process.env.PROXY_URL) {
       log.warn('mobile proxy requested but MOBILE_PROXY_URL unset — falling back to PROXY_URL')
