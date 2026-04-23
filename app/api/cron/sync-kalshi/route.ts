@@ -329,10 +329,16 @@ export async function GET(request: NextRequest) {
   // Also upsert into current_market_odds — this is what Markets / EV /
   // Arb pages actually READ from. Writing only to market_snapshots leaves
   // the live UI empty.
-  const currentOddsRows = marketSnapshots.map((s: any) => {
+  // Dedupe by (event_id, source_id, market_type, line_value) before upsert —
+  // Postgres rejects batches that would "affect a row a second time".
+  // Kalshi can produce duplicate rows when Game 4 and Game 5 of the same
+  // series are both listed and resolve to the same canonical event.
+  const dedupKey = (r: any) => `${r.event_id}|${r.source_id}|${r.market_type}|${r.line_value ?? 'null'}`
+  const dedupedCurrent = new Map<string, any>()
+  for (const s of marketSnapshots as any[]) {
     const oddsHash = [s.home_price, s.away_price, null, null, null, null, null]
       .map(v => v ?? '').join('|')
-    return {
+    const row = {
       event_id: s.event_id,
       source_id: s.source_id,
       market_type: s.market_type,
@@ -351,7 +357,9 @@ export async function GET(request: NextRequest) {
       snapshot_time: now,
       changed_at: now,
     }
-  })
+    dedupedCurrent.set(dedupKey(row), row)
+  }
+  const currentOddsRows = [...dedupedCurrent.values()]
   let currentOddsUpserted = 0
   for (let i = 0; i < currentOddsRows.length; i += 200) {
     const { error } = await db
