@@ -31,10 +31,10 @@ export const betparxBrowserAdapter = buildOffshoreProbeAdapter({
     { url: 'https://play.betparx.com/pa/sports/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://play.betparx.com/pa/sports/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  // First discovery from Railway datacenter IP returned 8 total responses
-  // and zero API XHRs — the landing page is rendering but the SPA refuses
-  // to progress (almost certainly a geo-gate since PA operators IP-check
-  // for state eligibility). Escalate to PacketStream US residential so
-  // Parx sees us as a US consumer IP.
-  useProxy: 'us',
+  // Railway direct IP silently geo-gated. PacketStream US CIDR then
+  // TCP-dropped at CF. Escalate to us-mobile (IPRoyal mobile, NJ-pinned
+  // by env var) — mobile CIDRs pass CF bot-detection, and NJ is a
+  // BetParx-licensed state.
+  useProxy: 'us-mobile',
+  pollIntervalSec: 7200,   // 2h — cap IPRoyal cost
 })
