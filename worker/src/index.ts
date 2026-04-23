@@ -27,6 +27,8 @@ import { powerplayAdapter } from './adapters/powerplay.js'
 import { miseojeuAdapter } from './adapters/miseojeu.js'
 import { novigAdapter } from './adapters/novig.js'
 import { circaAdapter } from './adapters/circa.js'
+import { prophetAdapter } from './adapters/prophet.js'
+import { betparxBrowserAdapter } from './adapters/betparx-browser.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -62,8 +64,10 @@ const ALL_ADAPTERS: BookAdapter[] = [
   // Non-CF-blocked discovery adapters — run without IPRoyal mobile
   powerplayAdapter,           // Ontario — PacketStream CA + Chromium
   miseojeuAdapter,            // Loto-Québec — PacketStream CA + Chromium
-  novigAdapter,               // US prediction exchange — direct Railway IP
+  novigAdapter,               // US prediction exchange — direct Railway IP (LIVE)
   circaAdapter,               // Circa Sports NV — direct Railway IP
+  prophetAdapter,             // Prophet Exchange NJ/OH/IN — direct Railway IP
+  betparxBrowserAdapter,      // BetParx PA — browser session at play.betparx.com
 ]
 
 const log = createLogger('main')
