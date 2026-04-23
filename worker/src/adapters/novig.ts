@@ -203,9 +203,22 @@ function walkForMarketIds(
       node.game
     ) ? String(node.id) : eventId
 
+    // Market-shaped node with inline eventId (e.g. parlay-builder outcomes
+    // nest `outcome.market = {id, type, eventId, strike, player, ...}`).
+    // Trust the node's own eventId over any ancestor scope.
+    const selfEventId = (typeof node.eventId === 'string' && node.eventId)
+      || (typeof node.event_id === 'string' && node.event_id)
+      || (typeof node.event?.id === 'string' && node.event.id)
+      || null
+    if (typeof node.id === 'string' && (node.type || node.strike !== undefined || node.outcomes)) {
+      // Looks like a market node — add it with its inline eventId (or
+      // ancestor scope if none).
+      addMarket(node.id, (selfEventId as string | null) ?? nextEventId)
+    }
+
     for (const k of ['market_id', 'marketId']) {
       const v = node[k]
-      if (typeof v === 'string') addMarket(v, nextEventId)
+      if (typeof v === 'string') addMarket(v, (selfEventId as string | null) ?? nextEventId)
     }
     for (const k of ['market_ids', 'marketIds']) {
       const arr = node[k]
@@ -213,11 +226,18 @@ function walkForMarketIds(
     }
     if (Array.isArray(node.markets)) {
       for (const m of node.markets) {
-        if (typeof m?.id === 'string') addMarket(m.id, nextEventId)
-        if (typeof m?.marketId === 'string') addMarket(m.marketId, nextEventId)
+        const mEventId = (typeof m?.eventId === 'string' && m.eventId)
+          || (typeof m?.event_id === 'string' && m.event_id)
+          || (typeof m?.event?.id === 'string' && m.event.id)
+          || nextEventId
+        if (typeof m?.id === 'string') addMarket(m.id, mEventId)
+        if (typeof m?.marketId === 'string') addMarket(m.marketId, mEventId)
       }
     }
-    for (const v of Object.values(node)) walk(v, nextEventId)
+    // Recurse — pass along the deeper eventId if we just found one so
+    // descendants inherit it.
+    const descendScope = (selfEventId as string | null) ?? nextEventId
+    for (const v of Object.values(node)) walk(v, descendScope)
   }
   walk(body, null)
 }
