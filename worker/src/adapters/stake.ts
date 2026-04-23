@@ -14,6 +14,8 @@ export const stakeAdapter = buildOffshoreProbeAdapter({
     { url: 'https://stake.us/sports/baseball/mlb',      leagueSlug: 'mlb' },
     { url: 'https://stake.us/sports/ice-hockey/nhl',    leagueSlug: 'nhl' },
   ],
+  // Anonymous session lands on /casino/home, sportsbook requires login.
+  // Same account-gate as Hard Rock. Park at 24h.
   useProxy: 'us-mobile',
-  pollIntervalSec: 21600,  // 6h during discovery — high CF-block risk
+  pollIntervalSec: 86400,
 })

@@ -13,6 +13,8 @@ export const titanplayAdapter = buildOffshoreProbeAdapter({
     { url: 'https://titanplay.ca/en/sportsbook/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://titanplay.ca/en/sportsbook/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  useProxy: false,   // CA direct from Railway works
+  // Railway direct IP → 403 (Ontario license geo-gate). Switch to
+  // PacketStream CA residential.
+  useProxy: true,
   pollIntervalSec: 7200,
 })
