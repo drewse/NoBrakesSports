@@ -186,7 +186,9 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
 export const sportzinoAdapter: BookAdapter = {
   slug: 'sportzino',
   name: 'Sportzino',
-  pollIntervalSec: 7200,
+  // 1h during bring-up so parser iterations get feedback faster;
+  // bump back to 2h once the adapter is stable.
+  pollIntervalSec: 3600,
   needsBrowser: true,
 
   async scrape({ signal, log }) {

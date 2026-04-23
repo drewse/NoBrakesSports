@@ -16,5 +16,5 @@ export const titanplayAdapter = buildOffshoreProbeAdapter({
   // Railway direct IP → 403 (Ontario license geo-gate). Switch to
   // PacketStream CA residential.
   useProxy: true,
-  pollIntervalSec: 7200,
+  pollIntervalSec: 3600,   // 1h during bring-up
 })
