@@ -23,4 +23,21 @@ CREATE INDEX IF NOT EXISTS proxy_usage_log_adapter_ts_idx
 CREATE INDEX IF NOT EXISTS proxy_usage_log_tier_ts_idx
   ON proxy_usage_log (proxy_tier, ts DESC);
 
+-- Row-level security. The worker writes via the service role (bypasses RLS
+-- entirely); the admin page reads via the server client with the caller's
+-- session. Only admins need to read; nobody should write via anon/auth keys.
+ALTER TABLE proxy_usage_log ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS proxy_usage_log_admin_select ON proxy_usage_log;
+CREATE POLICY proxy_usage_log_admin_select
+  ON proxy_usage_log
+  FOR SELECT
+  TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM profiles
+      WHERE profiles.id = auth.uid() AND profiles.is_admin = true
+    )
+  );
+
 COMMIT;
