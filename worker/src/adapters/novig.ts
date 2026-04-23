@@ -492,13 +492,19 @@ export const novigAdapter: BookAdapter = {
         }
       })
 
+      // Cache GraphQL response texts so we can re-grep them after we know
+      // which market IDs came from prop markets. Capped to 10 latest.
+      const graphqlBodies: string[] = []
+
       page.on('response', async (resp) => {
         const u = resp.url()
         if (resp.status() !== 200) return
         try {
           if (u.includes('/v1/graphql')) {
             graphqlCount++
-            const body = await resp.json()
+            const text = await resp.text()
+            if (graphqlBodies.length < 10) graphqlBodies.push(text)
+            const body = JSON.parse(text)
             walkForEvents(body, events)
             walkForMarketIds(body, marketIds, marketToEvent)
           } else if (u.includes('/nbx/v1/markets/book/batch')) {
@@ -717,6 +723,30 @@ export const novigAdapter: BookAdapter = {
         propsAttached,
         unmatchedPropSamples,
       })
+
+      // One-shot diagnostic: find the first unmatched prop market, locate
+      // which GraphQL response body mentions its ID, and dump a window
+      // around the hit so we can see how Novig nests prop markets.
+      if (unmatchedPropSamples.length > 0) {
+        const targetMarket = [...markets.values()]
+          .find(m => m.type === unmatchedPropSamples[0].type && m.description === unmatchedPropSamples[0].description)
+        if (targetMarket) {
+          for (const text of graphqlBodies) {
+            const idx = text.indexOf(targetMarket.marketId)
+            if (idx < 0) continue
+            const start = Math.max(0, idx - 400)
+            const end = Math.min(text.length, idx + 600)
+            log.info('novig prop source sample', {
+              targetMarketId: targetMarket.marketId,
+              targetType: targetMarket.type,
+              graphqlBodyLen: text.length,
+              offset: idx,
+              window: text.slice(start, end),
+            })
+            break
+          }
+        }
+      }
 
       return { events: scraped, errors }
     }, { useProxy: false })
