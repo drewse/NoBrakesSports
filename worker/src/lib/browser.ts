@@ -73,6 +73,11 @@ export async function openContext(opts: {
   useProxy?: boolean | 'mobile' | 'us-mobile' | 'us'
   rotateSession?: boolean
   ignoreHTTPSErrors?: boolean
+  /** Block images / fonts / media / stylesheets at the route layer. Default
+   *  true when a proxy is used — sportsbook SPAs ship 8-10 MB of static
+   *  assets per page, and mobile proxy bandwidth is expensive. Set false if
+   *  a site's bot-check reads image load events (rare). */
+  blockResources?: boolean
 } = {}): Promise<BrowserContext> {
   const browser = await getBrowser()
   // Proxy tiers:
@@ -124,7 +129,7 @@ export async function openContext(opts: {
       log.warn('proxy URL invalid — falling back to direct', { tier: opts.useProxy })
     }
   }
-  return browser.newContext({
+  const context = await browser.newContext({
     viewport: opts.viewport ?? { width: 1440, height: 900 },
     userAgent: opts.userAgent ?? 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
     locale: 'en-US',
@@ -134,6 +139,22 @@ export async function openContext(opts: {
     ignoreHTTPSErrors: opts.ignoreHTTPSErrors ?? false,
     ...(proxy ? { proxy } : {}),
   })
+
+  // Resource blocking: abort images/fonts/media/stylesheets so mobile proxy
+  // bandwidth is spent only on HTML + JS + XHR. Default on when any proxy
+  // tier is active — raw Railway IP scrapes are free so save the overhead.
+  const shouldBlock = opts.blockResources ?? !!proxy
+  if (shouldBlock) {
+    await context.route('**/*', (route) => {
+      const t = route.request().resourceType()
+      if (t === 'image' || t === 'font' || t === 'media' || t === 'stylesheet') {
+        return route.abort()
+      }
+      return route.continue()
+    })
+  }
+
+  return context
 }
 
 /** Convenience: run a function with a fresh context/page and auto-close. */
