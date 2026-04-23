@@ -116,6 +116,8 @@ const TIER_BY_SLUG: Record<string, Tier> = {
   'betparx':             1,  // needs browser-session scrape on Railway
   'fliff':               1,
   'betus':               1,
+  // Tier 2 — exchanges with live adapters or adapters ready to fire
+  'fanatics_markets':    2,
   // Tier 2 — exchanges / prediction markets
   'sporttrade':          2,
   'novig':               2,
@@ -215,7 +217,7 @@ const USA_BOOK_TRACKER: UsaBookEntry[] = [
   { name: 'BetCris',             slug: 'betcris',            operator: 'Grupo Caliente',                  url: 'https://betcris.com',                platform: 'Caliente tech',              category: 'offshore', states: ['GRAY'], status: 'planned', notes: 'LatAm-first offshore. Sister to Caliente.mx. Own backend.' },
 
   // ── Prediction markets / exchanges (order-book pricing) ──────────────
-  { name: 'Fanatics Markets',    slug: 'fanatics-markets',   operator: 'Fanatics Betting and Gaming',     url: 'https://fanaticsmarkets.com',        platform: 'Event contract exchange',    category: 'exchange', states: ['ALL'], status: 'planned', notes: 'Fanatics\' prediction-market product (separate from Fanatics Sportsbook). CFTC-regulated. Worth probing for a REST odds feed.' },
+  { name: 'Fanatics Markets',    slug: 'fanatics_markets',   operator: 'Fanatics Betting and Gaming',     url: 'https://fanaticsmarkets.com',        platform: 'Event contract exchange',    category: 'exchange', states: ['ALL'], status: 'in_progress', notes: 'Vercel cron /api/cron/sync-fanatics-markets every hour at :45. Public REST at api.fanaticsmarkets.com/events — no proxy/auth needed, JSON with NBA/MLB/NHL/NFL. Adapter converts probability→American. Caveat: at time of wiring, REST ships probability=0.5 for every outcome; live bid/ask likely streams over WebSocket only. Adapter captures real prices automatically whenever Fanatics enables them on REST.' },
   { name: 'DraftKings Predictions', slug: 'draftkings-predictions', operator: 'DraftKings Inc.',          url: 'https://sportsbook.draftkings.com/predictions', platform: 'DK backend',         category: 'exchange', states: ['ALL'], status: 'planned', notes: 'DK\'s new federally-licensed prediction market. Likely rides the same DK API surface — check if our DK adapter can add a market-type filter instead of a separate adapter.' },
   { name: 'Onyx Odds',           slug: 'onyx-odds',          operator: 'Onyx Markets',                    url: 'https://onyxodds.com',               platform: 'Proprietary exchange',       category: 'exchange', states: ['ALL'], status: 'planned', notes: 'Newer US prediction market. Probe required.' },
   { name: 'BetDex',              slug: 'betdex',             operator: 'BetDex Labs',                     url: 'https://betdex.com',                 platform: 'Solana-based exchange',      category: 'exchange', states: ['GRAY'], status: 'planned', notes: 'On-chain order-book exchange on Solana. Shape very different from a sportsbook — would need a chain-based adapter, not HTTP.' },

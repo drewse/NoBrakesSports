@@ -13,6 +13,10 @@
       "schedule": "30 * * * *"
     },
     {
+      "path": "/api/cron/sync-fanatics-markets",
+      "schedule": "45 * * * *"
+    },
+    {
       "path": "/api/cron/sync-underdog",
       "schedule": "*/5 * * * *"
     },
@@ -53,6 +57,7 @@
     "app/api/cron/sync-underdog/route.ts": { "maxDuration": 120 },
     "app/api/cron/sync-sleeper/route.ts": { "maxDuration": 90 },
     "app/api/cron/sync-bovada/route.ts": { "maxDuration": 60 },
+    "app/api/cron/sync-fanatics-markets/route.ts": { "maxDuration": 60 },
     "app/api/cron/sync-betonline/route.ts": { "maxDuration": 90 }
   }
 }
