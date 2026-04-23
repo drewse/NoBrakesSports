@@ -117,7 +117,17 @@ async function fetchOperatorLeague(
     return []
   }
 
-  const body: any = await resp.json()
+  const bodyText = await resp.text()
+  let body: any
+  try { body = JSON.parse(bodyText) } catch {
+    console.warn(`[BetOnline:${op.slug}:${lg.leagueSlug}] non-JSON body`, { preview: bodyText.slice(0, 200) })
+    return []
+  }
+  // Expose raw body preview so the cron can echo the actual shape without
+  // waiting on Vercel log indexing. Only set once to keep the response small.
+  if (!__lastScrapeStats.sampleBody) {
+    __lastScrapeStats.sampleBody = JSON.stringify(body).slice(0, 4000)
+  }
   // Body shape is inferred — BetOnline wraps events in various containers.
   // Walk the response collecting objects that look like events.
   const events = collectEvents(body)
