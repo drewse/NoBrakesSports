@@ -9,15 +9,16 @@ import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
 export const prophetAdapter = buildOffshoreProbeAdapter({
   slug: 'prophet_exchange',
   name: 'Prophet Exchange',
-  seedUrl: 'https://prophetexchange.com',
-  // First discovery returned distinctPaths=0 — the regex was too
-  // narrow. Catch anything that looks like an API call on any host,
-  // so we can see where Prophet's front-end actually talks to.
+  // allHosts diagnostic showed prophetexchange.com is a Framer
+  // marketing site (most requests go to framerusercontent.com). The
+  // actual betting app lives at prophetx.co which appeared as one of
+  // the hosts the page talks to. Reseed there.
+  seedUrl: 'https://www.prophetx.co',
   apiHostRegex: /\/(api|graphql|v\d+|rpc|public|markets|events|sports|book|trading)(\/|\?|$)/i,
   leaguePaths: [
-    { url: 'https://prophetexchange.com/sports/nba', leagueSlug: 'nba' },
-    { url: 'https://prophetexchange.com/sports/mlb', leagueSlug: 'mlb' },
-    { url: 'https://prophetexchange.com/sports/nhl', leagueSlug: 'nhl' },
+    { url: 'https://www.prophetx.co/sports/nba', leagueSlug: 'nba' },
+    { url: 'https://www.prophetx.co/sports/mlb', leagueSlug: 'mlb' },
+    { url: 'https://www.prophetx.co/sports/nhl', leagueSlug: 'nhl' },
   ],
   useProxy: false,
 })

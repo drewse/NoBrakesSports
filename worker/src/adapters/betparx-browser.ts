@@ -31,5 +31,10 @@ export const betparxBrowserAdapter = buildOffshoreProbeAdapter({
     { url: 'https://play.betparx.com/pa/sports/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://play.betparx.com/pa/sports/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  useProxy: false,
+  // First discovery from Railway datacenter IP returned 8 total responses
+  // and zero API XHRs — the landing page is rendering but the SPA refuses
+  // to progress (almost certainly a geo-gate since PA operators IP-check
+  // for state eligibility). Escalate to PacketStream US residential so
+  // Parx sees us as a US consumer IP.
+  useProxy: 'us',
 })
