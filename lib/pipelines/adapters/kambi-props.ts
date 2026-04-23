@@ -47,13 +47,16 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
-  // ── US Kambi regionals ─────────────────────────────────────────────
-  // BetParx is US-PA licensed. Previous CA-residential + Vercel IP probes
-  // both 429'd at the Kambi /parx/ endpoint. Re-enabled now that a US
-  // residential pool exists — if still 429 it's genuine endpoint rate
-  // limiting and we fall back to a Railway browser scrape.
-  { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
-    lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: 'us' },
+  // ── US Kambi regionals (PARKED, needs browser session) ────────────
+  // BetParx tested from all three IP classes — Vercel serverless,
+  // PacketStream CA residential, and PacketStream US residential — and
+  // all three return 429 on every sport path. The rate limit is keyed
+  // to the Kambi /parx/ endpoint itself, not the client IP. Unlock
+  // requires a browser session from play.betparx.com (cookies +
+  // licensing tokens); revisit on the Railway worker.
+  //
+  // { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
+  //   lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: 'us' },
 ]
 
 // Sports and their Kambi group paths
