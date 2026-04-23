@@ -2,6 +2,54 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchPolymarketEvents, parsePolymarketPrices } from '@/lib/data-sync/polymarket'
 
+/** Parse a Polymarket per-game moneyline market where outcomes are team
+ *  names rather than ["Yes","No"]. Returns {homePrice, awayPrice} in
+ *  American odds or null if the outcomes don't match the home/away team
+ *  names or prices are malformed.  */
+function parseTeamOutcomeMoneyline(
+  market: any,
+  homeTeam: string,
+  awayTeam: string,
+): { homeProb: number; awayProb: number } | null {
+  try {
+    const rawOutcomes = typeof market.outcomes === 'string' ? JSON.parse(market.outcomes) : market.outcomes
+    const rawPrices = typeof market.outcomePrices === 'string' ? JSON.parse(market.outcomePrices) : market.outcomePrices
+    if (!Array.isArray(rawOutcomes) || !Array.isArray(rawPrices)) return null
+    if (rawOutcomes.length !== 2 || rawPrices.length !== 2) return null
+
+    // Match each outcome to home or away by checking whether any
+    // significant word of the team name appears in the outcome label
+    // (case-insensitive). "Rays" → "Tampa Bay Rays". "Red Sox" →
+    // "Boston Red Sox".
+    const sig = (name: string) => name.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+    const homeSig = sig(homeTeam)
+    const awaySig = sig(awayTeam)
+
+    function whichSide(label: string): 'home' | 'away' | null {
+      const l = label.toLowerCase()
+      const hHit = homeSig.filter(w => l.includes(w)).length
+      const aHit = awaySig.filter(w => l.includes(w)).length
+      if (hHit > aHit) return 'home'
+      if (aHit > hHit) return 'away'
+      return null
+    }
+
+    const side0 = whichSide(String(rawOutcomes[0]))
+    const side1 = whichSide(String(rawOutcomes[1]))
+    if (side0 === null || side1 === null || side0 === side1) return null
+
+    const p0 = parseFloat(String(rawPrices[0]))
+    const p1 = parseFloat(String(rawPrices[1]))
+    if (!isFinite(p0) || !isFinite(p1)) return null
+
+    const homeProb = side0 === 'home' ? p0 : p1
+    const awayProb = side0 === 'away' ? p0 : p1
+    return { homeProb, awayProb }
+  } catch {
+    return null
+  }
+}
+
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
@@ -158,51 +206,73 @@ export async function GET(request: NextRequest) {
     for (const market of polyEvent.markets) {
       if (!market.active || market.closed) { skippedInactive++; continue }
 
-      const prices = parsePolymarketPrices(market)
-      if (!prices) { skippedNoPrices++; continue }
+      // Try the Yes/No shape first (futures / "Will X win the season?" style).
+      // Fall back to the team-name outcome shape (per-game moneyline — the
+      // most common format for NBA/MLB/NHL per-game Polymarket events).
+      const yesNoPrices = parsePolymarketPrices(market)
 
       const volume = parseFloat(market.volume ?? '0')
 
-      // Always insert into prediction_market_snapshots for the Pred. Markets page
-      predSnapshots.push({
-        event_id: dbEvent?.id ?? null,
+      if (yesNoPrices) {
+        predSnapshots.push({
+          event_id: dbEvent?.id ?? null,
+          source_id: source.id,
+          contract_title: market.question,
+          external_contract_id: market.conditionId,
+          yes_price: yesNoPrices.yes,
+          no_price: yesNoPrices.no,
+          total_volume: isNaN(volume) ? null : volume,
+          snapshot_time: now,
+        })
+
+        if (
+          dbEvent && homeTeam && awayTeam &&
+          !insertedEventIds.has(dbEvent.id) &&
+          isWinMarket(market.question)
+        ) {
+          const side = detectSide(market.question, homeTeam, awayTeam)
+          if (side) {
+            const subjectAmerican = probToAmerican(yesNoPrices.yes)
+            const otherAmerican = probToAmerican(yesNoPrices.no)
+            marketSnapshots.push({
+              event_id: dbEvent.id,
+              source_id: source.id,
+              market_type: 'moneyline',
+              home_price: side === 'home' ? subjectAmerican : otherAmerican,
+              away_price: side === 'away' ? subjectAmerican : otherAmerican,
+              home_implied_prob: side === 'home' ? yesNoPrices.yes : yesNoPrices.no,
+              away_implied_prob: side === 'away' ? yesNoPrices.yes : yesNoPrices.no,
+              snapshot_time: now,
+            })
+            insertedEventIds.add(dbEvent.id)
+            matchedToEvent++
+          }
+        }
+        continue
+      }
+
+      // Team-outcome shape — outcomes are ["Rays","Red Sox"], not Yes/No.
+      // Requires an event match to resolve home/away.
+      if (!dbEvent || !homeTeam || !awayTeam) { skippedNoPrices++; continue }
+      const teamPrices = parseTeamOutcomeMoneyline(market, homeTeam, awayTeam)
+      if (!teamPrices) { skippedNoPrices++; continue }
+
+      // Skip if we already wrote a moneyline for this event (futures-style
+      // Yes/No market may have fired earlier in the loop).
+      if (insertedEventIds.has(dbEvent.id)) continue
+
+      marketSnapshots.push({
+        event_id: dbEvent.id,
         source_id: source.id,
-        contract_title: market.question,
-        external_contract_id: market.conditionId,
-        yes_price: prices.yes,
-        no_price: prices.no,
-        total_volume: isNaN(volume) ? null : volume,
+        market_type: 'moneyline',
+        home_price: probToAmerican(teamPrices.homeProb),
+        away_price: probToAmerican(teamPrices.awayProb),
+        home_implied_prob: teamPrices.homeProb,
+        away_implied_prob: teamPrices.awayProb,
         snapshot_time: now,
       })
-
-      // If matched to an event, insert ONE market_snapshot so it flows into
-      // Top EV Lines and Arbitrage. Skip if we already inserted for this event,
-      // or if the question isn't a straightforward win market.
-      if (
-        dbEvent &&
-        homeTeam &&
-        awayTeam &&
-        !insertedEventIds.has(dbEvent.id) &&
-        isWinMarket(market.question)
-      ) {
-        const side = detectSide(market.question, homeTeam, awayTeam)
-        if (side) {
-          const subjectAmerican = probToAmerican(prices.yes)
-          const otherAmerican = probToAmerican(prices.no)
-          marketSnapshots.push({
-            event_id: dbEvent.id,
-            source_id: source.id,
-            market_type: 'moneyline',
-            home_price: side === 'home' ? subjectAmerican : otherAmerican,
-            away_price: side === 'away' ? subjectAmerican : otherAmerican,
-            home_implied_prob: side === 'home' ? prices.yes : prices.no,
-            away_implied_prob: side === 'away' ? prices.yes : prices.no,
-            snapshot_time: now,
-          })
-          insertedEventIds.add(dbEvent.id)
-          matchedToEvent++
-        }
-      }
+      insertedEventIds.add(dbEvent.id)
+      matchedToEvent++
     }
   }
 
