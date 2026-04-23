@@ -42,6 +42,8 @@ const CITY_MAPS: Record<Sport, Record<string, string>> = {
     'Golden State':'Golden State Warriors','Houston':'Houston Rockets',
     'Indiana':'Indiana Pacers','LA Clippers':'LA Clippers','Clippers':'LA Clippers',
     'Los Angeles':'Los Angeles Lakers','LA Lakers':'Los Angeles Lakers','Lakers':'Los Angeles Lakers',
+    // Kalshi single-letter disambiguators for the LA/NY dual-team cities
+    'Los Angeles L':'Los Angeles Lakers','Los Angeles C':'LA Clippers',
     'Memphis':'Memphis Grizzlies','Miami':'Miami Heat',
     'Milwaukee':'Milwaukee Bucks','Minnesota':'Minnesota Timberwolves',
     'New Orleans':'New Orleans Pelicans','New York':'New York Knicks','Knicks':'New York Knicks',
@@ -61,6 +63,10 @@ const CITY_MAPS: Record<Sport, Record<string, string>> = {
     'Houston':'Houston Astros','Kansas City':'Kansas City Royals',
     'Los Angeles Angels':'Los Angeles Angels','LA Angels':'Los Angeles Angels','Angels':'Los Angeles Angels',
     'Los Angeles Dodgers':'Los Angeles Dodgers','LA Dodgers':'Los Angeles Dodgers','Dodgers':'Los Angeles Dodgers',
+    // Kalshi single-letter disambiguators
+    'Los Angeles A':'Los Angeles Angels','Los Angeles D':'Los Angeles Dodgers',
+    'New York M':'New York Mets','New York Y':'New York Yankees',
+    'Chicago C':'Chicago Cubs','Chicago WS':'Chicago White Sox',
     'Miami':'Miami Marlins','Milwaukee':'Milwaukee Brewers',
     'Minnesota':'Minnesota Twins',
     'New York Mets':'New York Mets','New York Yankees':'New York Yankees',
@@ -81,6 +87,9 @@ const CITY_MAPS: Record<Sport, Record<string, string>> = {
     'Dallas':'Dallas Stars','Detroit':'Detroit Red Wings',
     'Edmonton':'Edmonton Oilers','Florida':'Florida Panthers',
     'Los Angeles':'Los Angeles Kings','LA Kings':'Los Angeles Kings','Kings':'Los Angeles Kings',
+    // Kalshi single-letter disambiguators (NY has 3 teams — I/R for hockey)
+    'Los Angeles K':'Los Angeles Kings','New York I':'New York Islanders',
+    'New York R':'New York Rangers',
     'Minnesota':'Minnesota Wild','Montreal':'Montreal Canadiens',
     'Nashville':'Nashville Predators','New Jersey':'New Jersey Devils',
     'NY Islanders':'New York Islanders','NY Rangers':'New York Rangers',
