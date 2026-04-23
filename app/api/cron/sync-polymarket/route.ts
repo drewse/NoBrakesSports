@@ -374,7 +374,7 @@ export async function GET(request: NextRequest) {
     else predInserted += Math.min(200, predSnapshots.length - i)
   }
 
-  // Bulk insert market_snapshots in chunks of 200
+  // Bulk insert market_snapshots in chunks of 200 (history / audit log)
   let marketInserted = 0
   for (let i = 0; i < marketSnapshots.length; i += 200) {
     const { error } = await db
@@ -382,6 +382,43 @@ export async function GET(request: NextRequest) {
       .insert(marketSnapshots.slice(i, i + 200))
     if (error) errors.push(`market batch ${Math.floor(i / 200)}: ${error.message}`)
     else marketInserted += Math.min(200, marketSnapshots.length - i)
+  }
+
+  // Also upsert into current_market_odds — this is what Markets / EV /
+  // Arb pages actually READ from. market_snapshots alone is just history
+  // and won't appear in any user-facing surface.
+  const currentOddsRows = marketSnapshots.map((s: any) => {
+    const oddsHash = [s.home_price, s.away_price, s.draw_price ?? null, null, null, null, null]
+      .map(v => v ?? '').join('|')
+    return {
+      event_id: s.event_id,
+      source_id: s.source_id,
+      market_type: s.market_type,
+      line_value: 0,
+      odds_hash: oddsHash,
+      home_price: s.home_price,
+      away_price: s.away_price,
+      draw_price: s.draw_price ?? null,
+      spread_value: null,
+      total_value: null,
+      over_price: null,
+      under_price: null,
+      home_implied_prob: s.home_implied_prob,
+      away_implied_prob: s.away_implied_prob,
+      movement_direction: 'flat',
+      snapshot_time: now,
+      changed_at: now,
+    }
+  })
+  let currentOddsUpserted = 0
+  for (let i = 0; i < currentOddsRows.length; i += 200) {
+    const { error } = await db
+      .from('current_market_odds')
+      .upsert(currentOddsRows.slice(i, i + 200), {
+        onConflict: 'event_id,source_id,market_type,line_value',
+      })
+    if (error) errors.push(`current_market_odds upsert batch ${Math.floor(i / 200)}: ${error.message}`)
+    else currentOddsUpserted += Math.min(200, currentOddsRows.length - i)
   }
 
   await db
@@ -397,6 +434,7 @@ export async function GET(request: NextRequest) {
     marketsProcessed: predSnapshots.length,
     predInserted,
     marketSnapshotsInserted: marketInserted,
+    currentOddsUpserted,
     matchedToSportsbookEvent: matchedToEvent,
     insertedByLeague,
     sampleInsertedTitles,
