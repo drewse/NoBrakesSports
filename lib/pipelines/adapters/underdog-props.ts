@@ -19,7 +19,6 @@
  */
 
 import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
-import { pipeFetch } from '../proxy-fetch'
 
 const ENDPOINT = 'https://api.underdogfantasy.com/beta/v5/over_under_lines'
 
@@ -141,7 +140,7 @@ export async function scrapeUnderdog(
 ): Promise<UDResult[]> {
   let resp: Response
   try {
-    resp = await pipeFetch(ENDPOINT, {
+    resp = await fetch(ENDPOINT, {
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',

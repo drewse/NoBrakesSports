@@ -1,42 +1,52 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Proxy-aware fetch wrapper
 //
-// If PROXY_URL is set, routes requests through a residential proxy (PacketStream).
-// Falls back to direct fetch when PROXY_URL is not set (local dev / books that
-// don't block cloud IPs).
+// Two PacketStream residential pools:
+//   PROXY_URL     — Canadian pool  (default)
+//   PROXY_URL_US  — USA pool       (opt-in per call via pool: 'us')
+//
+// Both env vars are full PacketStream proxy URLs; PacketStream does country
+// filtering via the username suffix (e.g. user_country-ca vs user_country-us),
+// so the same account powers both pools.
 //
 // Usage:
 //   import { pipeFetch } from '@/lib/pipelines/proxy-fetch'
-//   const res = await pipeFetch(url, { headers: { ... } })
-//
-// PROXY_URL format: http://username:password@proxy.packetstream.io:31112
+//   await pipeFetch(url, { headers: { ... } })             // CA pool
+//   await pipeFetch(url, { headers: { ... }, pool: 'us' }) // US pool
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { ProxyAgent, fetch as undiciFetch } from 'undici'
 
-let _agent: ProxyAgent | null = null
+type Pool = 'ca' | 'us'
 
-function getAgent(): ProxyAgent | null {
-  if (!process.env.PROXY_URL) return null
-  if (!_agent) {
-    _agent = new ProxyAgent(process.env.PROXY_URL)
-  }
-  return _agent
+const POOL_ENV: Record<Pool, string> = {
+  ca: 'PROXY_URL',
+  us: 'PROXY_URL_US',
 }
 
-/**
- * Drop-in replacement for fetch() that routes through the residential proxy
- * when PROXY_URL is configured. Falls back to direct fetch otherwise.
- */
+const agents: Partial<Record<Pool, ProxyAgent>> = {}
+
+function getAgent(pool: Pool): ProxyAgent | null {
+  const envName = POOL_ENV[pool]
+  const url = process.env[envName]
+  if (!url) return null
+  if (!agents[pool]) agents[pool] = new ProxyAgent(url)
+  return agents[pool]!
+}
+
 export async function pipeFetch(
   url: string,
-  init?: { headers?: Record<string, string>; method?: string; body?: string; signal?: AbortSignal }
+  init?: {
+    headers?: Record<string, string>
+    method?: string
+    body?: string
+    signal?: AbortSignal
+    pool?: Pool
+  }
 ): Promise<Response> {
-  const agent = getAgent()
-  const { signal: callerSignal, ...rest } = init ?? {}
+  const { signal: callerSignal, pool = 'ca', ...rest } = init ?? {}
+  const agent = getAgent(pool)
 
-  // Compose caller's abort signal with our internal 15s timeout.
-  // AbortSignal.any() fires whichever triggers first.
   const signals: AbortSignal[] = [AbortSignal.timeout(15000)]
   if (callerSignal) signals.push(callerSignal)
   const signal = signals.length === 1 ? signals[0] : AbortSignal.any(signals)
@@ -45,7 +55,6 @@ export async function pipeFetch(
     return fetch(url, { ...rest, signal })
   }
 
-  // undici fetch with ProxyAgent — types diverge from standard fetch, cast as needed
   return undiciFetch(url, {
     ...(rest as any),
     dispatcher: agent,

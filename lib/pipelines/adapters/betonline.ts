@@ -107,6 +107,7 @@ async function fetchOperatorLeague(
       },
       body: JSON.stringify({ Sport: lg.sport, League: lg.league, ScheduleText: null, filterTime: 0 }),
       signal,
+      pool: 'us',
     })
   } catch (err: any) {
     console.warn(`[BetOnline:${op.slug}:${lg.leagueSlug}] fetch error`, { message: err?.message ?? String(err) })

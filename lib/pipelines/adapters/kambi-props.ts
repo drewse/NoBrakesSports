@@ -36,11 +36,10 @@ export interface KambiOperator {
   // US operators reject unknown-origin traffic with 429/403; CA operators
   // don't enforce it but setting it doesn't hurt.
   origin?: string
-  // When true, route requests through PROXY_URL (PacketStream residential
-  // via pipeFetch). Use for US operators where Kambi rate-limits Vercel's
-  // shared serverless IP pool. CA operators stay on direct fetch — saves
-  // proxy bandwidth and they work fine from Vercel IPs.
-  proxied?: boolean
+  // 'ca' | 'us' routes requests through the matching PacketStream pool
+  // (PROXY_URL / PROXY_URL_US). false/undefined uses direct fetch — saves
+  // proxy bandwidth for operators that don't block Vercel IPs.
+  proxied?: 'ca' | 'us' | false
 }
 
 export const KAMBI_OPERATORS: KambiOperator[] = [
@@ -48,17 +47,13 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
 
-  // ── US Kambi regionals (PARKED) ────────────────────────────────────
-  // BetParx was tested both directly from Vercel IPs and via PacketStream
-  // (CA residential). Both paths returned HTTP 429 on Kambi's /parx/
-  // endpoint — never HTTP 403, so the block is endpoint-level rate
-  // limiting, not IP-geographic. A USA PacketStream pool would very
-  // likely hit the same rate limit. Real unlock requires a browser
-  // session scrape from play.betparx.com (cookies + licensing tokens);
-  // revisit on the Railway worker, not Vercel cron.
-  //
-  // { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
-  //   lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: true },
+  // ── US Kambi regionals ─────────────────────────────────────────────
+  // BetParx is US-PA licensed. Previous CA-residential + Vercel IP probes
+  // both 429'd at the Kambi /parx/ endpoint. Re-enabled now that a US
+  // residential pool exists — if still 429 it's genuine endpoint rate
+  // limiting and we fall back to a Railway browser scrape.
+  { clientId: 'parx', sourceSlug: 'betparx', displayName: 'BetParx',
+    lang: 'en_US', market: 'US-PA', origin: 'https://www.betparx.com', proxied: 'us' },
 ]
 
 // Sports and their Kambi group paths
@@ -114,7 +109,7 @@ async function fetchWithTimeout(
   timeoutMs: number,
   outerSignal?: AbortSignal,
   origin?: string,
-  proxied?: boolean,
+  proxied?: 'ca' | 'us' | false,
 ): Promise<Response | null> {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(new Error('timeout')), timeoutMs)
@@ -130,12 +125,12 @@ async function fetchWithTimeout(
   }
   try {
     if (proxied) {
-      return await pipeFetch(url, { headers, signal: ctl.signal })
+      return await pipeFetch(url, { headers, signal: ctl.signal, pool: proxied })
     }
     return await fetch(url, { signal: ctl.signal, headers })
   } catch (err: any) {
     if (err?.name !== 'AbortError') {
-      console.warn(`[Kambi] fetch error`, { url: url.slice(0, 120), proxied: !!proxied, message: err?.message ?? String(err) })
+      console.warn(`[Kambi] fetch error`, { url: url.slice(0, 120), proxied: proxied ?? false, message: err?.message ?? String(err) })
     }
     return null
   } finally {
@@ -148,7 +143,7 @@ async function fetchWithTimeout(
  * Discover all upcoming events for a sport path.
  * Uses the listView endpoint (confirmed working) not event/group.
  */
-async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS, origin?: string, proxied?: boolean): Promise<KambiEvent[]> {
+async function fetchEvents(base: string, sportPath: string, params: string = DEFAULT_PARAMS, origin?: string, proxied?: 'ca' | 'us' | false): Promise<KambiEvent[]> {
   const url = `${base}/listView/${sportPath}/all/all/matches.json?${params}`
   // 12s timeout: a misconfigured operator host (bad DNS / slow TLS) must
   // never hang the serial per-operator loop — we'd block every subsequent
@@ -191,7 +186,7 @@ async function fetchAllBetOffers(
   signal?: AbortSignal,
   params: string = DEFAULT_PARAMS,
   origin?: string,
-  proxied?: boolean,
+  proxied?: 'ca' | 'us' | false,
 ): Promise<KambiBetOffer[]> {
   const idStr = eventIds.join(',')
   const allOffers: KambiBetOffer[] = []

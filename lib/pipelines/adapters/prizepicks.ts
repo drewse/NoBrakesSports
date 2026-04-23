@@ -20,7 +20,6 @@
  */
 
 import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
-import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://api.prizepicks.com/projections'
 
@@ -103,7 +102,7 @@ async function fetchLeague(
   const url = `${BASE}?league_id=${league.leagueId}`
   let resp: Response
   try {
-    resp = await pipeFetch(url, {
+    resp = await fetch(url, {
       headers: {
         'Accept': 'application/vnd.api+json',
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
