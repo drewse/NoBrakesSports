@@ -152,6 +152,47 @@ function walkForEvents(body: any, out: Map<string, NovigEvent>) {
   walk(body)
 }
 
+/** Walk the GraphQL event graph collecting every market UUID referenced
+ *  inside event nodes. Novig's event schema embeds markets under fields
+ *  like `markets[]`, `market_ids[]`, or nested `market.id`. We walk
+ *  permissively so any UUID-shaped string inside an event subtree counts. */
+function walkForMarketIds(body: any, out: Set<string>) {
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  const seen = new Set<any>()
+  const walk = (node: any, inEvent: boolean) => {
+    if (!node || typeof node !== 'object') return
+    if (seen.has(node)) return
+    seen.add(node)
+    if (Array.isArray(node)) { for (const n of node) walk(n, inEvent); return }
+
+    // Enter "event subtree" mode when we hit an event-shaped node, so
+    // nested UUIDs are treated as event-scoped market refs.
+    const isEvent = inEvent || (
+      typeof node.id === 'string' &&
+      (node.scheduled_start || node.scheduledStart) &&
+      node.game
+    )
+
+    // Harvest market IDs from common field names.
+    const candidates = [
+      node.market_id, node.marketId,
+      ...(Array.isArray(node.market_ids) ? node.market_ids : []),
+      ...(Array.isArray(node.marketIds) ? node.marketIds : []),
+    ]
+    for (const v of candidates) {
+      if (typeof v === 'string' && UUID_RE.test(v)) out.add(v)
+    }
+    if (Array.isArray(node.markets)) {
+      for (const m of node.markets) {
+        if (m?.id && typeof m.id === 'string' && UUID_RE.test(m.id)) out.add(m.id)
+        if (m?.marketId && typeof m.marketId === 'string' && UUID_RE.test(m.marketId)) out.add(m.marketId)
+      }
+    }
+    for (const v of Object.values(node)) walk(v, isEvent)
+  }
+  walk(body, false)
+}
+
 /** Walk a /nbx/v1/markets/book/batch response collecting markets with
  *  their ladder (best bid/ask per outcome). The response is an array of
  *  entries like `{ market: {...}, ladders: { [outcomeId]: {...} } }`. */
@@ -355,8 +396,26 @@ export const novigAdapter: BookAdapter = {
       const errors: string[] = []
       const events = new Map<string, NovigEvent>()
       const markets = new Map<string, NovigMarket>()
+      const marketIds = new Set<string>()   // harvested from GraphQL event graph
       let graphqlCount = 0
       let batchCount = 0
+
+      // Capture a sample batch request so we can replay it later with the
+      // market IDs we harvested from GraphQL. The app itself only fetches
+      // books for markets visible on the league landing page (moneyline
+      // ribbons) — we want spreads/totals/props too.
+      interface BatchSample { url: string; method: string; postData: string | null; headers: Record<string, string> }
+      const batchSampleRef: { value: BatchSample | null } = { value: null }
+      page.on('request', (req) => {
+        const u = req.url()
+        if (!u.includes('/nbx/v1/markets/book/batch') || batchSampleRef.value) return
+        batchSampleRef.value = {
+          url: u,
+          method: req.method(),
+          postData: req.postData() ?? null,
+          headers: req.headers(),
+        }
+      })
 
       page.on('response', async (resp) => {
         const u = resp.url()
@@ -366,6 +425,7 @@ export const novigAdapter: BookAdapter = {
             graphqlCount++
             const body = await resp.json()
             walkForEvents(body, events)
+            walkForMarketIds(body, marketIds)
           } else if (u.includes('/nbx/v1/markets/book/batch')) {
             batchCount++
             const body = await resp.json()
@@ -394,12 +454,87 @@ export const novigAdapter: BookAdapter = {
         }
       }
 
+      const batchSample = batchSampleRef.value
       log.info('novig capture', {
         graphqlResponses: graphqlCount,
         batchResponses: batchCount,
         events: events.size,
-        markets: markets.size,
+        passiveMarkets: markets.size,
+        harvestedMarketIds: marketIds.size,
+        batchSample: batchSample ? {
+          url: batchSample.url.slice(0, 200),
+          method: batchSample.method,
+          postLen: batchSample.postData?.length ?? 0,
+          postPreview: batchSample.postData?.slice(0, 400) ?? null,
+        } : null,
       })
+
+      // Active batch fetch: replay the app's /nbx/v1/markets/book/batch
+      // call with every market ID we harvested from the GraphQL event
+      // graph. The passive capture only got the handful of markets
+      // visible on the league landing pages (moneyline ribbons). This
+      // unlocks spreads, totals, and player props across every event.
+      //
+      // We fetch from inside the page context (page.evaluate) so cookies
+      // and any CORS handshake the app needs come along for free.
+      if (batchSample && marketIds.size > 0) {
+        const ids = [...marketIds]
+        const CHUNK = 100   // arbitrary cap to avoid overly long URLs / bodies
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          if (signal.aborted) break
+          const batch = ids.slice(i, i + CHUNK)
+          try {
+            const result = await page.evaluate(async ({ sample, ids }) => {
+              const init: RequestInit = {
+                method: sample.method,
+                headers: { ...sample.headers, 'accept': 'application/json' },
+                credentials: 'include',
+              }
+              let url = sample.url
+              // Two signature variants: either the app POSTs a JSON body
+              // with {marketIds: [...]}, or it GETs with ?marketIds=... in
+              // the query string. We inject our IDs into whichever shape
+              // the captured sample used.
+              if (sample.method.toUpperCase() === 'POST') {
+                let body: any = {}
+                try { body = sample.postData ? JSON.parse(sample.postData) : {} } catch { /* keep empty */ }
+                const replaced = { ...body }
+                // Replace any known ID-list field with ours.
+                for (const key of ['marketIds', 'market_ids', 'ids']) {
+                  if (Array.isArray(replaced[key])) { replaced[key] = ids; break }
+                }
+                if (!Object.keys(replaced).some(k => Array.isArray((replaced as any)[k]))) {
+                  (replaced as any).marketIds = ids   // best-guess default shape
+                }
+                init.body = JSON.stringify(replaced)
+                if (!('content-type' in init.headers!)) {
+                  (init.headers as any)['content-type'] = 'application/json'
+                }
+              } else {
+                // GET: rebuild the query string with our IDs.
+                const parsed = new URL(url)
+                parsed.searchParams.delete('marketIds')
+                parsed.searchParams.delete('market_ids')
+                parsed.searchParams.delete('ids')
+                parsed.searchParams.set('marketIds', ids.join(','))
+                url = parsed.toString()
+              }
+              const r = await fetch(url, init)
+              const text = await r.text()
+              return { status: r.status, body: text.slice(0, 500_000) }
+            }, { sample: batchSample, ids: batch })
+            if (result.status === 200) {
+              try { walkForMarkets(JSON.parse(result.body), markets) } catch { /* non-JSON */ }
+            } else {
+              errors.push(`active batch ${i}: HTTP ${result.status}`)
+              log.warn('active batch non-200', { status: result.status, preview: result.body.slice(0, 300) })
+            }
+          } catch (e: any) {
+            errors.push(`active batch ${i}: ${e?.message ?? String(e)}`)
+          }
+        }
+        log.info('novig active fetch', { marketsAfterActive: markets.size })
+      }
 
       // Build the output: one ScrapedEvent per canonical game, accumulating
       // game markets (moneyline/spread/total) and player props into it.
