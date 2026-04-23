@@ -119,27 +119,28 @@ export const prophetAdapter: BookAdapter = {
       // of REST events suggest event + price data both flow over Pusher.
       // Capture frame payloads so we can see what Pusher actually carries.
       let wsFrameCount = 0
-      const wsFrames: Array<{ wsUrl: string; payload: string }> = []
+      // Capture ONE sample per distinct event-type so we see the full
+      // message taxonomy (liquidity_change + event_update + market_open
+      // + etc.) rather than 25× the same liquidity_change event.
+      const wsFramesByType = new Map<string, { wsUrl: string; payload: string }>()
       const wsUrls = new Set<string>()
 
       page.on('websocket', (ws) => {
         const wsUrl = ws.url()
         wsUrls.add(wsUrl)
-        let n = 0
         ws.on('framereceived', (data) => {
           wsFrameCount++
-          n++
-          if (wsFrames.length >= 25) return
+          if (wsFramesByType.size >= 20) return
           const payload = typeof data.payload === 'string'
             ? data.payload
             : Buffer.from(data.payload).toString('utf8')
-          // Pusher sends an initial connection_established frame + pings
-          // that aren't useful — keep only frames that look like data
-          // messages (contain "event" or "data" substrings beyond the
-          // first few bytes).
-          if (payload.length > 60 || /"event"/.test(payload)) {
-            wsFrames.push({ wsUrl, payload: payload.slice(0, 800) })
-          }
+          try {
+            const parsed = JSON.parse(payload)
+            const key = String(parsed?.event ?? 'unknown').slice(0, 60)
+            if (!wsFramesByType.has(key)) {
+              wsFramesByType.set(key, { wsUrl, payload: payload.slice(0, 2000) })
+            }
+          } catch { /* non-JSON / binary / keepalive */ }
         })
       })
 
@@ -181,7 +182,7 @@ export const prophetAdapter: BookAdapter = {
       }
 
       // Visit each league-specific page so the SPA's own event-list XHRs
-      // fire for basketball / baseball / hockey.
+      // fire for basketball / baseball / hockey / football.
       for (const path of ['/sports/nba', '/sports/mlb', '/sports/nhl', '/sports/nfl']) {
         if (signal.aborted) break
         try {
@@ -190,6 +191,12 @@ export const prophetAdapter: BookAdapter = {
         } catch (e: any) {
           errors.push(`${path} nav: ${e?.message ?? String(e)}`)
         }
+      }
+      // Sit on the page an extra 10s so the Pusher WS has time to push
+      // the full taxonomy of event types (event_update, market_open,
+      // liquidity_change, price_update, etc.) rather than just a single
+      // liquidity_change burst.
+      try { await page.waitForTimeout(10_000) } catch { /* ignore */
       }
 
       // Dedupe by ID (the SPA fires the same events call multiple times).
@@ -203,8 +210,9 @@ export const prophetAdapter: BookAdapter = {
         wsUrls: [...wsUrls],
         seenPaths: pathStatuses.slice(0, 30),
       })
-      for (const f of wsFrames) {
+      for (const [evtType, f] of wsFramesByType) {
         log.info('prophet ws frame', {
+          evtType,
           wsUrl: f.wsUrl.slice(0, 120),
           len: f.payload.length,
           preview: f.payload,
