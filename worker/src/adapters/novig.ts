@@ -479,39 +479,41 @@ export const novigAdapter: BookAdapter = {
       // and any CORS handshake the app needs come along for free.
       if (batchSample && marketIds.size > 0) {
         const ids = [...marketIds]
-        const CHUNK = 100   // arbitrary cap to avoid overly long URLs / bodies
+        // Smaller chunks so the comma-joined marketIds query param stays
+        // well below any CDN / gateway URL-length limit (~4 KB) and so one
+        // bad ID only kills a small batch.
+        const CHUNK = 40
         for (let i = 0; i < ids.length; i += CHUNK) {
           if (signal.aborted) break
           const batch = ids.slice(i, i + CHUNK)
           try {
             const result = await page.evaluate(async ({ sample, ids }) => {
+              // Do NOT copy the captured request headers. They include
+              // browser-forbidden headers (host, origin, referer,
+              // user-agent, sec-fetch-*, cookie) which either get silently
+              // stripped by fetch() or trigger a CORS preflight that 403s.
+              // The browser context already has cookies + origin + referer
+              // set up from the prior page.goto, so fetch with
+              // credentials:'include' picks those up automatically.
               const init: RequestInit = {
                 method: sample.method,
-                headers: { ...sample.headers, 'accept': 'application/json' },
+                headers: { 'accept': 'application/json' },
                 credentials: 'include',
               }
               let url = sample.url
-              // Two signature variants: either the app POSTs a JSON body
-              // with {marketIds: [...]}, or it GETs with ?marketIds=... in
-              // the query string. We inject our IDs into whichever shape
-              // the captured sample used.
               if (sample.method.toUpperCase() === 'POST') {
                 let body: any = {}
                 try { body = sample.postData ? JSON.parse(sample.postData) : {} } catch { /* keep empty */ }
                 const replaced = { ...body }
-                // Replace any known ID-list field with ours.
                 for (const key of ['marketIds', 'market_ids', 'ids']) {
                   if (Array.isArray(replaced[key])) { replaced[key] = ids; break }
                 }
                 if (!Object.keys(replaced).some(k => Array.isArray((replaced as any)[k]))) {
-                  (replaced as any).marketIds = ids   // best-guess default shape
+                  (replaced as any).marketIds = ids
                 }
                 init.body = JSON.stringify(replaced)
-                if (!('content-type' in init.headers!)) {
-                  (init.headers as any)['content-type'] = 'application/json'
-                }
+                ;(init.headers as any)['content-type'] = 'application/json'
               } else {
-                // GET: rebuild the query string with our IDs.
                 const parsed = new URL(url)
                 parsed.searchParams.delete('marketIds')
                 parsed.searchParams.delete('market_ids')
@@ -519,10 +521,20 @@ export const novigAdapter: BookAdapter = {
                 parsed.searchParams.set('marketIds', ids.join(','))
                 url = parsed.toString()
               }
-              const r = await fetch(url, init)
-              const text = await r.text()
-              return { status: r.status, body: text.slice(0, 500_000) }
+              try {
+                const r = await fetch(url, init)
+                const text = await r.text()
+                return { status: r.status, body: text.slice(0, 500_000), err: null as string | null }
+              } catch (e: any) {
+                return { status: -1, body: '', err: e?.message ?? String(e) }
+              }
             }, { sample: batchSample, ids: batch })
+
+            if (result.err) {
+              errors.push(`active batch ${i}: fetch threw: ${result.err}`)
+              log.warn('active batch fetch threw', { chunkStart: i, err: result.err })
+              continue
+            }
             const beforeSize = markets.size
             let parsedOk = false
             if (result.status === 200) {
