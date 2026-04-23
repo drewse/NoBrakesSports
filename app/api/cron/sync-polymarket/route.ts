@@ -99,15 +99,24 @@ function titlesMatch(dbTitle: string, polyTitle: string): boolean {
   // "Town", "United", "City"), and checks set overlap — NOT substring
   // inclusion. That prevents "Southampton" containing "Hampton" as a
   // substring from matching "Enfield Town vs Hampton & Richmond".
+  // Stopwords: generic club-suffix / positional words that create false
+  // positives like "Southampton" matching "Hampton & Richmond" on the
+  // word "hampton" or "New York City FC" matching "NY Red Bulls" on
+  // "new"/"york". Team nicknames (Hawks, Tigers, Bears) are kept because
+  // they're often the ONLY identifying word in short Polymarket titles
+  // like "Hawks" or "Knicks" — removing them would break legit matches.
+  // Sport-gate already prevents cross-sport false positives (NBA Hawks
+  // vs NFL Falcons won't ever both be matched against the same poly event).
   const STOPWORDS = new Set([
-    'the','and','at','of','for','vs',
-    // soccer noise — appears in hundreds of club names
-    'fc','cf','sc','afc','cfc','ac','us','ssc','sd','fk',
+    // articles, prepositions
+    'the','and','for','vs','at','of','to','on','in','de','la','el',
+    // US city prefixes that appear in many team names across multiple leagues
+    'new','york','los','angeles','san','saint','st',
+    // soccer club suffixes / prefixes — hundreds of clubs include these
+    'fc','cf','sc','afc','cfc','ac','ssc','sd','fk','rc','cd','ec','sv',
+    'vfb','vfl','ca','gc','sb',
     'town','united','city','club','football','athletic','athletico',
-    'atletico','sporting','real','rc','ca','cd','ec','sv','vfb','vfl',
-    // generic
-    'bears','tigers','giants','lions','eagles','knights','warriors',
-    'stars','kings','hawks','falcons','wings','saints',
+    'atletico','sporting','real','deportivo','club',
   ])
   const wordsOf = (s: string) => new Set(
     s.split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOPWORDS.has(w)),
