@@ -94,23 +94,46 @@ function titlesMatch(dbTitle: string, polyTitle: string): boolean {
 
   const sigWords = (name: string) => name.split(/\s+/).filter(w => w.length > 3)
 
+  // Whole-word set membership. Splits a title into words (length > 2),
+  // strips common stopwords that create false positives ("FC", "SC",
+  // "Town", "United", "City"), and checks set overlap — NOT substring
+  // inclusion. That prevents "Southampton" containing "Hampton" as a
+  // substring from matching "Enfield Town vs Hampton & Richmond".
+  const STOPWORDS = new Set([
+    'the','and','at','of','for','vs',
+    // soccer noise — appears in hundreds of club names
+    'fc','cf','sc','afc','cfc','ac','us','ssc','sd','fk',
+    'town','united','city','club','football','athletic','athletico',
+    'atletico','sporting','real','rc','ca','cd','ec','sv','vfb','vfl',
+    // generic
+    'bears','tigers','giants','lions','eagles','knights','warriors',
+    'stars','kings','hawks','falcons','wings','saints',
+  ])
+  const wordsOf = (s: string) => new Set(
+    s.split(/[^a-z0-9]+/).filter(w => w.length > 2 && !STOPWORDS.has(w)),
+  )
+  const sideMatches = (dbSide: string, polySide: string) => {
+    const dbW = wordsOf(dbSide)
+    const polyW = wordsOf(polySide)
+    // At least ONE non-stopword is in common. For two-word team names
+    // this is essentially equality; for longer names ("Los Angeles
+    // Lakers" vs "Lakers") it's still a correct identification.
+    for (const w of dbW) if (polyW.has(w)) return true
+    return false
+  }
+
   const polyParts = poly.split(' vs ')
   if (polyParts.length === 2) {
-    // Both titles have "vs" — match sides directionally, allow home/away swap
     const [polyHome, polyAway] = polyParts
-    const straightMatch =
-      sigWords(dbHome).some(w => polyHome.includes(w)) &&
-      sigWords(dbAway).some(w => polyAway.includes(w))
-    const swapMatch =
-      sigWords(dbHome).some(w => polyAway.includes(w)) &&
-      sigWords(dbAway).some(w => polyHome.includes(w))
+    const straightMatch = sideMatches(dbHome, polyHome) && sideMatches(dbAway, polyAway)
+    const swapMatch     = sideMatches(dbHome, polyAway) && sideMatches(dbAway, polyHome)
     return straightMatch || swapMatch
   }
 
-  // Poly title has no "vs" (e.g. "Will the Lakers win?") — fall back to
-  // requiring both teams' words to appear somewhere in the title
-  const homeMatch = sigWords(dbHome).some(w => poly.includes(w))
-  const awayMatch = sigWords(dbAway).some(w => poly.includes(w))
+  // Poly title without " vs " (e.g. "Will the Lakers win?") — fall back
+  // to requiring BOTH team identifications somewhere in the title.
+  const homeMatch = sideMatches(dbHome, poly)
+  const awayMatch = sideMatches(dbAway, poly)
   return homeMatch && awayMatch
 }
 
