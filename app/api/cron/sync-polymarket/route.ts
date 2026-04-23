@@ -194,12 +194,50 @@ export async function GET(request: NextRequest) {
   // Polymarket has many binary markets per game — we only want ONE row per event.
   const insertedEventIds = new Set<string>()
 
+  // Map poly tag slugs to our DB league slug(s). Events in pool below only
+  // match DB events whose league slug is in the allowed set for that sport.
+  // Without this, the loose titlesMatch word-overlap check produces huge
+  // false positives like matching "Clemson Tigers vs. Western Carolina" →
+  // "Willetton Tigers vs South West Slammers" (Australian NBL) on the word
+  // "tigers".
+  const POLY_TAG_TO_LEAGUES: Record<string, string[]> = {
+    nba:        ['nba'],
+    basketball: ['nba','wnba'],
+    mlb:        ['mlb'],
+    baseball:   ['mlb'],
+    nhl:        ['nhl'],
+    hockey:     ['nhl'],
+    nfl:        ['nfl'],
+    football:   ['nfl'],  // American football only for this mapping; soccer
+                          // uses other tag labels ("soccer","epl","laliga"...)
+    soccer:     ['epl','laliga','bundesliga','seria_a','ligue_one','mls','liga_mx','copa_libertadores','copa_sudamericana','eredivisie','liga_portugal','spl','ucl'],
+    epl:        ['epl'],
+    mls:        ['mls'],
+  }
+
+  function allowedDbLeaguesForPolyEvent(polyEv: any): Set<string> | null {
+    const tags: string[] = (polyEv.tags ?? []).map((t: any) => t.slug).filter(Boolean)
+    const allowed = new Set<string>()
+    for (const t of tags) {
+      const lgs = POLY_TAG_TO_LEAGUES[t]
+      if (lgs) for (const l of lgs) allowed.add(l)
+    }
+    // No sport tag → no sport restriction. (Lets rare edge cases through;
+    // the strict titlesMatch still filters most noise.)
+    return allowed.size > 0 ? allowed : null
+  }
+
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
     if (polyEvent.title && /\s+vs\.?\s+/i.test(polyEvent.title)) eventsWithVs++
 
-    // Match at the event level using the Polymarket event title
-    const dbEvent = dbEvents?.find(e => titlesMatch(e.title, polyEvent.title)) ?? null
+    // Sport-aware matching: if the poly event is tagged with a sport we
+    // recognize, only consider DB events in the allowed league set.
+    const allowedLeagues = allowedDbLeaguesForPolyEvent(polyEvent)
+    const dbEvent = dbEvents?.find((e: any) => {
+      if (allowedLeagues && !allowedLeagues.has(e.leagues?.slug)) return false
+      return titlesMatch(e.title, polyEvent.title)
+    }) ?? null
     if (dbEvent) eventsMatchedDb++
 
     // Parse home/away teams from the DB event title ("Home vs Away")
