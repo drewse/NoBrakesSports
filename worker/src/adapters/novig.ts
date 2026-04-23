@@ -523,14 +523,34 @@ export const novigAdapter: BookAdapter = {
               const text = await r.text()
               return { status: r.status, body: text.slice(0, 500_000) }
             }, { sample: batchSample, ids: batch })
+            const beforeSize = markets.size
+            let parsedOk = false
             if (result.status === 200) {
-              try { walkForMarkets(JSON.parse(result.body), markets) } catch { /* non-JSON */ }
+              try {
+                walkForMarkets(JSON.parse(result.body), markets)
+                parsedOk = true
+              } catch (pe: any) {
+                log.warn('active batch JSON parse failed', { message: pe?.message ?? String(pe), preview: result.body.slice(0, 300) })
+              }
             } else {
               errors.push(`active batch ${i}: HTTP ${result.status}`)
-              log.warn('active batch non-200', { status: result.status, preview: result.body.slice(0, 300) })
+              log.warn('active batch non-200', { status: result.status, preview: result.body.slice(0, 400) })
             }
+            // Always log one preview per chunk so we see what shape came
+            // back regardless of parse success / market-count delta.
+            log.info('active batch result', {
+              chunkStart: i,
+              chunkIds: batch.length,
+              status: result.status,
+              parsedOk,
+              bodyLen: result.body.length,
+              preview: result.body.slice(0, 600),
+              marketsBefore: beforeSize,
+              marketsAfter: markets.size,
+            })
           } catch (e: any) {
             errors.push(`active batch ${i}: ${e?.message ?? String(e)}`)
+            log.warn('active batch threw', { chunkStart: i, message: e?.message ?? String(e) })
           }
         }
         log.info('novig active fetch', { marketsAfterActive: markets.size })
