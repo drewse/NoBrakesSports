@@ -99,6 +99,9 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'hits_allowed' || t === 'player_hits_allowed') return 'player_hits_allowed'
   if (t === 'hits_runs_rbis') return 'player_hits_runs_rbis'
   if (t === 'walks' || t === 'player_walks') return 'player_walks'
+  if (t === 'batting_walks') return 'player_batting_walks'
+  if (t === 'batting_strikeouts') return 'player_batting_strikeouts'
+  if (t === 'earned_runs') return 'player_earned_runs'
   if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
   if (t === 'pitcher_strikeouts' || t === 'pitcher_outs' || /player_strikeouts/.test(t)) {
     return t === 'pitcher_outs' ? 'player_pitcher_outs' : 'player_strikeouts_p'

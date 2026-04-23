@@ -91,8 +91,17 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
           } catch { /* ignore */ }
         })
 
+        // Track distinct hosts seen across ALL responses (not just
+        // regex-matched) so when discovery returns distinctPaths=0 we can
+        // still see where the page is talking to.
+        const allHosts = new Map<string, number>()
+
         page.on('response', async (resp) => {
           const u = resp.url()
+          try {
+            const host = new URL(u).host
+            allHosts.set(host, (allHosts.get(host) ?? 0) + 1)
+          } catch { /* ignore */ }
           if (!cfg.apiHostRegex.test(u)) return
           try {
             const p = new URL(u).pathname
@@ -144,6 +153,9 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
           topPaths: [...seenPaths.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15),
           sampleCount: sampleBodies.size,
           requestSampleCount: sampleRequests.size,
+          // Distinct response hosts regardless of regex match — tells us
+          // where the SPA actually talks to if our regex misses it.
+          allHosts: [...allHosts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
         })
         for (const [path, body] of sampleBodies) {
           log.info('offshore sample body', { path, len: body.length, preview: body.slice(0, 400) })
