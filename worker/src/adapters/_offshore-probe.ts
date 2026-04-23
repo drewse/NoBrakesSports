@@ -28,9 +28,28 @@ export interface OffshoreProbeConfig {
   seedUrl: string
   apiHostRegex: RegExp
   leaguePaths: Array<{ url: string; leagueSlug: string }>
+  /** Which proxy tier to route through. Default 'us-mobile' (for CF-gated
+   *  US offshore books). Use 'mobile' (CA mobile) for CA-gated books,
+   *  'true' for CA residential, or 'false' for direct Railway IP when the
+   *  target doesn't geo-gate. */
+  useProxy?: 'us-mobile' | 'us' | 'mobile' | true | false
+  /** When set, skip the scrape if none of the listed env vars is set.
+   *  Default derived from useProxy. */
+  requiresEnvVar?: string[]
 }
 
 export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter {
+  const useProxy = cfg.useProxy ?? 'us-mobile'
+  // Default gating: only check env vars for proxy tiers that actually need
+  // one. Direct-IP adapters (useProxy: false) always run.
+  const requiresEnvVar = cfg.requiresEnvVar ?? (
+    useProxy === 'us-mobile' ? ['MOBILE_PROXY_URL_US', 'PROXY_URL_US'] :
+    useProxy === 'us'        ? ['PROXY_URL_US']                         :
+    useProxy === 'mobile'    ? ['MOBILE_PROXY_URL', 'PROXY_URL']        :
+    useProxy === true        ? ['PROXY_URL']                            :
+    []
+  )
+
   return {
     slug: cfg.slug,
     name: cfg.name,
@@ -40,8 +59,8 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
     async scrape({ signal, log }) {
       if (signal.aborted) return { events: [], errors: ['aborted'] }
 
-      if (!process.env.MOBILE_PROXY_URL_US && !process.env.PROXY_URL_US) {
-        log.info('skipped — set PROXY_URL_US (PacketStream) or MOBILE_PROXY_URL_US (IPRoyal) on Railway to activate')
+      if (requiresEnvVar.length > 0 && !requiresEnvVar.some(v => process.env[v])) {
+        log.info(`skipped — set one of [${requiresEnvVar.join(', ')}] on Railway to activate`)
         return { events: [], errors: [] }
       }
 
@@ -102,7 +121,7 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
         }
 
         return { events: scraped, errors }
-      }, { useProxy: 'us-mobile', rotateSession: true })
+      }, { useProxy, rotateSession: true })
     },
   }
 }

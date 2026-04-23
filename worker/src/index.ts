@@ -23,6 +23,10 @@ import { hardRockAdapter } from './adapters/hardrock.js'
 import { mybookieAdapter } from './adapters/mybookie.js'
 import { bookmakerEuAdapter } from './adapters/bookmaker-eu.js'
 import { betusAdapter } from './adapters/betus.js'
+import { powerplayAdapter } from './adapters/powerplay.js'
+import { miseojeuAdapter } from './adapters/miseojeu.js'
+import { novigAdapter } from './adapters/novig.js'
+import { circaAdapter } from './adapters/circa.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -55,6 +59,11 @@ const ALL_ADAPTERS: BookAdapter[] = [
   mybookieAdapter,            // MyBookie.ag — discovery mode
   bookmakerEuAdapter,         // Bookmaker.eu — discovery mode
   betusAdapter,               // BetUS Panama — discovery mode
+  // Non-CF-blocked discovery adapters — run without IPRoyal mobile
+  powerplayAdapter,           // Ontario — PacketStream CA + Chromium
+  miseojeuAdapter,            // Loto-Québec — PacketStream CA + Chromium
+  novigAdapter,               // US prediction exchange — direct Railway IP
+  circaAdapter,               // Circa Sports NV — direct Railway IP
 ]
 
 const log = createLogger('main')
