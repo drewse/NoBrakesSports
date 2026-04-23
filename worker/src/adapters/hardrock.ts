@@ -1,17 +1,16 @@
 /**
- * Hard Rock Bet — discovery-mode probe using the shared helper.
+ * Hard Rock Bet — PARKED (requires authenticated session).
  *
- * Earlier custom adapter used a tight regex (`app.hardrock.bet/api/`)
- * that matched zero responses. Rewriting to use buildOffshoreProbeAdapter
- * gives us allHosts logging + sample body/request capture so we can see
- * exactly where the app talks to — same flow that unlocked Novig and
- * revealed Prophet's Pusher subscription.
+ * Full discovery showed an anonymous browse only hits teaser/parlay
+ * endpoints (/sportsbook/api/public/teaser/*) and error telemetry
+ * (/api/:id/envelope/ → Sentry). The real odds backend lives behind
+ * api.hardrocksportsbook.com with only 4 handshake hits and no usable
+ * event list — that's where authenticated user sessions pull odds.
  *
- * When the next discovery cycle runs we'll see in logs:
- *   - allHosts: every host the SPA hit (API backend likely here)
- *   - topPaths: API path patterns by frequency
- *   - offshore sample body: first 2 KB of each distinct JSON response
- * and wire the real parser on iteration 2.
+ * Same gate as other US state-regulated books (FanDuel US, BetMGM US,
+ * DK US): they require a logged-in account to see odds. Unanonymous
+ * scraping unlocks only teaser metadata. Parking until we have a
+ * real auth flow.
  */
 
 import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
@@ -32,5 +31,5 @@ export const hardRockAdapter = buildOffshoreProbeAdapter({
     { url: 'https://app.hardrock.bet/sports/football/nfl',   leagueSlug: 'nfl' },
   ],
   useProxy: 'us-mobile',
-  pollIntervalSec: 7200,  // 2h during discovery
+  pollIntervalSec: 21600,  // 6h while parked pending auth flow
 })
