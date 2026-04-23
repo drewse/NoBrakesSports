@@ -88,16 +88,21 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'double_double') return 'player_double_double'
   if (t === 'triple_double') return 'player_triple_double'
   if (t === 'first_basket') return 'player_first_basket'
-  if (/pts_rebs_asts|player_pra/.test(t)) return 'player_pts_rebs_asts'
-  if (/pts_rebs/.test(t)) return 'player_pts_rebs'
-  if (/pts_asts/.test(t)) return 'player_pts_asts'
-  if (/rebs_asts/.test(t)) return 'player_rebs_asts'
+  if (t === 'points_rebounds_assists' || /pts_rebs_asts|player_pra/.test(t)) return 'player_pts_rebs_asts'
+  if (t === 'points_rebounds' || /pts_rebs/.test(t)) return 'player_pts_rebs'
+  if (t === 'points_assists' || /pts_asts/.test(t)) return 'player_pts_asts'
+  if (t === 'rebounds_assists' || /rebs_asts/.test(t)) return 'player_rebs_asts'
 
   // Baseball
   if (t === 'home_runs' || /player_home_runs|player_hr/.test(t)) return 'player_home_runs'
   if (t === 'hits' || t === 'player_hits') return 'player_hits'
+  if (t === 'hits_allowed' || t === 'player_hits_allowed') return 'player_hits_allowed'
+  if (t === 'hits_runs_rbis') return 'player_hits_runs_rbis'
+  if (t === 'walks' || t === 'player_walks') return 'player_walks'
   if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
-  if (t === 'pitcher_strikeouts' || /player_strikeouts/.test(t)) return 'player_strikeouts_p'
+  if (t === 'pitcher_strikeouts' || t === 'pitcher_outs' || /player_strikeouts/.test(t)) {
+    return t === 'pitcher_outs' ? 'player_pitcher_outs' : 'player_strikeouts_p'
+  }
   if (t === 'total_bases' || t === 'player_total_bases') return 'player_total_bases'
   if (t === 'stolen_bases' || t === 'player_stolen_bases') return 'player_stolen_bases'
 
@@ -341,15 +346,15 @@ function splitOverUnder(
 function buildGameMarket(ev: NovigEvent, market: NovigMarket): GameMarket | null {
   const t = market.type.toUpperCase()
 
-  // ── Moneyline (main) ────────────────────────────────────────────────
-  if (t === 'MONEY' || t === 'MONEYLINE') {
+  // ── Moneyline (main + first-half) ──────────────────────────────────
+  if (t === 'MONEY' || t === 'MONEYLINE' || t === 'MONEY_1H') {
     const { home, away } = splitHomeAway(ev, market.outcomes)
     if (!home || !away) return null
     const hp = pickPrice(market.ladders[home.outcomeId])
     const ap = pickPrice(market.ladders[away.outcomeId])
     if (hp == null && ap == null) return null
     return {
-      marketType: 'moneyline',
+      marketType: t === 'MONEY_1H' ? 'moneyline_h1' : 'moneyline',
       homePrice: hp, awayPrice: ap, drawPrice: null,
       spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
     }

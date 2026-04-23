@@ -23,7 +23,9 @@ export const betparxBrowserAdapter = buildOffshoreProbeAdapter({
   // Very broad — we don't yet know whether the SPA talks to
   // kambicdn.com, a parxcasino CDN, or an in-house API host. Capture
   // anything API-shaped.
-  apiHostRegex: /(parx|kambi|americanwagering|playparx|betparx)[a-zA-Z0-9.-]*\/(api|v\d+|offering|graphql|listView|sportsbook)/i,
+  // First discovery returned distinctPaths=0 — broaden to catch any
+  // API-shaped path on any host. Tighten once we see what surfaces.
+  apiHostRegex: /\/(api|graphql|v\d+|offering|listView|sportsbook|eventList|event)(\/|\?|$)/i,
   leaguePaths: [
     { url: 'https://play.betparx.com/pa/sports/basketball/nba', leagueSlug: 'nba' },
     { url: 'https://play.betparx.com/pa/sports/baseball/mlb',   leagueSlug: 'mlb' },

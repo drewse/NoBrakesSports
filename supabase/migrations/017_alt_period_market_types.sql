@@ -14,6 +14,7 @@
 
 BEGIN;
 
+ALTER TYPE market_type ADD VALUE IF NOT EXISTS 'moneyline_h1';
 ALTER TYPE market_type ADD VALUE IF NOT EXISTS 'spread_h1';
 ALTER TYPE market_type ADD VALUE IF NOT EXISTS 'total_h1';
 ALTER TYPE market_type ADD VALUE IF NOT EXISTS 'total_i1';
@@ -33,7 +34,7 @@ ALTER TABLE current_market_odds
   ADD CONSTRAINT current_market_odds_market_type_check
   CHECK (market_type IN (
     'moneyline', 'spread', 'total',
-    'spread_h1', 'total_h1', 'total_i1', 'team_total',
+    'moneyline_h1', 'spread_h1', 'total_h1', 'total_i1', 'team_total',
     'futures'
   ));
 

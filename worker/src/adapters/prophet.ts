@@ -10,11 +10,14 @@ export const prophetAdapter = buildOffshoreProbeAdapter({
   slug: 'prophet_exchange',
   name: 'Prophet Exchange',
   seedUrl: 'https://prophetexchange.com',
-  apiHostRegex: /(prophet|graphql|api)[a-zA-Z0-9.-]*\/(api|v\d+|graphql|public|markets|events)/i,
+  // First discovery returned distinctPaths=0 — the regex was too
+  // narrow. Catch anything that looks like an API call on any host,
+  // so we can see where Prophet's front-end actually talks to.
+  apiHostRegex: /\/(api|graphql|v\d+|rpc|public|markets|events|sports|book|trading)(\/|\?|$)/i,
   leaguePaths: [
     { url: 'https://prophetexchange.com/sports/nba', leagueSlug: 'nba' },
     { url: 'https://prophetexchange.com/sports/mlb', leagueSlug: 'mlb' },
     { url: 'https://prophetexchange.com/sports/nhl', leagueSlug: 'nhl' },
   ],
-  useProxy: false,   // exchanges don't geo-gate; direct Railway IP fine
+  useProxy: false,
 })
