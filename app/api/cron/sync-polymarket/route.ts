@@ -167,7 +167,7 @@ export async function GET(request: NextRequest) {
   const now = new Date().toISOString()
   const { data: dbEvents } = await db
     .from('events')
-    .select('id, title, start_time')
+    .select('id, title, start_time, leagues(slug)')
     .gt('start_time', now)
 
   // Clear stale Polymarket data from both tables before inserting fresh rows.
@@ -185,6 +185,10 @@ export async function GET(request: NextRequest) {
   let eventsMatchedDb = 0         // poly events that matched a DB event
   let teamOutcomeParsed = 0       // markets where team-outcome parser worked
   let teamOutcomeFailed = 0       // markets where team-outcome parser returned null
+  // Per-league breakdown of inserted moneylines (helps diagnose when
+  // user says "Polymarket has NBA games but I don't see them on Markets").
+  const insertedByLeague: Record<string, number> = {}
+  const sampleInsertedTitles: string[] = []  // first 10 titles for eyeball
 
   // Track which events already have a market_snapshot from Polymarket this run.
   // Polymarket has many binary markets per game — we only want ONE row per event.
@@ -252,6 +256,9 @@ export async function GET(request: NextRequest) {
             })
             insertedEventIds.add(dbEvent.id)
             matchedToEvent++
+            const lg = ((dbEvent as any).leagues?.slug) ?? 'unknown'
+            insertedByLeague[lg] = (insertedByLeague[lg] ?? 0) + 1
+            if (sampleInsertedTitles.length < 10) sampleInsertedTitles.push(`[${lg}] ${dbEvent.title} ← ${polyEvent.title}`)
           }
         }
         continue
@@ -280,6 +287,9 @@ export async function GET(request: NextRequest) {
       })
       insertedEventIds.add(dbEvent.id)
       matchedToEvent++
+      const lg2 = ((dbEvent as any).leagues?.slug) ?? 'unknown'
+      insertedByLeague[lg2] = (insertedByLeague[lg2] ?? 0) + 1
+      if (sampleInsertedTitles.length < 10) sampleInsertedTitles.push(`[${lg2}] ${dbEvent.title} ← ${polyEvent.title}`)
     }
   }
 
@@ -318,6 +328,8 @@ export async function GET(request: NextRequest) {
     predInserted,
     marketSnapshotsInserted: marketInserted,
     matchedToSportsbookEvent: matchedToEvent,
+    insertedByLeague,
+    sampleInsertedTitles,
     teamOutcomeParsed,
     teamOutcomeFailed,
     skippedNoMarkets,
