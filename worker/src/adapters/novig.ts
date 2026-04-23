@@ -50,12 +50,15 @@ interface NovigEvent {
 
 interface NovigMarket {
   marketId: string
-  type: string            // 'MONEY' | 'SPREAD' | 'OVERUNDER' | 'PLAYER_POINTS' ...
+  type: string            // 'MONEY' | 'SPREAD' | 'TOTAL' | 'POINTS' | 'ASSISTS' | ...
   eventId?: string        // sometimes inlined on market; else resolve by description
-  description: string     // sometimes a team abbr ("HOU") for moneyline anchor
-  /** For SPREAD / OVERUNDER this is the handicap / total line. For props
-   *  it's the line (e.g. 25.5 points). 0 for moneyline. */
+  description: string     // e.g. "HOU", "CHC +1.5", "LAL @ HOU t205.5", "Josh Hart 4.5 ASSISTS"
+  /** For SPREAD / TOTAL this is the handicap / total line. For props
+   *  it's the line (e.g. 25.5 points). 0 for moneyline + binary props. */
   strike: number
+  /** Present on player-prop markets. `.fullName` is authoritative — safer
+   *  than parsing the description. */
+  playerName?: string
   outcomes: Array<{ outcomeId: string; index: number; description: string }>
   /** outcomeId → best bid (buyer side), best ask (seller side). Both are
    *  implied probabilities 0-1 on Novig's scale. */
@@ -63,45 +66,62 @@ interface NovigMarket {
 }
 
 /** Map a raw Novig market.type string to our canonical prop_category.
- *  Returns null for non-prop (game-line) market types. */
+ *  Novig uses bare type names (POINTS, ASSISTS, HOME_RUNS) — no
+ *  PLAYER_ prefix. Returns null for game-line market types. */
 function propCategoryFromType(type: string): string | null {
   const t = type.toLowerCase()
-  // Non-prop market types — caller handles these as game markets.
-  if (t === 'money' || t === 'moneyline' || t === 'spread' || t === 'overunder' ||
-      t === 'total' || t === 'championship_winner' || t === 'future') return null
+  // Non-prop market types — caller handles these as game markets or skips.
+  if (t === 'money' || t === 'moneyline' ||
+      t === 'spread' || t === 'handicap' || t === 'point_spread' ||
+      t === 'total' || t === 'totals' || t === 'overunder' || t === 'over_under' ||
+      t === 'draw_no_bet' || t === 'first_inning_total' ||
+      t === 'championship_winner' || t === 'future') return null
 
-  // Basketball
-  if (/player_points|points_scored/.test(t)) return 'player_points'
-  if (/player_rebounds/.test(t)) return 'player_rebounds'
-  if (/player_assists/.test(t)) return 'player_assists'
-  if (/player_threes|player_3pt/.test(t)) return 'player_threes'
-  if (/player_steals/.test(t)) return 'player_steals'
-  if (/player_blocks/.test(t)) return 'player_blocks'
-  if (/player_turnovers/.test(t)) return 'player_turnovers'
-  if (/player_pts_rebs_asts|player_pra/.test(t)) return 'player_pts_rebs_asts'
-  if (/player_pts_rebs/.test(t)) return 'player_pts_rebs'
-  if (/player_pts_asts/.test(t)) return 'player_pts_asts'
-  if (/player_rebs_asts/.test(t)) return 'player_rebs_asts'
+  // Basketball — bare (Novig) and PLAYER_* variants.
+  if (t === 'points' || t === 'player_points' || /points_scored/.test(t)) return 'player_points'
+  if (t === 'rebounds' || t === 'player_rebounds') return 'player_rebounds'
+  if (t === 'assists' || t === 'player_assists') return 'player_assists'
+  if (t === 'three_pointers_made' || /threes|player_3pt/.test(t)) return 'player_threes'
+  if (t === 'steals' || t === 'player_steals') return 'player_steals'
+  if (t === 'blocks' || t === 'player_blocks') return 'player_blocks'
+  if (t === 'turnovers' || t === 'player_turnovers') return 'player_turnovers'
+  if (t === 'double_double') return 'player_double_double'
+  if (t === 'triple_double') return 'player_triple_double'
+  if (t === 'first_basket') return 'player_first_basket'
+  if (/pts_rebs_asts|player_pra/.test(t)) return 'player_pts_rebs_asts'
+  if (/pts_rebs/.test(t)) return 'player_pts_rebs'
+  if (/pts_asts/.test(t)) return 'player_pts_asts'
+  if (/rebs_asts/.test(t)) return 'player_rebs_asts'
+
   // Baseball
-  if (/player_home_runs|player_hr/.test(t)) return 'player_home_runs'
-  if (/player_hits/.test(t)) return 'player_hits'
-  if (/player_rbis/.test(t)) return 'player_rbis'
-  if (/player_strikeouts/.test(t)) return 'player_strikeouts_p'
-  if (/player_total_bases/.test(t)) return 'player_total_bases'
-  if (/player_stolen_bases/.test(t)) return 'player_stolen_bases'
+  if (t === 'home_runs' || /player_home_runs|player_hr/.test(t)) return 'player_home_runs'
+  if (t === 'hits' || t === 'player_hits') return 'player_hits'
+  if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
+  if (t === 'pitcher_strikeouts' || /player_strikeouts/.test(t)) return 'player_strikeouts_p'
+  if (t === 'total_bases' || t === 'player_total_bases') return 'player_total_bases'
+  if (t === 'stolen_bases' || t === 'player_stolen_bases') return 'player_stolen_bases'
+
   // Hockey
-  if (/player_goals/.test(t)) return 'player_goals'
-  if (/player_shots/.test(t)) return 'player_shots_on_goal'
-  if (/player_points_hockey|player_hockey_points/.test(t)) return 'player_points_hockey'
+  if (t === 'player_goals' || t === 'goals') return 'player_goals'
+  if (t === 'shots_on_goal' || /player_shots/.test(t)) return 'player_shots_on_goal'
+  if (t === 'saves' || t === 'player_saves') return 'player_saves'
+  if (/player_points_hockey|hockey_points/.test(t)) return 'player_points_hockey'
+
   // Football
   if (/passing_yards|pass_yards/.test(t)) return 'player_passing_yards'
   if (/rushing_yards|rush_yards/.test(t)) return 'player_rushing_yards'
   if (/receiving_yards|recv_yards/.test(t)) return 'player_receiving_yards'
   if (/touchdowns|player_td/.test(t)) return 'player_touchdowns'
 
-  // Generic player_* catch-all so unmapped props still land.
+  // Unknown prop-ish types — store the lowercased type so they still land.
   if (/^player_/.test(t)) return t
   return null
+}
+
+/** Which prop types are binary (Yes/No) instead of Over/Under? */
+function isBinaryPropType(type: string): boolean {
+  const t = type.toLowerCase()
+  return t === 'first_basket' || t === 'double_double' || t === 'triple_double'
 }
 
 /** Convert an implied probability (0-1) to an American odds integer.
@@ -153,44 +173,53 @@ function walkForEvents(body: any, out: Map<string, NovigEvent>) {
 }
 
 /** Walk the GraphQL event graph collecting every market UUID referenced
- *  inside event nodes. Novig's event schema embeds markets under fields
- *  like `markets[]`, `market_ids[]`, or nested `market.id`. We walk
- *  permissively so any UUID-shaped string inside an event subtree counts. */
-function walkForMarketIds(body: any, out: Set<string>) {
+ *  inside event nodes AND building a reverse lookup {marketId → eventId}.
+ *  The market body responses don't carry eventId, so this is the only
+ *  way to attach props to their event. */
+function walkForMarketIds(
+  body: any,
+  ids: Set<string>,
+  byEvent: Map<string, string>,   // marketId → eventId
+) {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
   const seen = new Set<any>()
-  const walk = (node: any, inEvent: boolean) => {
+
+  const addMarket = (mid: string, eventId: string | null) => {
+    if (!UUID_RE.test(mid)) return
+    ids.add(mid)
+    if (eventId && !byEvent.has(mid)) byEvent.set(mid, eventId)
+  }
+
+  const walk = (node: any, eventId: string | null) => {
     if (!node || typeof node !== 'object') return
     if (seen.has(node)) return
     seen.add(node)
-    if (Array.isArray(node)) { for (const n of node) walk(n, inEvent); return }
+    if (Array.isArray(node)) { for (const n of node) walk(n, eventId); return }
 
-    // Enter "event subtree" mode when we hit an event-shaped node, so
-    // nested UUIDs are treated as event-scoped market refs.
-    const isEvent = inEvent || (
+    // Enter / refresh event scope when we hit an event-shaped node.
+    const nextEventId = (
       typeof node.id === 'string' &&
       (node.scheduled_start || node.scheduledStart) &&
       node.game
-    )
+    ) ? String(node.id) : eventId
 
-    // Harvest market IDs from common field names.
-    const candidates = [
-      node.market_id, node.marketId,
-      ...(Array.isArray(node.market_ids) ? node.market_ids : []),
-      ...(Array.isArray(node.marketIds) ? node.marketIds : []),
-    ]
-    for (const v of candidates) {
-      if (typeof v === 'string' && UUID_RE.test(v)) out.add(v)
+    for (const k of ['market_id', 'marketId']) {
+      const v = node[k]
+      if (typeof v === 'string') addMarket(v, nextEventId)
+    }
+    for (const k of ['market_ids', 'marketIds']) {
+      const arr = node[k]
+      if (Array.isArray(arr)) for (const v of arr) if (typeof v === 'string') addMarket(v, nextEventId)
     }
     if (Array.isArray(node.markets)) {
       for (const m of node.markets) {
-        if (m?.id && typeof m.id === 'string' && UUID_RE.test(m.id)) out.add(m.id)
-        if (m?.marketId && typeof m.marketId === 'string' && UUID_RE.test(m.marketId)) out.add(m.marketId)
+        if (typeof m?.id === 'string') addMarket(m.id, nextEventId)
+        if (typeof m?.marketId === 'string') addMarket(m.marketId, nextEventId)
       }
     }
-    for (const v of Object.values(node)) walk(v, isEvent)
+    for (const v of Object.values(node)) walk(v, nextEventId)
   }
-  walk(body, false)
+  walk(body, null)
 }
 
 /** Walk a /nbx/v1/markets/book/batch response collecting markets with
@@ -229,12 +258,14 @@ function walkForMarkets(body: any, out: Map<string, NovigMarket>) {
       }
     }
 
+    const playerName = market?.player?.fullName ?? market?.player?.name
     out.set(String(market.id), {
       marketId: String(market.id),
       type: String(market.type ?? ''),
       eventId: market.eventId ?? market.event_id,
       description: String(market.description ?? ''),
       strike: typeof market.strike === 'number' ? market.strike : 0,
+      playerName: typeof playerName === 'string' && playerName ? playerName : undefined,
       outcomes,
       ladders,
     })
@@ -329,49 +360,87 @@ function buildGameMarket(ev: NovigEvent, market: NovigMarket): GameMarket | null
   return null
 }
 
-/** Build a player-prop row from a prop market. Player name is in the
- *  market.description on Novig (e.g. "Tyrese Maxey Points"). Outcomes are
- *  OVER / UNDER, line is market.strike. */
+/** Split outcomes into (yes, no) for binary Novig markets (FIRST_BASKET,
+ *  DOUBLE_DOUBLE, TRIPLE_DOUBLE). */
+function splitYesNo(
+  outcomes: NovigMarket['outcomes'],
+): { yes?: NovigMarket['outcomes'][number]; no?: NovigMarket['outcomes'][number] } {
+  let yes, no
+  for (const o of outcomes) {
+    const d = o.description.toLowerCase().trim()
+    if (d === 'yes') yes = o
+    else if (d === 'no') no = o
+  }
+  return { yes, no }
+}
+
+/** Build a player-prop row. `market.playerName` is the authoritative
+ *  source; fall back to parsing the description for legacy safety.
+ *  Over/Under markets use overPrice/underPrice; Yes/No binary markets
+ *  (FIRST_BASKET, DOUBLE_DOUBLE) use yesPrice/noPrice. */
 function buildProp(market: NovigMarket): NormalizedProp | null {
   const category = propCategoryFromType(market.type)
   if (!category) return null
 
-  // Extract player name: Novig's description often includes the stat name.
-  // Strip trailing stat type if present (e.g. "Tyrese Maxey Points" →
-  // "Tyrese Maxey"). Crude but works for most American sports.
-  const STAT_TRAIL = /\s+(points|rebounds|assists|threes|steals|blocks|turnovers|goals|shots|hits|home runs|rbis|strikeouts|bases|yards|touchdowns|passing|rushing|receiving|total bases|stolen bases)$/i
-  const playerName = market.description.replace(STAT_TRAIL, '').trim()
+  let playerName = market.playerName
+  if (!playerName) {
+    // Fallback: strip trailing stat from description ("Josh Hart 4.5 ASSISTS"
+    // → "Josh Hart 4.5" → "Josh Hart").
+    const STAT_TRAIL = /\s+(?:\d+(?:\.\d+)?\s+)?(?:points|rebounds|assists|three_pointers_made|threes|steals|blocks|turnovers|goals|shots_on_goal|shots|hits|home_runs|rbis|pitcher_strikeouts|strikeouts|total_bases|stolen_bases|bases|yards|touchdowns|saves|double_double|triple_double|first_basket)\s*$/i
+    playerName = market.description.replace(STAT_TRAIL, '').replace(/\s+\d+(?:\.\d+)?\s*$/, '').trim()
+  }
   if (!playerName) return null
+
+  if (isBinaryPropType(market.type)) {
+    const { yes, no } = splitYesNo(market.outcomes)
+    const yp = pickPrice(yes ? market.ladders[yes.outcomeId] : undefined)
+    const np = pickPrice(no ? market.ladders[no.outcomeId] : undefined)
+    if (yp == null && np == null) return null
+    return {
+      propCategory: category,
+      playerName,
+      lineValue: null,
+      overPrice: null, underPrice: null,
+      yesPrice: yp, noPrice: np,
+      isBinary: true,
+    }
+  }
 
   const { over, under } = splitOverUnder(market.outcomes)
   if (!over && !under) return null
   const op = pickPrice(over ? market.ladders[over.outcomeId] : undefined)
   const up = pickPrice(under ? market.ladders[under.outcomeId] : undefined)
   if (op == null && up == null) return null
-
   return {
     propCategory: category,
     playerName,
     lineValue: market.strike || null,
-    overPrice: op,
-    underPrice: up,
-    yesPrice: null,
-    noPrice: null,
+    overPrice: op, underPrice: up,
+    yesPrice: null, noPrice: null,
     isBinary: false,
   }
 }
 
-/** Match a market to an event. Novig's moneyline markets sometimes have
- *  an inlined eventId; when they don't, we resolve by outcome descriptions
- *  matching the event's team symbols. */
+/** Match a market to an event. Tries three paths in order:
+ *  1. market.eventId (sometimes inlined on game markets)
+ *  2. GraphQL-derived {marketId → eventId} map (works for props, whose
+ *     outcomes are Yes/No / Over/Under — no team symbols to match)
+ *  3. outcome-description → team-symbol fallback (works for moneyline
+ *     / spread where outcome descriptions are team abbreviations) */
 function findEventForMarket(
   market: NovigMarket,
   events: Map<string, NovigEvent>,
+  marketToEvent: Map<string, string>,
   leagueFilter: string,
 ): NovigEvent | null {
   if (market.eventId) {
     const byId = events.get(market.eventId)
     if (byId) return byId
+  }
+  const viaMap = marketToEvent.get(market.marketId)
+  if (viaMap) {
+    const ev = events.get(viaMap)
+    if (ev && ev.league === leagueFilter) return ev
   }
   const syms = new Set(market.outcomes.map(o => o.description.toLowerCase()))
   for (const ev of events.values()) {
@@ -397,6 +466,7 @@ export const novigAdapter: BookAdapter = {
       const events = new Map<string, NovigEvent>()
       const markets = new Map<string, NovigMarket>()
       const marketIds = new Set<string>()   // harvested from GraphQL event graph
+      const marketToEvent = new Map<string, string>()   // marketId → eventId
       let graphqlCount = 0
       let batchCount = 0
 
@@ -425,7 +495,7 @@ export const novigAdapter: BookAdapter = {
             graphqlCount++
             const body = await resp.json()
             walkForEvents(body, events)
-            walkForMarketIds(body, marketIds)
+            walkForMarketIds(body, marketIds, marketToEvent)
           } else if (u.includes('/nbx/v1/markets/book/batch')) {
             batchCount++
             const body = await resp.json()
@@ -580,7 +650,7 @@ export const novigAdapter: BookAdapter = {
         let ev: NovigEvent | null = null
         let league: typeof LEAGUES[number] | null = null
         for (const lg of LEAGUES) {
-          const found = findEventForMarket(market, events, lg.leagueApi)
+          const found = findEventForMarket(market, events, marketToEvent, lg.leagueApi)
           if (found) { ev = found; league = lg; break }
         }
         if (!ev || !league) continue
