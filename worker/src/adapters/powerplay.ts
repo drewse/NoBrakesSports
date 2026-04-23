@@ -1,21 +1,25 @@
 import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
 
-// PowerPlay — Ontario-licensed book. Not CF-blocked from direct fetch or
-// CA residential. Platform unknown (Kambi / SBTech / proprietary — the
-// homepage HTML is SPA-only so we need browser discovery to see the
-// real API host). Runs through CA residential (PROXY_URL) to match the
-// geo-license expectation.
+// PowerPlay — Ontario-licensed book. Not CF-blocked at the curl level.
+// First discovery attempt exited in 358 ms with a silent seed error; the
+// helper now surfaces the actual Playwright exception in the log so next
+// fire tells us whether it's a tunnel error, a geo-block, or a nav
+// issue. Routes through CA residential to match the geo-license
+// expectation.
 export const powerplayAdapter = buildOffshoreProbeAdapter({
   slug: 'powerplay',
   name: 'PowerPlay',
-  seedUrl: 'https://on.powerplay.com',
-  // Very loose regex — we don't know the API host yet, so capture every
-  // JSON XHR under the same domain family or any known platform CDN.
-  apiHostRegex: /(powerplay|kambicdn|americanwagering|sbtech|gan|openbet|playtech)[a-zA-Z0-9.-]*\//i,
+  // Try the .ca domain first — .com redirects via Azure gateway which may
+  // have been what was failing on goto. If .ca also fails the improved
+  // error logging will tell us.
+  seedUrl: 'https://www.powerplay.ca',
+  // Tight regex — skip static assets, match only API-shaped paths on any
+  // plausible backend platform. If discovery shows empty we can widen.
+  apiHostRegex: /(powerplay|kambicdn|americanwagering|sbtech|gan-gaming|openbet|playtech)[a-zA-Z0-9.-]*\/(api|v\d+|offering|listView|sportsbook)\//i,
   leaguePaths: [
-    { url: 'https://on.powerplay.com/sports/basketball', leagueSlug: 'nba' },
-    { url: 'https://on.powerplay.com/sports/baseball',   leagueSlug: 'mlb' },
-    { url: 'https://on.powerplay.com/sports/hockey',     leagueSlug: 'nhl' },
+    { url: 'https://www.powerplay.ca/sports/basketball', leagueSlug: 'nba' },
+    { url: 'https://www.powerplay.ca/sports/baseball',   leagueSlug: 'mlb' },
+    { url: 'https://www.powerplay.ca/sports/hockey',     leagueSlug: 'nhl' },
   ],
   useProxy: true,   // PacketStream CA residential
 })

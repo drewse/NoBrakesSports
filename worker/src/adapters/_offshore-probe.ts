@@ -69,6 +69,27 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
         const errors: string[] = []
         const seenPaths = new Map<string, number>()
         const sampleBodies = new Map<string, string>()
+        // Path → first request body + method we saw. Essential for GraphQL
+        // and other POST-bodied APIs: the URL alone doesn't tell us what
+        // query / variables the app is asking for.
+        const sampleRequests = new Map<string, { method: string; body: string }>()
+
+        // Capture request bodies for API paths. We store only the first
+        // one per distinct path + method to cap log volume.
+        page.on('request', (req) => {
+          const u = req.url()
+          if (!cfg.apiHostRegex.test(u)) return
+          try {
+            const p = new URL(u).pathname
+              .replace(/\/[0-9a-f-]{36}/gi, '/:uuid')
+              .replace(/\/\d{3,}/g, '/:id')
+            const key = `${req.method()} ${p}`
+            if (!sampleRequests.has(key) && sampleRequests.size < 20) {
+              const body = req.postData() ?? ''
+              sampleRequests.set(key, { method: req.method(), body: body.slice(0, 1500) })
+            }
+          } catch { /* ignore */ }
+        })
 
         page.on('response', async (resp) => {
           const u = resp.url()
@@ -91,7 +112,12 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
           seedStatus = resp?.status() ?? 0
           await page.waitForTimeout(3_500)
         } catch (e: any) {
-          errors.push(`seed: ${e?.message ?? String(e)}`)
+          // Loud error log — the earlier adapters (powerplay, miseojeu)
+          // returned silently in <400ms because this went to errors[] only.
+          // Surface the exact Playwright message so we can debug.
+          const message = e?.message ?? String(e)
+          log.error('seed failed', { url: cfg.seedUrl, message })
+          errors.push(`seed: ${message}`)
           return { events: scraped, errors }
         }
 
@@ -107,7 +133,9 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
             await page.goto(lg.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
             await page.waitForTimeout(3_000)
           } catch (e: any) {
-            errors.push(`${lg.leagueSlug} nav: ${e?.message ?? String(e)}`)
+            const message = e?.message ?? String(e)
+            log.warn('league nav failed', { league: lg.leagueSlug, url: lg.url, message })
+            errors.push(`${lg.leagueSlug} nav: ${message}`)
           }
         }
 
@@ -115,9 +143,16 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
           distinctPaths: seenPaths.size,
           topPaths: [...seenPaths.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15),
           sampleCount: sampleBodies.size,
+          requestSampleCount: sampleRequests.size,
         })
         for (const [path, body] of sampleBodies) {
           log.info('offshore sample body', { path, len: body.length, preview: body.slice(0, 400) })
+        }
+        // Log captured request bodies — especially important for GraphQL
+        // endpoints like Novig's /v1/graphql where the query is in the body.
+        for (const [key, { method, body }] of sampleRequests) {
+          if (!body) continue
+          log.info('offshore sample request', { key, method, bodyLen: body.length, preview: body.slice(0, 600) })
         }
 
         return { events: scraped, errors }

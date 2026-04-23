@@ -1,19 +1,21 @@
 import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
 
-// Circa Sports — Vegas sharp book, NV-primary with a handful of other
-// states. Homepage HTML returned 200 direct; the dedicated API host
-// (api.circasports.com) 403s on curl but may be just CF bot-detection on
-// non-browser TLS. Discovery via direct Railway Chromium to see whether
-// the SPA's own fetch can reach it.
+// Circa Sports — Vegas sharp book, NV-primary. First discovery attempt
+// used www.circasports.com which turned out to be a WordPress marketing
+// site (captured /wp-content/plugins/... assets, no betting XHRs). The
+// actual betting app lives at betcirca.com (200 direct, no subdomain
+// redirects). Reseeded there; discovery will show us the real API host.
 export const circaAdapter = buildOffshoreProbeAdapter({
   slug: 'circa_sports',
   name: 'Circa Sports',
-  seedUrl: 'https://www.circasports.com',
-  apiHostRegex: /(circasports|cgtechnology|betcg)[a-zA-Z0-9.-]*\//i,
+  seedUrl: 'https://betcirca.com',
+  // Broad on first pass — we don't yet know whether betcirca.com talks to
+  // itself or to a separate API host. Tighten after discovery.
+  apiHostRegex: /(circa|betcirca|cgtechnology|betcg|kambi)[a-zA-Z0-9.-]*\/(api|v\d+|graphql|listView)/i,
   leaguePaths: [
-    { url: 'https://www.circasports.com/sports/basketball', leagueSlug: 'nba' },
-    { url: 'https://www.circasports.com/sports/baseball',   leagueSlug: 'mlb' },
-    { url: 'https://www.circasports.com/sports/hockey',     leagueSlug: 'nhl' },
+    { url: 'https://betcirca.com/nba', leagueSlug: 'nba' },
+    { url: 'https://betcirca.com/mlb', leagueSlug: 'mlb' },
+    { url: 'https://betcirca.com/nhl', leagueSlug: 'nhl' },
   ],
-  useProxy: false,   // direct Railway IP — probe first before deciding on proxy escalation
+  useProxy: false,
 })

@@ -1,18 +1,20 @@
 import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
 
-// Miseojeu — Loto-Québec's sportsbook, QC-only. Government operator, no
-// Cloudflare. Direct Railway IP should be fine but CA residential helps
-// guarantee QC geolocation. Platform is likely Bragg/OpenBet; discovery
-// pass will capture the API host pattern.
+// Miseojeu — Loto-Québec's sportsbook, QC-only. First discovery exited
+// in 330 ms silently; the helper now logs the actual seed error. The
+// site redirects root → /fr/accueil but the betting UI lives under
+// /fr/offre-de-paris/tous-les-sports (grepped from the front-page HTML).
+// CA residential proxy keeps the request inside Canada which the QC
+// operator expects.
 export const miseojeuAdapter = buildOffshoreProbeAdapter({
   slug: 'miseojeu',
   name: 'Miseojeu',
-  seedUrl: 'https://miseojeu.lotoquebec.com/fr/accueil',
-  apiHostRegex: /(lotoquebec|miseojeu|bragg|openbet|scientificgames)[a-zA-Z0-9.-]*\//i,
+  seedUrl: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/tous-les-sports',
+  apiHostRegex: /(lotoquebec|miseojeu|bragg|openbet|scientificgames)[a-zA-Z0-9.-]*\/(api|v\d+|offer|sport)/i,
   leaguePaths: [
     { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/basketball', leagueSlug: 'nba' },
     { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/baseball',   leagueSlug: 'mlb' },
-    { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/hockey',     leagueSlug: 'nhl' },
+    { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/hockey-sur-glace', leagueSlug: 'nhl' },
   ],
-  useProxy: true,   // CA residential — QC operator expects CA traffic
+  useProxy: true,
 })
