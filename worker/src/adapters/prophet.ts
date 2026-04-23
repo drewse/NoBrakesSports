@@ -117,11 +117,28 @@ export const prophetAdapter: BookAdapter = {
         })
       })
 
+      // Diagnostic: log the first 20 distinct prophetx-ish paths we see,
+      // regardless of match — so if the /events endpoint moved we know.
+      const seenPaths = new Set<string>()
+      const pathStatuses: Array<{ path: string; status: number }> = []
+
       page.on('response', async (resp) => {
         const u = resp.url()
+        try {
+          const url = new URL(u)
+          if (/prophetx\.co|prophet/i.test(url.host)) {
+            const p = url.pathname
+            if (!seenPaths.has(p) && seenPaths.size < 30) {
+              seenPaths.add(p)
+              pathStatuses.push({ path: p, status: resp.status() })
+            }
+          }
+        } catch { /* ignore */ }
         if (resp.status() !== 200) return
-        // Match the canonical events endpoint + possible pagination.
-        if (!/\/trade\/public\/api\/v1\/events(\?|$)/.test(u)) return
+        // Widen: match any path containing /events under /api/v1 or
+        // /trade/public/api/v1 so we catch pagination suffixes, detail
+        // endpoints, or a renamed route.
+        if (!/\/(?:trade\/public\/)?api\/v\d+\/events/i.test(u)) return
         try {
           const body = await resp.json()
           walkForProphetEvents(body, captured)
@@ -157,6 +174,7 @@ export const prophetAdapter: BookAdapter = {
         rawCaptured: captured.length,
         uniqueEvents: byId.size,
         wsFrameCount,
+        seenPaths: pathStatuses.slice(0, 30),
       })
 
       // V1 writes events only — prices pending Pusher subscriber. Emit
