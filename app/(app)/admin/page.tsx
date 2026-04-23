@@ -68,6 +68,10 @@ const CA_BOOK_TRACKER: CaBookEntry[] = [
   { name: 'Betano',        slug: 'betano',       platform: 'Kaizen (SSR)',  difficulty: 'hard',   status: 'in_progress', deployedTo: 'railway', gameLevel: false, props: false, frequency: '15 min', notes: 'Discovery confirms events are SSR-rendered into HTML (no events-list XHR). Captured /api/static-content/assets and /api/kb-config paths but no odds feed. Remaining: HTML parser for event cards + per-event betbuilder calls, OR find a hidden JSON endpoint.' },
   { name: 'Casumo',        slug: 'casumo',       platform: 'N/A',           difficulty: 'easy',   status: 'dead',        deployedTo: 'unknown', gameLevel: false, props: false, frequency: null,     notes: 'Casumo CA has no sportsbook product — confirmed. Removed from worker.' },
 
+  // ── Planned CA-only (narrow footprint) ────────────────────────────────
+  { name: 'Miseojeu',      slug: 'miseojeu',     platform: 'Loto-Québec',   difficulty: 'hard',   status: 'planned',     deployedTo: 'unknown', gameLevel: false, props: false, frequency: null,     notes: 'Loto-Québec\'s sports product (QC only). Government-operator, likely no clean API — HTML scrape territory. Low priority.' },
+  { name: 'PowerPlay',     slug: 'powerplay',    platform: 'SBTech / Playtech', difficulty: 'medium', status: 'planned', deployedTo: 'unknown', gameLevel: false, props: false, frequency: null,     notes: 'Ontario-licensed book. Adds another sharp source for AGCO market. Probe needed.' },
+
   // ── Dead / Removed ────────────────────────────────────────────────────
   { name: 'Sports Interaction', slug: 'sports_interaction', platform: 'Entain CDS', difficulty: 'medium', status: 'planned', deployedTo: 'unknown', gameLevel: false, props: false, frequency: null, notes: 'Entain GraphQL API. Needs DevTools investigation' },
   { name: 'Jackpot.bet',   slug: 'jackpotbet',   platform: 'Proprietary',   difficulty: 'hard',   status: 'dead',        deployedTo: 'unknown', gameLevel: false, props: false, frequency: null,     notes: 'Domain parked/dead (confirmed via discovery log)' },
@@ -86,6 +90,58 @@ interface UsaBookEntry {
   states: string[]
   status: ImplStatus
   notes: string
+}
+
+// ── Roadmap tiers for books still to ship ─────────────────────────────
+// Mapping slug → tier, so the tracker stays a single source of truth and
+// tiers can be moved around without touching every row.
+//   T1 — ship next. Highest user-visible lift. Mostly major regulated US
+//        books and the two blocked offshores where the adapter already
+//        exists (LowVig, BetParx) and just awaits a working US-mobile
+//        proxy or a Railway browser-session unlock.
+//   T2 — prediction / exchange markets. Order-book pricing model differs
+//        from sportsbooks; shared "exchange adapter" layer makes the
+//        three plausible together rather than one-by-one.
+//   T3 — offshore sportsbooks (BetUS, BetAnySports, MyBookie, Bookmaker).
+//        Accept nationwide, reduced-juice candidates. Cloudflare-gated;
+//        need the same US-mobile proxy infra as Tier 1 majors.
+//   T4 — US regionals with narrow (single-state or two-state) footprint.
+//        Lowest coverage ROI per adapter; ship when bigger tiers exhaust.
+//   T5 — CA-only additions (Miseojeu, PowerPlay).
+type Tier = 1 | 2 | 3 | 4 | 5
+const TIER_BY_SLUG: Record<string, Tier> = {
+  // Tier 1 — biggest US coverage lift
+  'hard-rock-bet':       1,
+  'lowvig':              1,  // adapter shipped, awaiting Railway US-mobile
+  'betparx':             1,  // needs browser-session scrape on Railway
+  'fliff':               1,
+  'betus':               1,
+  // Tier 2 — exchanges / prediction markets
+  'sporttrade':          2,
+  'novig':               2,
+  'prophet-exchange':    2,
+  // Tier 3 — additional offshore reduced-juice
+  'betanysports':        3,
+  'mybookie':            3,
+  'bookmaker-eu':        3,
+  'sportsbetting-ag':    3,
+  // Tier 4 — US regionals (narrow footprint)
+  'betfred-us':          4,
+  'circa-sports':        4,
+  'betly':               4,
+  'wynnbet':             4,
+  'firekeepers':         4,
+  'four-winds':          4,
+  'eagle-casino-sports': 4,
+  'island-resort':       4,
+  'ocean-casino':        4,
+  'resorts-world-bet':   4,
+  'tipico-us':           4,
+  'desert-diamond':      4,
+  'betsson-us':          4,
+  // Tier 5 — CA-only additions (tracked on CA side but listed for completeness)
+  'miseojeu':            5,
+  'powerplay':           5,
 }
 
 const USA_BOOK_TRACKER: UsaBookEntry[] = [
@@ -148,9 +204,29 @@ const USA_BOOK_TRACKER: UsaBookEntry[] = [
   //     Lines are often competitive; LowVig/BetAnySports specifically run
   //     reduced juice which makes them useful for EV/arb surfaces.
   { name: 'Bovada',              slug: 'bovada',             operator: 'Harp Media B.V.',                 url: 'https://www.bovada.lv',              platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'live', notes: 'First verify fire: 14 events (MLB 7 + NHL 7), 34 markets built, 30 upserted to current_market_odds, 100% match rate. Cron /api/cron/sync-bovada every 5 min. Public JSON /services/sports/event/coupon/events/A/description/{sport}/{league}. Does NOT auto-create events.' },
-  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Panama-licensed. Proprietary API — needs DevTools investigation to map odds feed.' },
+  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Panama-licensed. Probed via PacketStream US: Cloudflare "Just a moment" challenge page. Needs Railway browser session (same stack as Hard Rock/Fanatics). Tier 1.' },
   { name: 'BetAnySports',        slug: 'betanysports',       operator: 'BetAnySports Curaçao',            url: 'https://www.betanysports.eu',        platform: 'ASI / DGS',                  category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Reduced-juice book on the ASI (Digital Gaming) platform — same stack as several other Curaçao books. One adapter may cover multiple.' },
-  { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'blocked', notes: 'Adapter + standalone cron shipped (lib/pipelines/adapters/betonline.ts, /api/cron/sync-betonline). API endpoint confirmed: POST api-offering.betonline.ag/api/offering/Sports/offering-by-league with gsetting header (bolsassite/lvsassite). Cloudflare blocks both Vercel edge IPs (datacenter) AND PacketStream CA residential with HTTP 403 "Internal Error". Needs US residential or mobile proxy to clear the geo/WAF rule. Same constraint as BetParx — one proxy upgrade unlocks both.' },
+  { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'blocked', notes: 'Adapter shipped in BOTH Vercel (blocked 403) AND Railway (worker/adapters/betonline.ts) with us-mobile proxy tier. Cloudflare blocks datacenter + PacketStream CA + PacketStream US with HTTP 403; Railway Playwright with IPRoyal US-mobile is the unlock path. Gated behind BETONLINE_ENABLED=1 + MOBILE_PROXY_URL_US env vars.' },
+  { name: 'Sportsbetting.ag',    slug: 'sportsbetting-ag',   operator: 'BetOnline group',                 url: 'https://www.sportsbetting.ag',       platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Third site on the same SAS platform as BetOnline + LowVig. Should be a one-line add to BETONLINE_OPERATORS once the Railway adapter fires — gsetting value to confirm from DevTools. Blocked behind the same Cloudflare wall.' },
+  { name: 'MyBookie',            slug: 'mybookie',           operator: 'MyBookie.ag',                     url: 'https://www.mybookie.ag',            platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Curaçao-licensed offshore. Own backend (not BetOnline/Kambi/etc.). Needs fresh DevTools probe to map odds API.' },
+  { name: 'Bookmaker.eu',        slug: 'bookmaker-eu',       operator: 'Bookmaker.eu',                    url: 'https://www.bookmaker.eu',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Long-standing offshore. Separate backend. Probe needed.' },
+  { name: 'Stake',               slug: 'stake',              operator: 'Medium Rare N.V.',                url: 'https://stake.us',                   platform: 'Proprietary (crypto)',       category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Crypto-first offshore with a sweepstakes-style US product (Stake.us). Popular in CA/LatAm. Own backend.' },
+  { name: '1XBet',               slug: '1xbet',              operator: '1X Corp N.V.',                    url: 'https://1xbet.com',                  platform: 'Proprietary',                category: 'offshore', states: ['GRAY'], status: 'planned', notes: 'Gray-market globally, accepts US/CA. Legal status is murky — ship behind a feature flag if we add it.' },
+  { name: 'BetCris',             slug: 'betcris',            operator: 'Grupo Caliente',                  url: 'https://betcris.com',                platform: 'Caliente tech',              category: 'offshore', states: ['GRAY'], status: 'planned', notes: 'LatAm-first offshore. Sister to Caliente.mx. Own backend.' },
+
+  // ── Prediction markets / exchanges (order-book pricing) ──────────────
+  { name: 'Fanatics Markets',    slug: 'fanatics-markets',   operator: 'Fanatics Betting and Gaming',     url: 'https://fanaticsmarkets.com',        platform: 'Event contract exchange',    category: 'exchange', states: ['ALL'], status: 'planned', notes: 'Fanatics\' prediction-market product (separate from Fanatics Sportsbook). CFTC-regulated. Worth probing for a REST odds feed.' },
+  { name: 'DraftKings Predictions', slug: 'draftkings-predictions', operator: 'DraftKings Inc.',          url: 'https://sportsbook.draftkings.com/predictions', platform: 'DK backend',         category: 'exchange', states: ['ALL'], status: 'planned', notes: 'DK\'s new federally-licensed prediction market. Likely rides the same DK API surface — check if our DK adapter can add a market-type filter instead of a separate adapter.' },
+  { name: 'Onyx Odds',           slug: 'onyx-odds',          operator: 'Onyx Markets',                    url: 'https://onyxodds.com',               platform: 'Proprietary exchange',       category: 'exchange', states: ['ALL'], status: 'planned', notes: 'Newer US prediction market. Probe required.' },
+  { name: 'BetDex',              slug: 'betdex',             operator: 'BetDex Labs',                     url: 'https://betdex.com',                 platform: 'Solana-based exchange',      category: 'exchange', states: ['GRAY'], status: 'planned', notes: 'On-chain order-book exchange on Solana. Shape very different from a sportsbook — would need a chain-based adapter, not HTTP.' },
+  { name: 'BetOpenly',           slug: 'betopenly',          operator: 'BetOpenly Inc.',                  url: 'https://betopenly.com',              platform: 'P2P exchange',               category: 'exchange', states: ['CO','NJ','OH'], status: 'planned', notes: 'Peer-to-peer. Small liquidity so far but real US footprint.' },
+  { name: 'Rebet',               slug: 'rebet',              operator: 'Rebet Inc.',                      url: 'https://rebet.app',                  platform: 'Social / P2P',               category: 'exchange', states: ['MOST'], status: 'planned', notes: 'Social-betting app with a peer market layer. Mobile-first API (auth tokens).' },
+  { name: 'Coinbase Derivatives', slug: 'coinbase-derivatives', operator: 'Coinbase',                     url: 'https://www.coinbase.com/predictions', platform: 'Kalshi-powered',           category: 'exchange', states: ['ALL'], status: 'covered', notes: 'Coinbase\'s event-contract product routes through Kalshi (same contracts, re-priced). Reuse Kalshi feed.' },
+  { name: 'Crypto.com Markets',  slug: 'crypto-com-markets', operator: 'Crypto.com',                      url: 'https://crypto.com',                 platform: 'Proprietary',                category: 'exchange', states: ['ALL'], status: 'planned', notes: 'Event contracts via CFTC-licensed entity. Sports depth low vs. Kalshi/Polymarket today. Ship later.' },
+
+  // ── Sweepstakes / promo "books" (limited real-money signal) ──────────
+  { name: 'Sportzino',           slug: 'sportzino',          operator: 'Sportzino Inc.',                  url: 'https://sportzino.com',              platform: 'Sweepstakes',                category: 'dfs-sweepstakes', states: ['MOST'], status: 'planned', notes: 'Sweeps model. Limited EV value; low priority.' },
+  { name: 'Thrillzz',            slug: 'thrillzz',           operator: 'Thrillzz',                        url: 'https://thrillzz.com',               platform: 'Sweepstakes',                category: 'dfs-sweepstakes', states: ['MOST'], status: 'planned', notes: 'Small sweeps operator. Tier 4+.' },
 ]
 
 function StatusPill({ status }: { status: ImplStatus }) {
@@ -495,6 +571,61 @@ export default async function AdminPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Roadmap — what to ship next, grouped by tier */}
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-sm font-bold text-white">Roadmap by Tier</h2>
+          <p className="text-[10px] text-nb-500 mt-0.5">
+            Books still to ship, ordered by priority. Tier 1 = biggest user-visible coverage lift.
+            Skips anything already live / covered.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {([1, 2, 3, 4, 5] as const).map(tier => {
+            const books = USA_BOOK_TRACKER.filter(b => TIER_BY_SLUG[b.slug] === tier)
+            if (books.length === 0) return null
+            const tierMeta: Record<number, { label: string; desc: string; accent: string }> = {
+              1: { label: 'Tier 1',  desc: 'Major US books — biggest coverage lift.',    accent: 'border-l-green-500/60 bg-green-500/5' },
+              2: { label: 'Tier 2',  desc: 'Prediction-market exchanges.',              accent: 'border-l-violet-500/60 bg-violet-500/5' },
+              3: { label: 'Tier 3',  desc: 'Additional offshore reduced-juice books.',  accent: 'border-l-red-500/60 bg-red-500/5' },
+              4: { label: 'Tier 4',  desc: 'US regionals — narrow-footprint.',           accent: 'border-l-amber-500/60 bg-amber-500/5' },
+              5: { label: 'Tier 5',  desc: 'CA-only additions.',                         accent: 'border-l-sky-500/60 bg-sky-500/5' },
+            }
+            const meta = tierMeta[tier]
+            return (
+              <Card key={tier} className={`bg-nb-900 border-nb-800 border-l-4 ${meta.accent}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-xs flex items-center justify-between">
+                    <span>{meta.label} · {books.length}</span>
+                    <span className="text-[10px] font-normal text-nb-500">{meta.desc}</span>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <div className="divide-y divide-border/40">
+                    {books.map(b => (
+                      <div key={b.slug} className="px-3 py-2 flex items-center justify-between gap-2">
+                        <div className="min-w-0">
+                          <a href={b.url} target="_blank" rel="noopener noreferrer"
+                            className="text-xs font-semibold text-white hover:underline">
+                            {b.name}
+                          </a>
+                          <p className="text-[10px] text-nb-500 truncate">{b.platform}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <CategoryPill category={b.category} />
+                          <StatusPill status={b.status} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

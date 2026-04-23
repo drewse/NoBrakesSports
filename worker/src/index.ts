@@ -18,7 +18,8 @@ import { eightyEightSportAdapter } from './adapters/eightyeightsport.js'
 import { betanoAdapter } from './adapters/betano.js'
 import { tonybetAdapter } from './adapters/tonybet.js'
 import { ballybetAdapter } from './adapters/ballybet.js'
-import { betonlineAdapter, lowvigAdapter } from './adapters/betonline.js'
+import { betonlineAdapter, lowvigAdapter, sportsbettingAgAdapter } from './adapters/betonline.js'
+import { hardRockAdapter } from './adapters/hardrock.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -42,6 +43,9 @@ const ALL_ADAPTERS: BookAdapter[] = [
   // US offshore — gated by BETONLINE_ENABLED=1, requires MOBILE_PROXY_URL_US
   betonlineAdapter,
   lowvigAdapter,
+  sportsbettingAgAdapter,
+  // US major — gated by HARD_ROCK_ENABLED=1, requires MOBILE_PROXY_URL_US
+  hardRockAdapter,
 ]
 
 const log = createLogger('main')

@@ -35,6 +35,14 @@ const OPERATORS: Operator[] = [
     origin: 'https://www.lowvig.ag',
     seedUrl: 'https://www.lowvig.ag/sportsbook',
     gsetting: 'lvsassite' },
+  // Third site on the same SAS platform as BetOnline/LowVig. gsetting value
+  // is inferred from the SAS naming pattern (bol/lv → sb); if the first
+  // scrape logs HTTP 403 "invalid site" the gsetting needs correcting from
+  // a live DevTools capture of sportsbetting.ag.
+  { slug: 'sportsbetting_ag', name: 'Sportsbetting.ag',
+    origin: 'https://www.sportsbetting.ag',
+    seedUrl: 'https://www.sportsbetting.ag/sportsbook',
+    gsetting: 'sbsassite' },
 ]
 
 const API_URL = 'https://api-offering.betonline.ag/api/offering/Sports/offering-by-league'
@@ -286,3 +294,4 @@ function buildAdapter(op: Operator): BookAdapter {
 
 export const betonlineAdapter: BookAdapter = buildAdapter(OPERATORS[0])
 export const lowvigAdapter: BookAdapter = buildAdapter(OPERATORS[1])
+export const sportsbettingAgAdapter: BookAdapter = buildAdapter(OPERATORS[2])
