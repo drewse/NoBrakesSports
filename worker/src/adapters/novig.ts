@@ -223,26 +223,31 @@ function walkForEvents(body: any, out: Map<string, NovigEvent>) {
       const away = game.awayTeam ?? game.away_team
       const homeSym = String(home?.symbol ?? home?.abbreviation ?? '')
       const awaySym = String(away?.symbol ?? away?.abbreviation ?? '')
-      // Prefer long_name; fall back to short_name/name. Explicitly NOT
-      // falling back to symbol — if we only have a 3-letter abbr we
-      // hydrate from a per-league map instead, otherwise we skip the
-      // event rather than create a duplicate with a short title.
-      let homeName = home?.long_name ?? home?.short_name ?? home?.name ?? ''
-      let awayName = away?.long_name ?? away?.short_name ?? away?.name ?? ''
       const map = ABBR_MAPS[String(league).toUpperCase()]
-      if (map) {
-        // If the captured "name" is really just the symbol (≤4 chars or
-        // equals the symbol field), swap in the map's full name.
-        const looksLikeSymbol = (n: string, s: string) =>
-          !n || n.length <= 4 || n === s
-        if (looksLikeSymbol(String(homeName), homeSym)) {
-          homeName = map[homeSym.toUpperCase()] ?? ''
-        }
-        if (looksLikeSymbol(String(awayName), awaySym)) {
-          awayName = map[awaySym.toUpperCase()] ?? ''
-        }
+      // When the symbol is in our per-league map we always use the map's
+      // canonical full name (e.g. "Minnesota Timberwolves"), even if
+      // Novig returned a short_name like "Timberwolves". Our events
+      // table is keyed on city+nickname, so a nickname-only string
+      // fails the match and auto-creates a stub. Map lookup wins.
+      let homeName = ''
+      let awayName = ''
+      if (map && homeSym && map[homeSym.toUpperCase()]) {
+        homeName = map[homeSym.toUpperCase()]
+      } else {
+        homeName = home?.long_name ?? home?.short_name ?? home?.name ?? ''
       }
-      if (homeName && awayName) {
+      if (map && awaySym && map[awaySym.toUpperCase()]) {
+        awayName = map[awaySym.toUpperCase()]
+      } else {
+        awayName = away?.long_name ?? away?.short_name ?? away?.name ?? ''
+      }
+      // Hard guard: refuse to emit events with obviously-non-canonical
+      // names (empty, too short, or raw symbols). The writer's
+      // auto-create path would otherwise produce stubs like "ATL vs NYK".
+      const looksValid = (n: string, s: string) =>
+        !!n && n.length > 4 && n !== s && !/^[A-Z]{2,4}$/.test(n)
+      if (homeName && awayName &&
+          looksValid(homeName, homeSym) && looksValid(awayName, awaySym)) {
         out.set(id, {
           id,
           league: String(league),
