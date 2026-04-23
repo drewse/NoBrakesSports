@@ -113,7 +113,11 @@ async function fetchOperatorLeague(
     return []
   }
   if (!resp.ok) {
-    console.warn(`[BetOnline:${op.slug}:${lg.leagueSlug}] non-ok`, { status: resp.status })
+    const errBody = await resp.text().catch(() => '')
+    console.warn(`[BetOnline:${op.slug}:${lg.leagueSlug}] non-ok`, { status: resp.status, preview: errBody.slice(0, 200) })
+    if (!__lastScrapeStats.sampleBody) {
+      __lastScrapeStats.sampleBody = `HTTP ${resp.status}: ${errBody.slice(0, 3000)}`
+    }
     return []
   }
 
