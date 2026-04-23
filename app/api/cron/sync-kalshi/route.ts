@@ -189,11 +189,25 @@ export async function GET(request: NextRequest) {
   const { markets, debug } = fetchResult
 
   // Upcoming events needed for moneyline matching.
+  // Include leagues(slug) so we can auto-create missing events under the
+  // correct league_id.
   const nowIso = new Date().toISOString()
   const { data: events } = await db
     .from('events')
-    .select('id, title, start_time, status')
+    .select('id, title, start_time, status, league_id, leagues(slug)')
     .in('status', ['scheduled', 'live'])
+
+  // League slug → league_id for auto-creation of events Kalshi lists but
+  // no sportsbook adapter has posted yet (common: future playoff games).
+  const leagueIdBySlug = new Map<string, string>()
+  {
+    const { data: leagues } = await db.from('leagues').select('id, slug')
+    for (const l of (leagues ?? []) as any[]) leagueIdBySlug.set(l.slug, l.id)
+  }
+
+  const SPORT_TO_LEAGUE_SLUG: Record<Sport, string> = {
+    nba: 'nba', mlb: 'mlb', nhl: 'nhl', nfl: 'nfl',
+  }
 
   const now = new Date().toISOString()
   const predSnapshots: object[] = []
@@ -251,6 +265,7 @@ export async function GET(request: NextRequest) {
   let pairedMoneylines = 0
   let pairedUnmatchedEvent = 0
   let pairedUnmatchedTeam = 0
+  let eventsCreated = 0
   for (const pair of gamePairs.values()) {
     if (!pair.a || !pair.b) continue
     const sport = seriesToSport(pair.seriesTicker)
@@ -263,11 +278,42 @@ export async function GET(request: NextRequest) {
     // Find the canonical event. Match on sorted team-pair within the
     // vs-split title, regardless of home/away order in Kalshi's title.
     const pairKey = [awayFull.toLowerCase(), homeFull.toLowerCase()].sort().join('|')
-    const dbEvent = events?.find((e: any) => {
+    let dbEvent: any = (events ?? []).find((e: any) => {
       const parts = (e.title as string).split(/\s+vs\.?\s+/i)
       if (parts.length !== 2) return false
       return [parts[0].trim().toLowerCase(), parts[1].trim().toLowerCase()].sort().join('|') === pairKey
     })
+
+    // Auto-create missing events. Kalshi lists future playoff games (Game
+    // 4/5/6 of a series) weeks ahead of when sportsbooks post them. Using
+    // close_time as an approximate start_time — usually within minutes of
+    // real tip-off. Other adapters' later writes will de-dupe via the
+    // same team-pair + same day on findEvent.
+    if (!dbEvent) {
+      const leagueSlug = SPORT_TO_LEAGUE_SLUG[sport]
+      const leagueId = leagueIdBySlug.get(leagueSlug)
+      if (!leagueId) { pairedUnmatchedEvent++; continue }
+      const startTime = pair.a.close_time ?? pair.b?.close_time ?? now
+      const title = `${awayFull} vs ${homeFull}`
+      const { data: newEvent, error: evErr } = await db
+        .from('events')
+        .insert({
+          title,
+          start_time: startTime,
+          status: 'scheduled',
+          league_id: leagueId,
+          source_metadata: { created_by: 'sync-kalshi', kalshi_ticker: pair.ticker },
+        })
+        .select('id, title, start_time, league_id')
+        .single()
+      if (newEvent) {
+        dbEvent = newEvent
+        eventsCreated++
+        if (events) (events as any[]).push(newEvent)
+      } else if (evErr) {
+        pairedUnmatchedEvent++; continue
+      }
+    }
     if (!dbEvent) { pairedUnmatchedEvent++; continue }
 
     // Map each Kalshi contract to home or away via yes_sub_title.
@@ -383,6 +429,7 @@ export async function GET(request: NextRequest) {
     moneylinesBuilt: pairedMoneylines,
     moneylinesInserted: marketInserted,
     currentOddsUpserted,
+    eventsCreated,
     pairedUnmatchedEvent,
     pairedUnmatchedTeam,
     debug,
