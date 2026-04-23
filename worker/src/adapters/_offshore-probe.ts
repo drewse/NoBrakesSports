@@ -96,6 +96,25 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
         // still see where the page is talking to.
         const allHosts = new Map<string, number>()
 
+        // WebSocket capture. Some exchange apps (Prophet, Fanatics
+        // Markets) stream live prices over WS (often Pusher). Log URL +
+        // first few frame payloads per connection so we can see if that's
+        // where the real data is flowing. Only collect short previews —
+        // a live price feed can push thousands of frames per minute.
+        const wsFrames: Array<{ url: string; payload: string }> = []
+        page.on('websocket', (ws) => {
+          const wsUrl = ws.url()
+          let framesLogged = 0
+          ws.on('framereceived', (data) => {
+            if (framesLogged >= 6 || wsFrames.length >= 20) return
+            framesLogged++
+            const payload = typeof data.payload === 'string'
+              ? data.payload
+              : Buffer.from(data.payload).toString('utf8')
+            wsFrames.push({ url: wsUrl, payload: payload.slice(0, 500) })
+          })
+        })
+
         page.on('response', async (resp) => {
           const u = resp.url()
           try {
@@ -156,7 +175,15 @@ export function buildOffshoreProbeAdapter(cfg: OffshoreProbeConfig): BookAdapter
           // Distinct response hosts regardless of regex match — tells us
           // where the SPA actually talks to if our regex misses it.
           allHosts: [...allHosts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
+          wsFrameCount: wsFrames.length,
         })
+        for (const f of wsFrames) {
+          log.info('offshore ws frame', {
+            url: f.url.slice(0, 120),
+            len: f.payload.length,
+            preview: f.payload,
+          })
+        }
         for (const [path, body] of sampleBodies) {
           log.info('offshore sample body', { path, len: body.length, preview: body.slice(0, 400) })
         }
