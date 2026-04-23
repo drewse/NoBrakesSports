@@ -491,8 +491,12 @@ export default async function TopEvLinesPage({
     }
   }
 
-  // Sort by EV descending
+  // Sort by EV descending, then cap to top 50 for render perf. Lines
+  // below #50 are typically sub-edge or barely-positive EV that aren't
+  // actionable — trimming them removes a lot of render + hydration cost.
   evLines.sort((a, b) => b.evPct - a.evPct)
+  const TOP_N = 50
+  if (evLines.length > TOP_N) evLines.length = TOP_N
 
   // ── Filters ───────────────────────────────────────────────────────────────
 

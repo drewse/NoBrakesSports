@@ -382,6 +382,11 @@ export default async function ArbitragePage() {
 
   allArbs.sort((a, b) => b.profitPct - a.profitPct)
   const totalArbs = allArbs.length
+  // Cap at top 50 for render perf. Page loads were getting slow once the
+  // aggregate surface grew past a few hundred arbs — and the tail below
+  // #50 is near-zero-edge noise anyway.
+  const TOP_N = 50
+  if (allArbs.length > TOP_N) allArbs.length = TOP_N
 
   function formatPropCat(cat: string): string {
     const labels: Record<string, string> = {
