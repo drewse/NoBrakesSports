@@ -181,6 +181,10 @@ export async function GET(request: NextRequest) {
   let skippedNoPrices = 0
   let skippedNoMarkets = 0
   let matchedToEvent = 0
+  let eventsWithVs = 0            // poly events with 'X vs Y' pattern
+  let eventsMatchedDb = 0         // poly events that matched a DB event
+  let teamOutcomeParsed = 0       // markets where team-outcome parser worked
+  let teamOutcomeFailed = 0       // markets where team-outcome parser returned null
 
   // Track which events already have a market_snapshot from Polymarket this run.
   // Polymarket has many binary markets per game — we only want ONE row per event.
@@ -188,9 +192,11 @@ export async function GET(request: NextRequest) {
 
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
+    if (polyEvent.title && /\s+vs\.?\s+/i.test(polyEvent.title)) eventsWithVs++
 
     // Match at the event level using the Polymarket event title
     const dbEvent = dbEvents?.find(e => titlesMatch(e.title, polyEvent.title)) ?? null
+    if (dbEvent) eventsMatchedDb++
 
     // Parse home/away teams from the DB event title ("Home vs Away")
     let homeTeam: string | null = null
@@ -255,7 +261,8 @@ export async function GET(request: NextRequest) {
       // Requires an event match to resolve home/away.
       if (!dbEvent || !homeTeam || !awayTeam) { skippedNoPrices++; continue }
       const teamPrices = parseTeamOutcomeMoneyline(market, homeTeam, awayTeam)
-      if (!teamPrices) { skippedNoPrices++; continue }
+      if (!teamPrices) { skippedNoPrices++; teamOutcomeFailed++; continue }
+      teamOutcomeParsed++
 
       // Skip if we already wrote a moneyline for this event (futures-style
       // Yes/No market may have fired earlier in the loop).
@@ -305,10 +312,14 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     eventsFound: polyEvents.length,
+    eventsWithVs,
+    eventsMatchedDb,
     marketsProcessed: predSnapshots.length,
     predInserted,
     marketSnapshotsInserted: marketInserted,
     matchedToSportsbookEvent: matchedToEvent,
+    teamOutcomeParsed,
+    teamOutcomeFailed,
     skippedNoMarkets,
     skippedInactive,
     skippedNoPrices,

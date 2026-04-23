@@ -28,35 +28,43 @@ export interface PolymarketEvent {
 
 const PAGE_SIZE = 100
 
-export async function fetchPolymarketEvents(): Promise<PolymarketEvent[]> {
-  const all: PolymarketEvent[] = []
+// Per-league tags carry the per-game moneyline events (e.g. "Rockets vs.
+// Lakers" with outcomes ["Rockets","Lakers"]). The broad "sports" tag
+// returns futures + soccer but appears to push per-game US events past
+// our pagination limits. Fetching per-league tags ensures those events
+// are included; we dedupe by event.id across all four tag pulls.
+const TAG_SLUGS = ['sports', 'nba', 'mlb', 'nhl']
 
+async function fetchByTag(tag: string): Promise<PolymarketEvent[]> {
+  const all: PolymarketEvent[] = []
   for (let page = 0; ; page++) {
     const params = new URLSearchParams({
       active: 'true',
       closed: 'false',
       limit: String(PAGE_SIZE),
       offset: String(page * PAGE_SIZE),
-      tag_slug: 'sports',
+      tag_slug: tag,
     })
-
-    const res = await fetch(`${BASE_URL}/events?${params}`, {
-      next: { revalidate: 0 },
-    })
-
-    if (!res.ok) throw new Error(`Polymarket API ${res.status}: ${await res.text()}`)
-
+    const res = await fetch(`${BASE_URL}/events?${params}`, { next: { revalidate: 0 } })
+    if (!res.ok) throw new Error(`Polymarket API (tag=${tag}) ${res.status}: ${await res.text()}`)
     const data = await res.json()
     const events: PolymarketEvent[] = Array.isArray(data) ? data : (data.events ?? [])
     if (!events.length) break
-
     all.push(...events.map(e => ({ ...e, markets: e.markets ?? [] })))
-
-    // If we got fewer than a full page, we've reached the end
     if (events.length < PAGE_SIZE) break
   }
-
   return all
+}
+
+export async function fetchPolymarketEvents(): Promise<PolymarketEvent[]> {
+  const perTag = await Promise.all(TAG_SLUGS.map(fetchByTag))
+  const byId = new Map<string, PolymarketEvent>()
+  for (const events of perTag) {
+    for (const e of events) {
+      if (!byId.has(e.id)) byId.set(e.id, e)
+    }
+  }
+  return [...byId.values()]
 }
 
 function parseJsonField<T>(field: unknown): T | null {
