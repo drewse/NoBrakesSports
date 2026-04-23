@@ -1,7 +1,31 @@
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createLogger } from './logger.js'
+import { getSupabase } from './supabase.js'
 
 const log = createLogger('browser')
+
+// Threaded through scrape() so openContext can tag bandwidth rows with the
+// right adapter slug without every adapter having to plumb it in.
+export const currentAdapter = new AsyncLocalStorage<{ slug: string }>()
+
+function proxyTierOf(useProxy: unknown): string | null {
+  if (useProxy === 'mobile') return 'mobile'
+  if (useProxy === 'us-mobile') return 'us-mobile'
+  if (useProxy === 'us') return 'us-residential'
+  if (useProxy === true) return 'residential'
+  return null
+}
+
+async function writeProxyUsage(row: { adapter_slug: string; proxy_tier: string; bytes: number; scrape_ms: number }) {
+  try {
+    const db = getSupabase()
+    const { error } = await db.from('proxy_usage_log').insert(row)
+    if (error) log.warn('proxy_usage_log insert failed', { message: error.message, code: error.code })
+  } catch (err: any) {
+    log.warn('proxy_usage_log write threw', { message: err?.message ?? String(err) })
+  }
+}
 
 let _browser: Browser | null = null
 let _launching: Promise<Browser> | null = null
@@ -151,6 +175,33 @@ export async function openContext(opts: {
         return route.abort()
       }
       return route.continue()
+    })
+  }
+
+  // Bandwidth accounting. Every response body length is summed per context;
+  // when the context closes we flush one row per (adapter × proxy tier).
+  // Only instruments proxied contexts — raw Railway IP is free.
+  const tier = proxyTierOf(opts.useProxy)
+  if (tier && proxy) {
+    const adapter = currentAdapter.getStore()?.slug ?? 'unknown'
+    const startedAt = Date.now()
+    let bytes = 0
+    context.on('response', (resp) => {
+      // Fire-and-forget body fetch: Playwright has already buffered the
+      // body, so this is a cheap copy. Skip errors (304, cross-origin
+      // redirect, aborted, etc.) — they contribute negligible bytes.
+      resp.body().then((b) => { bytes += b.byteLength }).catch(() => { /* ignore */ })
+    })
+    context.once('close', () => {
+      // Allow in-flight body() promises to settle before we read bytes.
+      setTimeout(() => {
+        void writeProxyUsage({
+          adapter_slug: adapter,
+          proxy_tier: tier,
+          bytes,
+          scrape_ms: Date.now() - startedAt,
+        })
+      }, 250)
     })
   }
 

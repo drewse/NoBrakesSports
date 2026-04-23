@@ -1,5 +1,6 @@
 import { createLogger, type Logger } from './logger.js'
 import { writeBookResults } from './writer.js'
+import { currentAdapter } from './browser.js'
 import type { RunContext, ScrapeResult } from './types.js'
 
 /** Contract every book adapter implements. */
@@ -80,7 +81,10 @@ async function runOnce(state: RunnerState): Promise<void> {
   try {
     state.log.debug('scrape start')
     const start = Date.now()
-    const result = await state.adapter.scrape({ signal: ctrl.signal, log: state.log })
+    const result = await currentAdapter.run(
+      { slug: state.adapter.slug },
+      () => state.adapter.scrape({ signal: ctrl.signal, log: state.log }),
+    )
 
     await writeBookResults(
       { sourceSlug: state.adapter.slug, sourceName: state.adapter.name },
