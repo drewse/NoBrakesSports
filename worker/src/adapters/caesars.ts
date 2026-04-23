@@ -591,7 +591,7 @@ function extractGameMarketsFromEvent(
 export const caesarsAdapter: BookAdapter = {
   slug: 'caesars',
   name: 'Caesars (Ontario)',
-  pollIntervalSec: 7200,  // 2h — cap IPRoyal mobile cost (~$25-60/mo CA)
+  pollIntervalSec: 3600,  // 1h — main CA mobile book, arb freshness matters
   needsBrowser: true,
 
   async scrape({ signal, log }) {

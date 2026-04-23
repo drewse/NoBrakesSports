@@ -1,112 +1,35 @@
 /**
- * Hard Rock Bet — Playwright (US mobile proxy).
+ * Hard Rock Bet — discovery-mode probe using the shared helper.
  *
- * US footprint: FL (dominant), NJ, IN, OH, TN, VA, AZ. Runs on Hard Rock
- * Digital's own stack (ex-Unibet Kindred engineers rebuilt it post the
- * Kindred US exit). Cloudflare-gated with explicit "disable VPN or WiFi"
- * error codes (CF_WAF_A_CR_DFD7) on any flagged CIDR — so requires a real
- * Chromium session routed through an IPRoyal-class mobile endpoint.
+ * Earlier custom adapter used a tight regex (`app.hardrock.bet/api/`)
+ * that matched zero responses. Rewriting to use buildOffshoreProbeAdapter
+ * gives us allHosts logging + sample body/request capture so we can see
+ * exactly where the app talks to — same flow that unlocked Novig and
+ * revealed Prophet's Pusher subscription.
  *
- * API surface (captured from app.hardrock.bet DevTools):
- *   GET /api/sportsbook/v1/sports/{sport}/leagues/{league}/events
- *       — returns event list with basic markets
- *   GET /api/sportsbook-stream/v1/matches/upcoming?sportName={sport}
- *       — upcoming fixtures stream, includes moneyline/spread/total
- *
- * Shape isn't fully reverse-engineered yet — this adapter runs in
- * discovery mode: seeds the app, captures every /api/sportsbook and
- * /api/sportsbook-stream XHR, logs the top path patterns + one sample
- * body per distinct path so the next iteration can wire a parser.
- * Gated by HARD_ROCK_ENABLED=1 until US mobile proxy is funded.
+ * When the next discovery cycle runs we'll see in logs:
+ *   - allHosts: every host the SPA hit (API backend likely here)
+ *   - topPaths: API path patterns by frequency
+ *   - offshore sample body: first 2 KB of each distinct JSON response
+ * and wire the real parser on iteration 2.
  */
 
-import { withPage } from '../lib/browser.js'
-import type { BookAdapter } from '../lib/adapter.js'
-import type { ScrapeResult, ScrapedEvent } from '../lib/types.js'
+import { buildOffshoreProbeAdapter } from './_offshore-probe.js'
 
-const SEED_URL = 'https://app.hardrock.bet/sports'
-const API_HOST_RE = /app\.hardrock\.bet\/api\//i
-
-// League landing pages — visiting these triggers the SPA's own XHRs for
-// per-league event lists + markets, which we passively capture.
-const LEAGUE_URLS: Array<{ url: string; leagueSlug: string; sport: string }> = [
-  { url: 'https://app.hardrock.bet/sports/basketball/nba',    leagueSlug: 'nba', sport: 'basketball' },
-  { url: 'https://app.hardrock.bet/sports/baseball/mlb',      leagueSlug: 'mlb', sport: 'baseball' },
-  { url: 'https://app.hardrock.bet/sports/hockey/nhl',        leagueSlug: 'nhl', sport: 'ice_hockey' },
-  { url: 'https://app.hardrock.bet/sports/football/nfl',      leagueSlug: 'nfl', sport: 'football' },
-]
-
-export const hardRockAdapter: BookAdapter = {
+export const hardRockAdapter = buildOffshoreProbeAdapter({
   slug: 'hard_rock_bet',
   name: 'Hard Rock Bet',
-  pollIntervalSec: 7200,  // 2h — cap IPRoyal US-mobile cost
-  needsBrowser: true,
-
-  async scrape({ signal, log }) {
-    if (signal.aborted) return { events: [], errors: ['aborted'] }
-
-    // Activates automatically once any US proxy is configured on Railway.
-    // Try PROXY_URL_US (PacketStream) first — mobile is a paid escalation.
-    if (!process.env.MOBILE_PROXY_URL_US && !process.env.PROXY_URL_US) {
-      log.info('skipped — set PROXY_URL_US (PacketStream) or MOBILE_PROXY_URL_US (IPRoyal) on Railway to activate')
-      return { events: [], errors: [] }
-    }
-
-    return withPage(async (page) => {
-      const errors: string[] = []
-      const scraped: ScrapedEvent[] = []
-
-      const seenPaths = new Map<string, number>()
-      const sampleBodies = new Map<string, string>()   // path-pattern → first body
-
-      page.on('response', async (resp) => {
-        const u = resp.url()
-        if (!API_HOST_RE.test(u)) return
-        try {
-          const path = new URL(u).pathname
-            .replace(/\/[0-9a-f-]{36}/gi, '/:uuid')
-            .replace(/\/\d{3,}/g, '/:id')
-          seenPaths.set(path, (seenPaths.get(path) ?? 0) + 1)
-          if (resp.status() === 200 && !sampleBodies.has(path) && sampleBodies.size < 10) {
-            try { sampleBodies.set(path, (await resp.text()).slice(0, 2500)) } catch { /* body closed */ }
-          }
-        } catch { /* non-URL */ }
-      })
-
-      log.info('seeding hardrock session', { url: SEED_URL })
-      try {
-        await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 })
-        await page.waitForTimeout(3_000)   // let CF cookies settle + initial XHRs fire
-      } catch (e: any) {
-        errors.push(`seed: ${e?.message ?? String(e)}`)
-        return { events: scraped, errors }
-      }
-
-      // Visit each league page — the SPA fires league-specific event calls
-      // that we capture.
-      for (const lg of LEAGUE_URLS) {
-        if (signal.aborted) break
-        try {
-          await page.goto(lg.url, { waitUntil: 'domcontentloaded', timeout: 30_000 })
-          await page.waitForTimeout(3_500)
-        } catch (e: any) {
-          errors.push(`${lg.leagueSlug} nav: ${e?.message ?? String(e)}`)
-        }
-      }
-
-      log.info('hardrock discovery', {
-        distinctPaths: seenPaths.size,
-        topPaths: [...seenPaths.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
-      })
-      for (const [path, body] of sampleBodies) {
-        log.info('hardrock sample body', { path, len: body.length, preview: body.slice(0, 500) })
-      }
-
-      // Parser not yet wired — we're in discovery mode. Next iteration:
-      // inspect logged samples, pick the event-list + markets endpoints,
-      // write mapEvent / extractMarkets functions, populate scraped[].
-
-      return { events: scraped, errors }
-    }, { useProxy: 'us-mobile', rotateSession: true })
-  },
-}
+  seedUrl: 'https://app.hardrock.bet/sports',
+  // Path-shape match that catches any JSON-API-looking path on any host.
+  // The helper also logs allHosts regardless of regex match, so even if
+  // this misses, we see where data flows.
+  apiHostRegex: /\/(api|graphql|v\d+|rpc|sports|markets|events|offering|book|trading)(\/|\?|$)/i,
+  leaguePaths: [
+    { url: 'https://app.hardrock.bet/sports/basketball/nba', leagueSlug: 'nba' },
+    { url: 'https://app.hardrock.bet/sports/baseball/mlb',   leagueSlug: 'mlb' },
+    { url: 'https://app.hardrock.bet/sports/hockey/nhl',     leagueSlug: 'nhl' },
+    { url: 'https://app.hardrock.bet/sports/football/nfl',   leagueSlug: 'nfl' },
+  ],
+  useProxy: 'us-mobile',
+  pollIntervalSec: 7200,  // 2h during discovery
+})

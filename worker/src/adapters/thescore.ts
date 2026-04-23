@@ -239,7 +239,7 @@ function extractGameMarkets(e: TsbEvent, home: string, away: string): GameMarket
 export const thescoreAdapter: BookAdapter = {
   slug: 'thescore',
   name: 'theScore Bet (Ontario)',
-  pollIntervalSec: 7200,  // 2h — cap IPRoyal mobile cost
+  pollIntervalSec: 3600,  // 1h — arb freshness matters for this one
   needsBrowser: true,
 
   async scrape({ signal, log }) {
