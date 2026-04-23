@@ -1,23 +1,32 @@
 /**
  * Prophet Exchange — US sports order-book exchange (NJ/OH/IN).
  *
- * REST surface (captured via discovery):
- *   GET /trade/public/api/v1/events
- *     Paginated event list:
- *       { next: N, len: N,
- *         data: [{ name: "Knicks at Hawks",
- *                  sport:      { id, name },
- *                  tournament: { id, name },    // "NBA" / "MLB" / "NHL" / …
- *                  season:     { id, name },
- *                  startDate?, venue?, … }] }
- *   GET /trade/public/api/v1/events/:id  (per-event detail; probes below)
+ * Status: BLOCKED on authentication flow.
  *
- * Live price updates flow over Pusher WebSockets (cluster mt1, app_id
- * 1810913, key c975574818f436e8dd4a). The app subscribes to channels
- * keyed by market/event UUID. A subscriber adapter is a separate project
- * — for V1 we write Prophet's event roster + any embedded market lines
- * that come back on the REST side. Prices will backfill once the
- * subscriber lands.
+ * Discovery showed the app (www.prophetx.co, Nuxt SPA) uses Pusher
+ * WebSockets (cluster mt1, key c975574818f436e8dd4a) for real-time
+ * data. But captured WS frames are handshake-only —
+ *   pusher:connection_established
+ *   pusher:signin_success  (anonymous user_id issued)
+ *   pusher_internal:subscription_succeeded  on channel
+ *     #server-to-user-{userId}  (PRIVATE, user-scoped)
+ * No public event/market channels appear on an anonymous session, so
+ * just visiting the app yields zero data.
+ *
+ * The /trade/public/api/v1/events REST endpoint DID fire in one
+ * earlier session (visible in session #1's discovery capture) but
+ * stopped firing in subsequent sessions — suggesting it's tied to a
+ * specific SPA interaction we aren't triggering. Would need one of:
+ *   - Real auth + session, then subscribe to private channels
+ *   - Automated page.click into individual event cards to force the
+ *     markets XHR / WS subscribe
+ *   - Reverse-engineer the public Pusher channel naming scheme and
+ *     subscribe directly, bypassing the app
+ *
+ * For now the adapter polls at 30-min cadence, captures WS frame
+ * payloads + any events-endpoint responses that happen to fire, and
+ * writes whatever it finds. Typical cycle: 0 events, ~25 handshake
+ * frames — near-zero Railway CPU cost until we unblock.
  */
 
 import { withPage } from '../lib/browser.js'
@@ -94,8 +103,9 @@ function walkForProphetEvents(body: any, out: ProphetEvent[]) {
 export const prophetAdapter: BookAdapter = {
   slug: 'prophet_exchange',
   name: 'Prophet Exchange',
-  pollIntervalSec: 600,   // 10 min — events list is slow-moving, prices will
-                          // come via WS subscriber once that lands
+  pollIntervalSec: 1800,  // 30 min — parked pending auth flow; reduced
+                          // from 10 min since anonymous sessions produce
+                          // zero data
   needsBrowser: true,
 
   async scrape({ signal, log }) {
