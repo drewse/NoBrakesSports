@@ -104,16 +104,32 @@ export const prophetAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const captured: ProphetEvent[] = []
-      // Also track any WS frames that come through passively — useful
-      // for the subscriber adapter we'll build next.
+      // seenPaths diagnostic showed the /trade/public/api/v1/events
+      // endpoint isn't being hit on this cycle — the 22 WS frames + lack
+      // of REST events suggest event + price data both flow over Pusher.
+      // Capture frame payloads so we can see what Pusher actually carries.
       let wsFrameCount = 0
+      const wsFrames: Array<{ wsUrl: string; payload: string }> = []
+      const wsUrls = new Set<string>()
 
       page.on('websocket', (ws) => {
+        const wsUrl = ws.url()
+        wsUrls.add(wsUrl)
         let n = 0
-        ws.on('framereceived', () => {
+        ws.on('framereceived', (data) => {
           wsFrameCount++
           n++
-          if (n > 50) return   // cap per-connection logging
+          if (wsFrames.length >= 25) return
+          const payload = typeof data.payload === 'string'
+            ? data.payload
+            : Buffer.from(data.payload).toString('utf8')
+          // Pusher sends an initial connection_established frame + pings
+          // that aren't useful — keep only frames that look like data
+          // messages (contain "event" or "data" substrings beyond the
+          // first few bytes).
+          if (payload.length > 60 || /"event"/.test(payload)) {
+            wsFrames.push({ wsUrl, payload: payload.slice(0, 800) })
+          }
         })
       })
 
@@ -174,8 +190,16 @@ export const prophetAdapter: BookAdapter = {
         rawCaptured: captured.length,
         uniqueEvents: byId.size,
         wsFrameCount,
+        wsUrls: [...wsUrls],
         seenPaths: pathStatuses.slice(0, 30),
       })
+      for (const f of wsFrames) {
+        log.info('prophet ws frame', {
+          wsUrl: f.wsUrl.slice(0, 120),
+          len: f.payload.length,
+          preview: f.payload,
+        })
+      }
 
       // V1 writes events only — prices pending Pusher subscriber. Emit
       // one ScrapedEvent per captured game with empty gameMarkets/props.
