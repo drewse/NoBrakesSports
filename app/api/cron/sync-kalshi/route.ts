@@ -27,54 +27,86 @@ function probToAmerican(p: number): number | null {
 // city-only or shortened team names in yes_sub_title (e.g. "Phoenix",
 // "Oklahoma City") while our events.title uses full names ("Phoenix Suns",
 // "Oklahoma City Thunder").
-const CITY_TO_FULL: Record<string, string> = {
-  // NBA
-  'Atlanta':'Atlanta Hawks', 'Boston':'Boston Celtics', 'Brooklyn':'Brooklyn Nets',
-  'Charlotte':'Charlotte Hornets', 'Chicago':'Chicago Bulls',
-  'Cleveland':'Cleveland Cavaliers', 'Dallas':'Dallas Mavericks',
-  'Denver':'Denver Nuggets', 'Detroit':'Detroit Pistons',
-  'Golden State':'Golden State Warriors', 'Houston':'Houston Rockets',
-  'Indiana':'Indiana Pacers', 'LA Clippers':'LA Clippers',
-  'Los Angeles Lakers':'Los Angeles Lakers', 'LA Lakers':'Los Angeles Lakers',
-  'Memphis':'Memphis Grizzlies', 'Miami':'Miami Heat',
-  'Milwaukee':'Milwaukee Bucks', 'Minnesota':'Minnesota Timberwolves',
-  'New Orleans':'New Orleans Pelicans', 'New York':'New York Knicks',
-  'Oklahoma City':'Oklahoma City Thunder', 'Orlando':'Orlando Magic',
-  'Philadelphia':'Philadelphia 76ers', 'Phoenix':'Phoenix Suns',
-  'Portland':'Portland Trail Blazers', 'Sacramento':'Sacramento Kings',
-  'San Antonio':'San Antonio Spurs', 'Toronto':'Toronto Raptors',
-  'Utah':'Utah Jazz', 'Washington':'Washington Wizards',
-  // MLB (cities alone are usually ambiguous, but Kalshi uses the city
-  // scoped by the series, so same map works — overridden per-sport below)
-  'Arizona':'Arizona Diamondbacks', 'Baltimore':'Baltimore Orioles',
-  'Chicago Cubs':'Chicago Cubs', 'Chicago White Sox':'Chicago White Sox',
-  'Cincinnati':'Cincinnati Reds', 'Colorado':'Colorado Rockies',
-  'Kansas City':'Kansas City Royals', 'Los Angeles Angels':'Los Angeles Angels',
-  'Los Angeles Dodgers':'Los Angeles Dodgers', 'Miami Marlins':'Miami Marlins',
-  'Milwaukee Brewers':'Milwaukee Brewers', 'Minnesota Twins':'Minnesota Twins',
-  'New York Mets':'New York Mets', 'New York Yankees':'New York Yankees',
-  'Oakland':'Oakland Athletics', 'Athletics':'Athletics',
-  'Pittsburgh':'Pittsburgh Pirates', 'San Diego':'San Diego Padres',
-  'Seattle':'Seattle Mariners', 'San Francisco':'San Francisco Giants',
-  'St. Louis':'St. Louis Cardinals', 'Tampa Bay':'Tampa Bay Rays',
-  'Texas':'Texas Rangers', 'Washington Nationals':'Washington Nationals',
-  // NHL
-  'Anaheim':'Anaheim Ducks', 'Buffalo':'Buffalo Sabres',
-  'Calgary':'Calgary Flames', 'Carolina':'Carolina Hurricanes',
-  'Columbus':'Columbus Blue Jackets', 'Edmonton':'Edmonton Oilers',
-  'Florida':'Florida Panthers', 'Montreal':'Montreal Canadiens',
-  'Nashville':'Nashville Predators', 'New Jersey':'New Jersey Devils',
-  'NY Islanders':'New York Islanders', 'NY Rangers':'New York Rangers',
-  'Ottawa':'Ottawa Senators', 'Vancouver':'Vancouver Canucks',
-  'Vegas':'Vegas Golden Knights', 'Winnipeg':'Winnipeg Jets',
-  'San Jose':'San Jose Sharks', 'Philadelphia Flyers':'Philadelphia Flyers',
-  'Pittsburgh Penguins':'Pittsburgh Penguins', 'Tampa Bay Lightning':'Tampa Bay Lightning',
-  'St. Louis Blues':'St. Louis Blues',
+// City / short-name → full team name, scoped PER SPORT. Cities collide
+// across leagues (Miami Heat/Marlins, Chicago Bulls/Cubs/White Sox, etc.)
+// so a single map silently mis-resolves MLB/NHL contracts. Series ticker
+// (KXNBAGAME / KXMLBGAME / KXNHLGAME / KXNFLGAME) determines which map.
+type Sport = 'nba' | 'mlb' | 'nhl' | 'nfl'
+
+const CITY_MAPS: Record<Sport, Record<string, string>> = {
+  nba: {
+    'Atlanta':'Atlanta Hawks','Boston':'Boston Celtics','Brooklyn':'Brooklyn Nets',
+    'Charlotte':'Charlotte Hornets','Chicago':'Chicago Bulls',
+    'Cleveland':'Cleveland Cavaliers','Dallas':'Dallas Mavericks',
+    'Denver':'Denver Nuggets','Detroit':'Detroit Pistons',
+    'Golden State':'Golden State Warriors','Houston':'Houston Rockets',
+    'Indiana':'Indiana Pacers','LA Clippers':'LA Clippers','Clippers':'LA Clippers',
+    'Los Angeles':'Los Angeles Lakers','LA Lakers':'Los Angeles Lakers','Lakers':'Los Angeles Lakers',
+    'Memphis':'Memphis Grizzlies','Miami':'Miami Heat',
+    'Milwaukee':'Milwaukee Bucks','Minnesota':'Minnesota Timberwolves',
+    'New Orleans':'New Orleans Pelicans','New York':'New York Knicks','Knicks':'New York Knicks',
+    'Oklahoma City':'Oklahoma City Thunder','Orlando':'Orlando Magic',
+    'Philadelphia':'Philadelphia 76ers','Phoenix':'Phoenix Suns',
+    'Portland':'Portland Trail Blazers','Sacramento':'Sacramento Kings',
+    'San Antonio':'San Antonio Spurs','Toronto':'Toronto Raptors',
+    'Utah':'Utah Jazz','Washington':'Washington Wizards',
+  },
+  mlb: {
+    'Arizona':'Arizona Diamondbacks','Atlanta':'Atlanta Braves',
+    'Baltimore':'Baltimore Orioles','Boston':'Boston Red Sox',
+    'Chicago Cubs':'Chicago Cubs','Chicago White Sox':'Chicago White Sox',
+    'Cubs':'Chicago Cubs','White Sox':'Chicago White Sox',
+    'Cincinnati':'Cincinnati Reds','Cleveland':'Cleveland Guardians',
+    'Colorado':'Colorado Rockies','Detroit':'Detroit Tigers',
+    'Houston':'Houston Astros','Kansas City':'Kansas City Royals',
+    'Los Angeles Angels':'Los Angeles Angels','LA Angels':'Los Angeles Angels','Angels':'Los Angeles Angels',
+    'Los Angeles Dodgers':'Los Angeles Dodgers','LA Dodgers':'Los Angeles Dodgers','Dodgers':'Los Angeles Dodgers',
+    'Miami':'Miami Marlins','Milwaukee':'Milwaukee Brewers',
+    'Minnesota':'Minnesota Twins',
+    'New York Mets':'New York Mets','New York Yankees':'New York Yankees',
+    'Mets':'New York Mets','Yankees':'New York Yankees',
+    'NY Mets':'New York Mets','NY Yankees':'New York Yankees',
+    'Oakland':'Oakland Athletics','Athletics':'Athletics',
+    'Philadelphia':'Philadelphia Phillies','Pittsburgh':'Pittsburgh Pirates',
+    'San Diego':'San Diego Padres','San Francisco':'San Francisco Giants',
+    'Seattle':'Seattle Mariners','St. Louis':'St. Louis Cardinals',
+    'Tampa Bay':'Tampa Bay Rays','Texas':'Texas Rangers',
+    'Toronto':'Toronto Blue Jays','Washington':'Washington Nationals',
+  },
+  nhl: {
+    'Anaheim':'Anaheim Ducks','Boston':'Boston Bruins',
+    'Buffalo':'Buffalo Sabres','Calgary':'Calgary Flames',
+    'Carolina':'Carolina Hurricanes','Chicago':'Chicago Blackhawks',
+    'Colorado':'Colorado Avalanche','Columbus':'Columbus Blue Jackets',
+    'Dallas':'Dallas Stars','Detroit':'Detroit Red Wings',
+    'Edmonton':'Edmonton Oilers','Florida':'Florida Panthers',
+    'Los Angeles':'Los Angeles Kings','LA Kings':'Los Angeles Kings','Kings':'Los Angeles Kings',
+    'Minnesota':'Minnesota Wild','Montreal':'Montreal Canadiens',
+    'Nashville':'Nashville Predators','New Jersey':'New Jersey Devils',
+    'NY Islanders':'New York Islanders','NY Rangers':'New York Rangers',
+    'Islanders':'New York Islanders','Rangers':'New York Rangers',
+    'Ottawa':'Ottawa Senators','Philadelphia':'Philadelphia Flyers',
+    'Pittsburgh':'Pittsburgh Penguins','San Jose':'San Jose Sharks',
+    'Seattle':'Seattle Kraken','St. Louis':'St. Louis Blues',
+    'Tampa Bay':'Tampa Bay Lightning','Toronto':'Toronto Maple Leafs',
+    'Utah':'Utah Hockey Club','Vancouver':'Vancouver Canucks',
+    'Vegas':'Vegas Golden Knights','Washington':'Washington Capitals',
+    'Winnipeg':'Winnipeg Jets',
+  },
+  nfl: {},
 }
 
-function resolveFullName(cityOrName: string): string {
+function seriesToSport(series: string): Sport | null {
+  if (series === 'KXNBAGAME') return 'nba'
+  if (series === 'KXMLBGAME') return 'mlb'
+  if (series === 'KXNHLGAME') return 'nhl'
+  if (series === 'KXNFLGAME') return 'nfl'
+  return null
+}
+
+function resolveFullName(sport: Sport, cityOrName: string): string {
   const s = cityOrName.trim()
-  return CITY_TO_FULL[s] ?? s
+  return CITY_MAPS[sport][s] ?? s
 }
 
 /** Parse a Kalshi game-market title like "Game 4: Oklahoma City at Phoenix
@@ -182,10 +214,12 @@ export async function GET(request: NextRequest) {
   let pairedUnmatchedTeam = 0
   for (const pair of gamePairs.values()) {
     if (!pair.a || !pair.b) continue
+    const sport = seriesToSport(pair.seriesTicker)
+    if (!sport) { pairedUnmatchedTeam++; continue }
     const parsed = parseGameTitle(pair.a.title)
     if (!parsed) { pairedUnmatchedTeam++; continue }
-    const awayFull = resolveFullName(parsed.away)
-    const homeFull = resolveFullName(parsed.home)
+    const awayFull = resolveFullName(sport, parsed.away)
+    const homeFull = resolveFullName(sport, parsed.home)
 
     // Find the canonical event. Match on sorted team-pair within the
     // vs-split title, regardless of home/away order in Kalshi's title.
@@ -200,8 +234,8 @@ export async function GET(request: NextRequest) {
     // Map each Kalshi contract to home or away via yes_sub_title.
     const aSub = ((pair.a as any).yes_sub_title ?? '').trim()
     const bSub = ((pair.b as any).yes_sub_title ?? '').trim()
-    const aFull = resolveFullName(aSub)
-    const bFull = resolveFullName(bSub)
+    const aFull = resolveFullName(sport, aSub)
+    const bFull = resolveFullName(sport, bSub)
 
     const aIsHome = aFull.toLowerCase() === homeFull.toLowerCase()
     const bIsHome = bFull.toLowerCase() === homeFull.toLowerCase()
