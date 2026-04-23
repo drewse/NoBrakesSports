@@ -122,11 +122,12 @@ const TIER_BY_SLUG: Record<string, Tier> = {
   'sporttrade':          2,
   'novig':               2,
   'prophet-exchange':    2,
-  // Tier 3 — additional offshore reduced-juice
+  // Tier 3 — additional offshore reduced-juice. MyBookie/Bookmaker/BetUS
+  // are live in Railway discovery mode the moment PROXY_URL_US is set.
   'betanysports':        3,
   'mybookie':            3,
-  'bookmaker-eu':        3,
-  'sportsbetting-ag':    3,
+  'bookmaker_eu':        3,
+  'sportsbetting_ag':    3,
   // Tier 4 — US regionals (narrow footprint)
   'betfred-us':          4,
   'circa-sports':        4,
@@ -206,12 +207,12 @@ const USA_BOOK_TRACKER: UsaBookEntry[] = [
   //     Lines are often competitive; LowVig/BetAnySports specifically run
   //     reduced juice which makes them useful for EV/arb surfaces.
   { name: 'Bovada',              slug: 'bovada',             operator: 'Harp Media B.V.',                 url: 'https://www.bovada.lv',              platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'live', notes: 'First verify fire: 14 events (MLB 7 + NHL 7), 34 markets built, 30 upserted to current_market_odds, 100% match rate. Cron /api/cron/sync-bovada every 5 min. Public JSON /services/sports/event/coupon/events/A/description/{sport}/{league}. Does NOT auto-create events.' },
-  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Panama-licensed. Probed via PacketStream US: Cloudflare "Just a moment" challenge page. Needs Railway browser session (same stack as Hard Rock/Fanatics). Tier 1.' },
+  { name: 'BetUS',               slug: 'betus',              operator: 'BetUS Gaming',                    url: 'https://www.betus.com.pa',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'in_progress', notes: 'Railway discovery adapter (worker/adapters/betus.ts) — activates on PROXY_URL_US. Seeds the sportsbook via Chromium + captures /api/* XHR paths so we can wire the real parser from the first deploy\'s log output.' },
   { name: 'BetAnySports',        slug: 'betanysports',       operator: 'BetAnySports Curaçao',            url: 'https://www.betanysports.eu',        platform: 'ASI / DGS',                  category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Reduced-juice book on the ASI (Digital Gaming) platform — same stack as several other Curaçao books. One adapter may cover multiple.' },
   { name: 'LowVig',              slug: 'lowvig',             operator: 'BetOnline group',                 url: 'https://www.lowvig.ag',              platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'blocked', notes: 'Adapter shipped in BOTH Vercel (blocked 403) AND Railway (worker/adapters/betonline.ts) with us-mobile proxy tier. Cloudflare blocks datacenter + PacketStream CA + PacketStream US with HTTP 403; Railway Playwright with IPRoyal US-mobile is the unlock path. Gated behind BETONLINE_ENABLED=1 + MOBILE_PROXY_URL_US env vars.' },
   { name: 'Sportsbetting.ag',    slug: 'sportsbetting-ag',   operator: 'BetOnline group',                 url: 'https://www.sportsbetting.ag',       platform: 'Proprietary (BetOnline)',    category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Third site on the same SAS platform as BetOnline + LowVig. Should be a one-line add to BETONLINE_OPERATORS once the Railway adapter fires — gsetting value to confirm from DevTools. Blocked behind the same Cloudflare wall.' },
-  { name: 'MyBookie',            slug: 'mybookie',           operator: 'MyBookie.ag',                     url: 'https://www.mybookie.ag',            platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Curaçao-licensed offshore. Own backend (not BetOnline/Kambi/etc.). Needs fresh DevTools probe to map odds API.' },
-  { name: 'Bookmaker.eu',        slug: 'bookmaker-eu',       operator: 'Bookmaker.eu',                    url: 'https://www.bookmaker.eu',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Long-standing offshore. Separate backend. Probe needed.' },
+  { name: 'MyBookie',            slug: 'mybookie',           operator: 'MyBookie.ag',                     url: 'https://www.mybookie.ag',            platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'in_progress', notes: 'Railway discovery adapter (worker/adapters/mybookie.ts) — activates on PROXY_URL_US. Passive XHR capture on first deploy surfaces the odds feed; parser lands next iteration.' },
+  { name: 'Bookmaker.eu',        slug: 'bookmaker_eu',       operator: 'Bookmaker.eu',                    url: 'https://www.bookmaker.eu',           platform: 'Proprietary',                category: 'offshore', states: ['ALL'], status: 'in_progress', notes: 'Railway discovery adapter (worker/adapters/bookmaker-eu.ts) — activates on PROXY_URL_US.' },
   { name: 'Stake',               slug: 'stake',              operator: 'Medium Rare N.V.',                url: 'https://stake.us',                   platform: 'Proprietary (crypto)',       category: 'offshore', states: ['ALL'], status: 'planned', notes: 'Crypto-first offshore with a sweepstakes-style US product (Stake.us). Popular in CA/LatAm. Own backend.' },
   { name: '1XBet',               slug: '1xbet',              operator: '1X Corp N.V.',                    url: 'https://1xbet.com',                  platform: 'Proprietary',                category: 'offshore', states: ['GRAY'], status: 'planned', notes: 'Gray-market globally, accepts US/CA. Legal status is murky — ship behind a feature flag if we add it.' },
   { name: 'BetCris',             slug: 'betcris',            operator: 'Grupo Caliente',                  url: 'https://betcris.com',                platform: 'Caliente tech',              category: 'offshore', states: ['GRAY'], status: 'planned', notes: 'LatAm-first offshore. Sister to Caliente.mx. Own backend.' },

@@ -45,8 +45,10 @@ export const hardRockAdapter: BookAdapter = {
   async scrape({ signal, log }) {
     if (signal.aborted) return { events: [], errors: ['aborted'] }
 
-    if (process.env.HARD_ROCK_ENABLED !== '1') {
-      log.info('skipped — set HARD_ROCK_ENABLED=1 + MOBILE_PROXY_URL_US to activate')
+    // Activates automatically once any US proxy is configured on Railway.
+    // Try PROXY_URL_US (PacketStream) first — mobile is a paid escalation.
+    if (!process.env.MOBILE_PROXY_URL_US && !process.env.PROXY_URL_US) {
+      log.info('skipped — set PROXY_URL_US (PacketStream) or MOBILE_PROXY_URL_US (IPRoyal) on Railway to activate')
       return { events: [], errors: [] }
     }
 

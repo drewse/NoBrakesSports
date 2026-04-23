@@ -216,9 +216,13 @@ function buildAdapter(op: Operator): BookAdapter {
     async scrape({ signal, log }) {
       if (signal.aborted) return { events: [], errors: ['aborted'] }
 
-      // Explicit enable gate — costly proxy tier, don't burn unless opted in.
-      if (process.env.BETONLINE_ENABLED !== '1') {
-        log.info('skipped — set BETONLINE_ENABLED=1 to activate (requires MOBILE_PROXY_URL_US)')
+      // Runs whenever a US proxy URL is configured on Railway. Prefers
+      // MOBILE_PROXY_URL_US (IPRoyal), falls back to PROXY_URL_US
+      // (PacketStream residential — free tier worth testing first: real
+      // Chromium TLS through a residential IP sometimes clears CF where
+      // curl-through-the-same-IP fails).
+      if (!process.env.MOBILE_PROXY_URL_US && !process.env.PROXY_URL_US) {
+        log.info('skipped — set PROXY_URL_US (PacketStream) or MOBILE_PROXY_URL_US (IPRoyal) on Railway to activate')
         return { events: [], errors: [] }
       }
 

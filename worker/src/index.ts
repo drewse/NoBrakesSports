@@ -20,6 +20,9 @@ import { tonybetAdapter } from './adapters/tonybet.js'
 import { ballybetAdapter } from './adapters/ballybet.js'
 import { betonlineAdapter, lowvigAdapter, sportsbettingAgAdapter } from './adapters/betonline.js'
 import { hardRockAdapter } from './adapters/hardrock.js'
+import { mybookieAdapter } from './adapters/mybookie.js'
+import { bookmakerEuAdapter } from './adapters/bookmaker-eu.js'
+import { betusAdapter } from './adapters/betus.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -40,12 +43,18 @@ const ALL_ADAPTERS: BookAdapter[] = [
   betanoAdapter,
   tonybetAdapter,
   ballybetAdapter,
-  // US offshore — gated by BETONLINE_ENABLED=1, requires MOBILE_PROXY_URL_US
-  betonlineAdapter,
-  lowvigAdapter,
-  sportsbettingAgAdapter,
-  // US major — gated by HARD_ROCK_ENABLED=1, requires MOBILE_PROXY_URL_US
-  hardRockAdapter,
+  // US-geo proxied books. All activate automatically once PROXY_URL_US
+  // (PacketStream — free tier, worth trying first) or MOBILE_PROXY_URL_US
+  // (IPRoyal mobile — paid escalation) is set on Railway. First-deploy
+  // logs tell us which books clear CF with PacketStream + real Chromium
+  // vs. which need the mobile escalation.
+  betonlineAdapter,           // BetOnline API — adapter fully parsed, ready for live data
+  lowvigAdapter,              // LowVig — same SAS platform
+  sportsbettingAgAdapter,     // Sportsbetting.ag — same SAS platform
+  hardRockAdapter,            // Hard Rock Bet — discovery mode
+  mybookieAdapter,            // MyBookie.ag — discovery mode
+  bookmakerEuAdapter,         // Bookmaker.eu — discovery mode
+  betusAdapter,               // BetUS Panama — discovery mode
 ]
 
 const log = createLogger('main')
