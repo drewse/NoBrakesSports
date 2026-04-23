@@ -294,33 +294,54 @@ export async function GET(request: NextRequest) {
     })
 
     // Auto-create missing events. Kalshi lists future playoff games (Game
-    // 4/5/6 of a series) weeks ahead of when sportsbooks post them. Using
-    // close_time as an approximate start_time — usually within minutes of
-    // real tip-off. Other adapters' later writes will de-dupe via the
-    // same team-pair + same day on findEvent.
+    // 4/5/6 of a series) weeks ahead of when sportsbooks post them.
+    //
+    // Guard against duplicate creation: our in-memory `events` array may
+    // miss Kalshi-auto-created rows from concurrent fires (or rows beyond
+    // Supabase's default 1000-row fetch limit). Do a targeted DB lookup
+    // by team-pair + date-day BEFORE inserting. Matches any existing
+    // event with these two teams on the same calendar date, regardless
+    // of home/away order or exact start minute.
     if (!dbEvent) {
       const leagueSlug = SPORT_TO_LEAGUE_SLUG[sport]
       const leagueId = leagueIdBySlug.get(leagueSlug)
       if (!leagueId) { pairedUnmatchedEvent++; continue }
       const startTime = pair.a.close_time ?? pair.b?.close_time ?? now
-      const title = `${awayFull} vs ${homeFull}`
-      const { data: newEvent, error: evErr } = await db
+      const dayStart = new Date(startTime); dayStart.setUTCHours(0,0,0,0)
+      const dayEnd = new Date(dayStart); dayEnd.setUTCDate(dayEnd.getUTCDate() + 1)
+      const { data: same } = await db
         .from('events')
-        .insert({
-          title,
-          start_time: startTime,
-          status: 'scheduled',
-          league_id: leagueId,
-          source_metadata: { created_by: 'sync-kalshi', kalshi_ticker: pair.ticker },
-        })
         .select('id, title, start_time, league_id')
-        .single()
-      if (newEvent) {
-        dbEvent = newEvent
-        eventsCreated++
-        if (events) (events as any[]).push(newEvent)
-      } else if (evErr) {
-        pairedUnmatchedEvent++; continue
+        .eq('league_id', leagueId)
+        .gte('start_time', dayStart.toISOString())
+        .lt('start_time', dayEnd.toISOString())
+      const exist = (same ?? []).find((e: any) => {
+        const parts = (e.title as string).split(/\s+vs\.?\s+/i)
+        if (parts.length !== 2) return false
+        return [parts[0].trim().toLowerCase(), parts[1].trim().toLowerCase()].sort().join('|') === pairKey
+      })
+      if (exist) {
+        dbEvent = exist
+      } else {
+        const title = `${awayFull} vs ${homeFull}`
+        const { data: newEvent, error: evErr } = await db
+          .from('events')
+          .insert({
+            title,
+            start_time: startTime,
+            status: 'scheduled',
+            league_id: leagueId,
+            source_metadata: { created_by: 'sync-kalshi', kalshi_ticker: pair.ticker },
+          })
+          .select('id, title, start_time, league_id')
+          .single()
+        if (newEvent) {
+          dbEvent = newEvent
+          eventsCreated++
+          if (events) (events as any[]).push(newEvent)
+        } else if (evErr) {
+          pairedUnmatchedEvent++; continue
+        }
       }
     }
     if (!dbEvent) { pairedUnmatchedEvent++; continue }
