@@ -66,7 +66,7 @@ const CITY_MAPS: Record<Sport, Record<string, string>> = {
     'New York Mets':'New York Mets','New York Yankees':'New York Yankees',
     'Mets':'New York Mets','Yankees':'New York Yankees',
     'NY Mets':'New York Mets','NY Yankees':'New York Yankees',
-    'Oakland':'Oakland Athletics','Athletics':'Athletics',
+    'Oakland':'Oakland Athletics','Athletics':'Athletics','A\'s':'Athletics',
     'Philadelphia':'Philadelphia Phillies','Pittsburgh':'Pittsburgh Pirates',
     'San Diego':'San Diego Padres','San Francisco':'San Francisco Giants',
     'Seattle':'Seattle Mariners','St. Louis':'St. Louis Cardinals',
@@ -92,6 +92,22 @@ const CITY_MAPS: Record<Sport, Record<string, string>> = {
     'Utah':'Utah Hockey Club','Vancouver':'Vancouver Canucks',
     'Vegas':'Vegas Golden Knights','Washington':'Washington Capitals',
     'Winnipeg':'Winnipeg Jets',
+    // Nicknames — used as second-pass lookup when yes_sub_title ships
+    // as "{ABBR} {Nickname}" like "EDM Oilers".
+    'Ducks':'Anaheim Ducks','Bruins':'Boston Bruins','Sabres':'Buffalo Sabres',
+    'Flames':'Calgary Flames','Hurricanes':'Carolina Hurricanes',
+    'Blackhawks':'Chicago Blackhawks','Avalanche':'Colorado Avalanche',
+    'Blue Jackets':'Columbus Blue Jackets','Stars':'Dallas Stars',
+    'Red Wings':'Detroit Red Wings','Oilers':'Edmonton Oilers',
+    'Panthers':'Florida Panthers','Wild':'Minnesota Wild',
+    'Canadiens':'Montreal Canadiens','Predators':'Nashville Predators',
+    'Devils':'New Jersey Devils','Senators':'Ottawa Senators',
+    'Flyers':'Philadelphia Flyers','Penguins':'Pittsburgh Penguins',
+    'Sharks':'San Jose Sharks','Kraken':'Seattle Kraken',
+    'Blues':'St. Louis Blues','Lightning':'Tampa Bay Lightning',
+    'Maple Leafs':'Toronto Maple Leafs','Hockey Club':'Utah Hockey Club',
+    'Canucks':'Vancouver Canucks','Golden Knights':'Vegas Golden Knights',
+    'Capitals':'Washington Capitals','Jets':'Winnipeg Jets',
   },
   nfl: {},
 }
@@ -106,18 +122,41 @@ function seriesToSport(series: string): Sport | null {
 
 function resolveFullName(sport: Sport, cityOrName: string): string {
   const s = cityOrName.trim()
-  return CITY_MAPS[sport][s] ?? s
+  const direct = CITY_MAPS[sport][s]
+  if (direct) return direct
+  // NHL fallback: yes_sub_title ships as "{ABBR} {Nickname}" like
+  // "EDM Oilers" or "LA Kings". Try the nickname-only lookup (last
+  // word onwards) as a second pass.
+  if (sport === 'nhl') {
+    const parts = s.split(/\s+/)
+    if (parts.length >= 2) {
+      const nickname = parts.slice(1).join(' ')
+      const nick = CITY_MAPS.nhl[nickname]
+      if (nick) return nick
+    }
+  }
+  return s
 }
 
-/** Parse a Kalshi game-market title like "Game 4: Oklahoma City at Phoenix
- *  Winner?" → {awayCity, homeCity}. Falls back null on unexpected formats. */
+/** Parse a Kalshi game-market title. Three observed formats:
+ *    NBA / NHL: "Game 4: Oklahoma City at Phoenix Winner?" (playoff " at ")
+ *    MLB:       "Pittsburgh vs Milwaukee Winner?"           (" vs ")
+ *    NBA (reg): "Lakers at Suns Winner?"                    (" at ")
+ *  Returns {awayCity, homeCity} — for " at " the left side is the visitor,
+ *  for " vs " the left side is the home team (Kalshi convention). */
 function parseGameTitle(title: string): { away: string; home: string } | null {
-  // Strip the "Game N:" prefix if present, then split on " at " / " vs. " / " vs ".
   const core = title.replace(/^Game\s+\d+:\s*/i, '').replace(/\s*Winner\?\s*$/i, '').trim()
   const atIdx = core.search(/\s+at\s+/i)
   if (atIdx > 0) {
     const away = core.slice(0, atIdx).trim()
     const home = core.slice(atIdx).replace(/^\s+at\s+/i, '').trim()
+    if (away && home) return { away, home }
+  }
+  const vsIdx = core.search(/\s+vs\.?\s+/i)
+  if (vsIdx > 0) {
+    // Kalshi MLB format: "Home vs Away Winner?"
+    const home = core.slice(0, vsIdx).trim()
+    const away = core.slice(vsIdx).replace(/^\s+vs\.?\s+/i, '').trim()
     if (away && home) return { away, home }
   }
   return null
