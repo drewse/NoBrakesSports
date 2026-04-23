@@ -29,6 +29,10 @@ import { novigAdapter } from './adapters/novig.js'
 import { circaAdapter } from './adapters/circa.js'
 import { prophetAdapter } from './adapters/prophet.js'
 import { betparxBrowserAdapter } from './adapters/betparx-browser.js'
+import { titanplayAdapter } from './adapters/titanplay.js'
+import { sportzinoAdapter } from './adapters/sportzino.js'
+import { betovoAdapter } from './adapters/betovo.js'
+import { stakeAdapter } from './adapters/stake.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -68,6 +72,11 @@ const ALL_ADAPTERS: BookAdapter[] = [
   circaAdapter,               // Circa Sports NV — direct Railway IP
   prophetAdapter,             // Prophet Exchange NJ/OH/IN — direct Railway IP
   betparxBrowserAdapter,      // BetParx PA — browser session at play.betparx.com
+  // New discovery probes — direct IP + CA residential where possible
+  titanplayAdapter,           // TitanPlay (Ontario) — direct Railway IP
+  sportzinoAdapter,           // Sportzino (US sweeps) — direct Railway IP
+  betovoAdapter,              // Betovo (CA) — PacketStream CA residential
+  stakeAdapter,               // Stake.us (CF-gated sweeps) — IPRoyal US mobile
 ]
 
 const log = createLogger('main')
