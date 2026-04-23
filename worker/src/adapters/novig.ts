@@ -639,66 +639,88 @@ export const novigAdapter: BookAdapter = {
         // which means no CORS check. This is the correct layer for
         // replaying API calls that the app itself makes.
         const apiCtx = page.context().request
+        // Track market IDs that the API says don't have order books
+        // (settled, closed, stale). One bad ID 404s the whole batch, so
+        // we extract the UUID from the error and retry without it.
+        const knownBadIds = new Set<string>()
+        const BAD_ID_RE = /not found for\s+([0-9a-f-]{36})/i
 
-        for (let i = 0; i < ids.length; i += CHUNK) {
-          if (signal.aborted) break
-          const batch = ids.slice(i, i + CHUNK)
+        const fetchBatch = async (batchIds: string[]): Promise<{ status: number; body: string } | null> => {
           try {
-            // Build the URL exactly the way the app did — GET with a
-            // comma-separated marketIds query param. We always use GET
-            // because that's what we observed; the POST branch was
-            // defensive scaffolding and has never actually fired.
             const parsed = new URL(batchSample.url)
             parsed.searchParams.delete('marketIds')
             parsed.searchParams.delete('market_ids')
             parsed.searchParams.delete('ids')
-            parsed.searchParams.set('marketIds', batch.join(','))
-            const url = parsed.toString()
-
-            const resp = await apiCtx.get(url, {
+            parsed.searchParams.set('marketIds', batchIds.join(','))
+            const resp = await apiCtx.get(parsed.toString(), {
               headers: { 'accept': 'application/json' },
               timeout: 15_000,
             })
-            const status = resp.status()
             const bodyText = await resp.text().catch(() => '')
-
-            const result = { status, body: bodyText.slice(0, 500_000), err: null as string | null }
-            if (result.err) {
-              errors.push(`active batch ${i}: fetch threw: ${result.err}`)
-              log.warn('active batch fetch threw', { chunkStart: i, err: result.err })
-              continue
-            }
-            const beforeSize = markets.size
-            let parsedOk = false
-            if (result.status === 200) {
-              try {
-                walkForMarkets(JSON.parse(result.body), markets)
-                parsedOk = true
-              } catch (pe: any) {
-                log.warn('active batch JSON parse failed', { message: pe?.message ?? String(pe), preview: result.body.slice(0, 300) })
-              }
-            } else {
-              errors.push(`active batch ${i}: HTTP ${result.status}`)
-              log.warn('active batch non-200', { status: result.status, preview: result.body.slice(0, 400) })
-            }
-            // Always log one preview per chunk so we see what shape came
-            // back regardless of parse success / market-count delta.
-            log.info('active batch result', {
-              chunkStart: i,
-              chunkIds: batch.length,
-              status: result.status,
-              parsedOk,
-              bodyLen: result.body.length,
-              preview: result.body.slice(0, 600),
-              marketsBefore: beforeSize,
-              marketsAfter: markets.size,
-            })
+            return { status: resp.status(), body: bodyText.slice(0, 500_000) }
           } catch (e: any) {
-            errors.push(`active batch ${i}: ${e?.message ?? String(e)}`)
-            log.warn('active batch threw', { chunkStart: i, message: e?.message ?? String(e) })
+            log.warn('active batch threw', { err: e?.message ?? String(e) })
+            return null
           }
         }
-        log.info('novig active fetch', { marketsAfterActive: markets.size })
+
+        let badIdRecoveries = 0
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          if (signal.aborted) break
+          let batch = ids.slice(i, i + CHUNK).filter(id => !knownBadIds.has(id))
+          if (batch.length === 0) continue
+
+          const beforeSize = markets.size
+          // The Novig endpoint returns 404 for the ENTIRE chunk if any
+          // single marketId lacks an order book. Retry in a loop, peeling
+          // off the bad ID the error message points at, until we either
+          // succeed or the batch empties. Cap retries so a degenerate
+          // batch can't spin forever.
+          let attempt = 0
+          let finalStatus = -1
+          let finalBodyLen = 0
+          let finalPreview = ''
+          while (batch.length > 0 && attempt < 6) {
+            attempt++
+            const result = await fetchBatch(batch)
+            if (!result) break
+            finalStatus = result.status
+            finalBodyLen = result.body.length
+            finalPreview = result.body.slice(0, 400)
+            if (result.status === 200) {
+              try { walkForMarkets(JSON.parse(result.body), markets) } catch { /* non-JSON */ }
+              break
+            }
+            if (result.status === 404) {
+              const m = result.body.match(BAD_ID_RE)
+              if (m) {
+                knownBadIds.add(m[1])
+                badIdRecoveries++
+                batch = batch.filter(id => id !== m[1])
+                continue   // retry with the stale ID removed
+              }
+              // 404 without a parseable bad-id — give up this chunk.
+            }
+            errors.push(`active batch ${i}: HTTP ${result.status}`)
+            break
+          }
+
+          log.info('active batch result', {
+            chunkStart: i,
+            chunkIds: batch.length,
+            status: finalStatus,
+            bodyLen: finalBodyLen,
+            preview: finalPreview,
+            marketsBefore: beforeSize,
+            marketsAfter: markets.size,
+            attempts: attempt,
+          })
+        }
+        log.info('novig active fetch', {
+          marketsAfterActive: markets.size,
+          badIdRecoveries,
+          knownBadIds: knownBadIds.size,
+        })
       }
 
       // Build the output: one ScrapedEvent per canonical game, accumulating
