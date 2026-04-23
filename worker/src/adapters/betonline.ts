@@ -240,35 +240,35 @@ function buildAdapter(op: Operator): BookAdapter {
           return { events: scraped, errors }
         }
 
+        // page.evaluate + fetch() hits CORS because www.betonline.ag →
+        // api-offering.betonline.ag is cross-origin. Use APIRequestContext
+        // which runs outside the page's JS sandbox but shares cookies.
+        const apiCtx = page.context().request
+
         for (const lg of LEAGUES) {
           if (signal.aborted) break
 
-          const { status, bodyText } = await page.evaluate(async ({ url, body, gsetting, origin }) => {
-            try {
-              const r = await fetch(url, {
-                method: 'POST',
-                headers: {
-                  'accept': 'application/json',
-                  'accept-language': 'en-US,en;q=0.9',
-                  'content-type': 'application/json',
-                  'gsetting': gsetting,
-                  'origin': origin,
-                  'utc-offset': '240',
-                },
-                credentials: 'include',
-                body: JSON.stringify(body),
-              })
-              const text = await r.text()
-              return { status: r.status, bodyText: text }
-            } catch (e: any) {
-              return { status: -1, bodyText: `fetch threw: ${e?.message ?? String(e)}` }
-            }
-          }, {
-            url: API_URL,
-            body: { Sport: lg.sport, League: lg.league, ScheduleText: null, filterTime: 0 },
-            gsetting: op.gsetting,
-            origin: op.origin,
-          })
+          let status = -1
+          let bodyText = ''
+          try {
+            const resp = await apiCtx.post(API_URL, {
+              headers: {
+                'accept': 'application/json',
+                'accept-language': 'en-US,en;q=0.9',
+                'content-type': 'application/json',
+                'gsetting': op.gsetting,
+                'origin': op.origin,
+                'utc-offset': '240',
+              },
+              data: { Sport: lg.sport, League: lg.league, ScheduleText: null, filterTime: 0 },
+              timeout: 15_000,
+            })
+            status = resp.status()
+            bodyText = await resp.text().catch(() => '')
+          } catch (e: any) {
+            status = -1
+            bodyText = `request threw: ${e?.message ?? String(e)}`
+          }
 
           if (status !== 200) {
             errors.push(`${lg.leagueSlug}: HTTP ${status}`)
