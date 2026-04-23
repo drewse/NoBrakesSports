@@ -13,8 +13,9 @@ export const titanplayAdapter = buildOffshoreProbeAdapter({
     { url: 'https://titanplay.ca/en/sportsbook/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://titanplay.ca/en/sportsbook/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  // Railway direct IP → 403 (Ontario license geo-gate). Switch to
-  // PacketStream CA residential.
+  // PacketStream CA also TCP-drops titanplay.ca (ERR_EMPTY_RESPONSE) —
+  // same blocker as Betovo / PowerPlay / Miseojeu. Needs IPRoyal CA
+  // mobile to unblock. Park at 24h until CA mobile is set up.
   useProxy: true,
-  pollIntervalSec: 3600,   // 1h during bring-up
+  pollIntervalSec: 86400,
 })

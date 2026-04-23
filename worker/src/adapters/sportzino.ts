@@ -239,6 +239,33 @@ export const sportzinoAdapter: BookAdapter = {
         }
       }
 
+      // Diagnostic: if emission=0 despite having response bodies, dump
+      // the first event/market/odd sample so we can see the real shape
+      // vs my assumptions.
+      if (scraped.length === 0 && responseBodies.length > 0) {
+        const firstBody = responseBodies[0]
+        const firstEv = firstBody?.events?.[0]
+        const firstMarket = firstBody?.markets?.[0]
+        const firstOdd = firstBody?.odds?.[0]
+        const sportIdCounts: Record<number, number> = {}
+        for (const b of responseBodies) {
+          for (const e of (b?.events ?? [])) {
+            const sid = e.sportId ?? -1
+            sportIdCounts[sid] = (sportIdCounts[sid] ?? 0) + 1
+          }
+        }
+        log.info('sportzino shape diag', {
+          firstEvent: firstEv ? JSON.stringify(firstEv).slice(0, 1200) : null,
+          firstEventKeys: firstEv ? Object.keys(firstEv) : [],
+          firstMarket: firstMarket ? JSON.stringify(firstMarket).slice(0, 600) : null,
+          firstOdd: firstOdd ? JSON.stringify(firstOdd).slice(0, 400) : null,
+          sportIdCounts,
+          totalEvents: responseBodies.reduce((s, b) => s + (b?.events?.length ?? 0), 0),
+          totalMarkets: responseBodies.reduce((s, b) => s + (b?.markets?.length ?? 0), 0),
+          totalOdds: responseBodies.reduce((s, b) => s + (b?.odds?.length ?? 0), 0),
+        })
+      }
+
       log.info('sportzino capture', {
         responseCount: responseBodies.length,
         emitted: scraped.length,
