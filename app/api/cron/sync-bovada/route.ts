@@ -104,27 +104,28 @@ export async function GET(request: NextRequest) {
     for (const gm of r.gameMarkets) {
       const oddsHash = [gm.homePrice, gm.awayPrice, null, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
         .map(v => v ?? '').join('|')
-      const row = {
-        event_id: eid,
-        source_id: sourceId,
-        market_type: gm.marketType,
-        line_value: 0,
-        odds_hash: oddsHash,
-        home_price: gm.homePrice,
-        away_price: gm.awayPrice,
-        draw_price: null,
-        spread_value: gm.spreadValue,
-        total_value: gm.totalValue,
-        over_price: gm.overPrice,
-        under_price: gm.underPrice,
-        home_implied_prob: gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null,
-        away_implied_prob: gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null,
-        movement_direction: 'flat',
+      const homeProb = gm.homePrice != null ? round4(americanToImpliedProb(gm.homePrice)) : null
+      const awayProb = gm.awayPrice != null ? round4(americanToImpliedProb(gm.awayPrice)) : null
+      // market_snapshots schema differs from current_market_odds — no
+      // odds_hash / movement_direction / changed_at / line_value columns.
+      marketSnapshots.push({
+        event_id: eid, source_id: sourceId, market_type: gm.marketType,
+        home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: null,
+        spread_value: gm.spreadValue, total_value: gm.totalValue,
+        over_price: gm.overPrice, under_price: gm.underPrice,
+        home_implied_prob: homeProb, away_implied_prob: awayProb,
         snapshot_time: now,
-        changed_at: now,
-      }
-      marketSnapshots.push(row)
-      currentOddsByKey.set(`${eid}|${gm.marketType}`, row)
+      })
+      currentOddsByKey.set(`${eid}|${gm.marketType}`, {
+        event_id: eid, source_id: sourceId, market_type: gm.marketType,
+        line_value: 0, odds_hash: oddsHash,
+        home_price: gm.homePrice, away_price: gm.awayPrice, draw_price: null,
+        spread_value: gm.spreadValue, total_value: gm.totalValue,
+        over_price: gm.overPrice, under_price: gm.underPrice,
+        home_implied_prob: homeProb, away_implied_prob: awayProb,
+        movement_direction: 'flat',
+        snapshot_time: now, changed_at: now,
+      })
     }
   }
 
