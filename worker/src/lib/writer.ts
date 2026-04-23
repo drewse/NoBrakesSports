@@ -47,9 +47,23 @@ export async function writeBookResults(
     if (created?.id) {
       sourceId = created.id
     } else if (insertErr?.code === '23505') {
-      // Race / RLS / soft-filter — row actually exists, re-lookup
-      const { data: retry } = await db.from('market_sources').select('id').eq('slug', ctx.sourceSlug).maybeSingle()
-      sourceId = retry?.id
+      // 23505 = unique_violation. Could be either the slug or the name
+      // constraint — earlier Vercel crons may have inserted a row with the
+      // same name but a different slug (e.g. 'betonline' vs 'betonline_us'),
+      // so retry on BOTH columns and pick whichever matches.
+      const { data: bySlug } = await db.from('market_sources').select('id, slug, name')
+        .eq('slug', ctx.sourceSlug).maybeSingle()
+      sourceId = bySlug?.id
+      if (!sourceId) {
+        const { data: byName } = await db.from('market_sources').select('id, slug, name')
+          .eq('name', ctx.sourceName).maybeSingle()
+        if (byName?.id) {
+          sourceId = byName.id
+          log.warn('market_sources name match under different slug', {
+            requestedSlug: ctx.sourceSlug, existingSlug: byName.slug, name: ctx.sourceName,
+          })
+        }
+      }
     }
     if (!sourceId) {
       log.error('market_sources resolve failed — aborting write', {
