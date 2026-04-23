@@ -259,10 +259,15 @@ function walkForMarkets(body: any, out: Map<string, NovigMarket>) {
     }
 
     const playerName = market?.player?.fullName ?? market?.player?.name
+    // Check every plausible spot for eventId — on the market, on the
+    // outer entry, or nested like market.event.id / entry.event.id.
+    const eventId = market.eventId ?? market.event_id
+      ?? entry.eventId ?? entry.event_id
+      ?? market.event?.id ?? entry.event?.id
     out.set(String(market.id), {
       marketId: String(market.id),
       type: String(market.type ?? ''),
-      eventId: market.eventId ?? market.event_id,
+      eventId: typeof eventId === 'string' ? eventId : undefined,
       description: String(market.description ?? ''),
       strike: typeof market.strike === 'number' ? market.strike : 0,
       playerName: typeof playerName === 'string' && playerName ? playerName : undefined,
@@ -643,6 +648,13 @@ export const novigAdapter: BookAdapter = {
         return existing
       }
 
+      // Diagnostic counters so we can see why props aren't landing.
+      let unmatchedNoEvent = 0
+      let unmatchedNoEventProp = 0
+      let propsBuilt = 0
+      let propsAttached = 0
+      const unmatchedPropSamples: Array<{ type: string; description: string; player?: string }> = []
+
       for (const market of markets.values()) {
         typeCounts[market.type] = (typeCounts[market.type] ?? 0) + 1
 
@@ -653,7 +665,21 @@ export const novigAdapter: BookAdapter = {
           const found = findEventForMarket(market, events, marketToEvent, lg.leagueApi)
           if (found) { ev = found; league = lg; break }
         }
-        if (!ev || !league) continue
+        if (!ev || !league) {
+          unmatchedNoEvent++
+          const isProp = propCategoryFromType(market.type) != null
+          if (isProp) {
+            unmatchedNoEventProp++
+            if (unmatchedPropSamples.length < 4) {
+              unmatchedPropSamples.push({
+                type: market.type,
+                description: market.description.slice(0, 60),
+                player: market.playerName,
+              })
+            }
+          }
+          continue
+        }
         const ls = league.leagueSlug
         perLeague[ls] ??= { gameMarkets: 0, props: 0 }
 
@@ -667,9 +693,11 @@ export const novigAdapter: BookAdapter = {
         }
         const prop = buildProp(market)
         if (prop) {
+          propsBuilt++
           const row = getOrCreateEvent(ev, league)
           row.props.push(prop)
           perLeague[ls].props++
+          propsAttached++
         }
       }
 
@@ -677,9 +705,17 @@ export const novigAdapter: BookAdapter = {
       log.info('novig output', {
         emitted: scraped.length,
         perLeague,
-        // Log the distinct market types we saw so we can extend the
-        // propCategoryFromType map if Novig uses unexpected names.
         marketTypes: Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).slice(0, 20),
+      })
+      log.info('novig mapping', {
+        totalMarkets: markets.size,
+        totalEvents: events.size,
+        marketToEventMapSize: marketToEvent.size,
+        unmatchedNoEvent,
+        unmatchedNoEventProp,
+        propsBuilt,
+        propsAttached,
+        unmatchedPropSamples,
       })
 
       return { events: scraped, errors }
