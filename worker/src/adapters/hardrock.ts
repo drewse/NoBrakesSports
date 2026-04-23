@@ -20,10 +20,11 @@ export const hardRockAdapter = buildOffshoreProbeAdapter({
   slug: 'hard_rock_bet',
   name: 'Hard Rock Bet',
   seedUrl: 'https://app.hardrock.bet/sports',
-  // Path-shape match that catches any JSON-API-looking path on any host.
-  // The helper also logs allHosts regardless of regex match, so even if
-  // this misses, we see where data flows.
-  apiHostRegex: /\/(api|graphql|v\d+|rpc|sports|markets|events|offering|book|trading)(\/|\?|$)/i,
+  // Match any path on Hard Rock's actual API backends (first probe
+  // revealed api.hardrocksportsbook.com + app.hardrock.bet as the real
+  // hosts) — plus path-shape fallback for anything else that looks like
+  // an API call.
+  apiHostRegex: /(?:api|evs|cdn)\.hardrocksportsbook\.com|app\.hardrock\.bet\/(?:api|sportsbook)|\/(?:api|graphql|v\d+|markets|events|offering|sportsbook)(?:\/|\?|$)/i,
   leaguePaths: [
     { url: 'https://app.hardrock.bet/sports/basketball/nba', leagueSlug: 'nba' },
     { url: 'https://app.hardrock.bet/sports/baseball/mlb',   leagueSlug: 'mlb' },

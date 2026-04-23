@@ -210,17 +210,21 @@ function buildAdapter(op: Operator): BookAdapter {
   return {
     slug: op.slug,
     name: op.name,
-    pollIntervalSec: 7200,  // 2h — cap IPRoyal US-mobile cost
+    // Parked at 6h cadence pending Cloudflare unblock. Even through
+    // IPRoyal US-mobile (NJ-pinned, T-Mobile) api-offering.betonline.ag
+    // returns HTTP 403 for every league. The seed page (www.betonline.ag)
+    // loads fine via Chromium TLS, but the API endpoint specifically
+    // rejects Playwright's APIRequestContext TLS fingerprint. Next unblock
+    // would be synthesizing the API call from inside the page context via
+    // page.route() intercept, or a real browser fetch bound to a form
+    // submit — separate project. Keep poll rare so we don't burn bandwidth
+    // for guaranteed 403s.
+    pollIntervalSec: 21600,  // 6h while parked
     needsBrowser: true,
 
     async scrape({ signal, log }) {
       if (signal.aborted) return { events: [], errors: ['aborted'] }
 
-      // Runs whenever a US proxy URL is configured on Railway. Prefers
-      // MOBILE_PROXY_URL_US (IPRoyal), falls back to PROXY_URL_US
-      // (PacketStream residential — free tier worth testing first: real
-      // Chromium TLS through a residential IP sometimes clears CF where
-      // curl-through-the-same-IP fails).
       if (!process.env.MOBILE_PROXY_URL_US && !process.env.PROXY_URL_US) {
         log.info('skipped — set PROXY_URL_US (PacketStream) or MOBILE_PROXY_URL_US (IPRoyal) on Railway to activate')
         return { events: [], errors: [] }
