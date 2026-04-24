@@ -16,10 +16,14 @@ export const powerplayAdapter = buildOffshoreProbeAdapter({
   // Tight regex — skip static assets, match only API-shaped paths on any
   // plausible backend platform. If discovery shows empty we can widen.
   apiHostRegex: /(powerplay|kambicdn|americanwagering|sbtech|gan-gaming|openbet|playtech)[a-zA-Z0-9.-]*\/(api|v\d+|offering|listView|sportsbook)\//i,
+  // Broad sport pages (e.g. /sports/baseball) include NCAA, KBO, NPB
+  // and summer leagues alongside MLB. Tagging that whole feed as 'mlb'
+  // mis-buckets non-MLB games into the MLB league. Use league-specific
+  // paths instead so each leagueSlug only ever sees its own games.
   leaguePaths: [
-    { url: 'https://www.powerplay.ca/sports/basketball', leagueSlug: 'nba' },
-    { url: 'https://www.powerplay.ca/sports/baseball',   leagueSlug: 'mlb' },
-    { url: 'https://www.powerplay.ca/sports/hockey',     leagueSlug: 'nhl' },
+    { url: 'https://www.powerplay.ca/sports/basketball/nba', leagueSlug: 'nba' },
+    { url: 'https://www.powerplay.ca/sports/baseball/mlb',   leagueSlug: 'mlb' },
+    { url: 'https://www.powerplay.ca/sports/hockey/nhl',     leagueSlug: 'nhl' },
   ],
   // PacketStream CA got TCP-dropped here too. IPRoyal CA mobile clears
   // the CF reputation wall that residential CIDRs hit.

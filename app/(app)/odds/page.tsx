@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FilterBar } from '@/components/odds/filter-bar'
+import { TimeFilter, timeRangeFromParam, hoursForRange, type TimeRangeId } from '@/components/odds/time-filter'
 import { OddsTable, type OddsRow, type BookColumn, type OddsCell } from '@/components/odds/odds-table'
 import {
   selectionFromParams, planForSelection,
@@ -22,21 +23,23 @@ export default async function OddsPage({
   const params = await searchParams
   const selection = selectionFromParams(params)
   const plan = planForSelection(selection)
+  const within = timeRangeFromParam(params.within)
 
   let rows: OddsRow[] = []
   let books: BookColumn[] = []
 
   if (plan) {
-    const payload = await loadOdds(supabase, selection, plan)
+    const payload = await loadOdds(supabase, selection, plan, within)
     rows = payload.rows
     books = payload.books
   }
 
   return (
     <div className="p-3 sm:p-4 lg:p-6 space-y-4">
-      {/* Centered filter bar at the top */}
-      <div className="flex items-center justify-center">
+      {/* Centered filter bar with time range to its right */}
+      <div className="flex items-center justify-center gap-3 flex-wrap">
         <FilterBar selection={selection} />
+        <TimeFilter value={within} />
       </div>
 
       {!plan && (
@@ -62,6 +65,7 @@ async function loadOdds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   selection: MarketSelection,
   plan: NonNullable<ReturnType<typeof planForSelection>>,
+  within: TimeRangeId,
 ): Promise<{ rows: OddsRow[]; books: BookColumn[] }> {
   const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const leagueSlug = selection.league
@@ -72,13 +76,20 @@ async function loadOdds(
   if (!leagueRow) return { rows: [], books: [] }
 
   const startCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
-  const { data: eventRows } = await supabase
+  const withinHours = hoursForRange(within)
+  const endCutoff = withinHours != null
+    ? new Date(Date.now() + withinHours * 60 * 60 * 1000).toISOString()
+    : null
+
+  let evQuery = supabase
     .from('events')
     .select('id, title, start_time, league:leagues(abbreviation)')
     .eq('league_id', leagueRow.id)
     .gt('start_time', startCutoff)
     .order('start_time', { ascending: true })
     .limit(300)
+  if (endCutoff) evQuery = evQuery.lt('start_time', endCutoff)
+  const { data: eventRows } = await evQuery
 
   const events = (eventRows ?? []) as unknown as Array<{
     id: string; title: string; start_time: string
