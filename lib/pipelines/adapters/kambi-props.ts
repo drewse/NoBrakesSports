@@ -18,7 +18,12 @@ import {
 } from '../prop-normalizer'
 import { pipeFetch } from '../proxy-fetch'
 
-const KAMBI_CDN = 'https://eu-offering-api.kambicdn.com/offering/v2018'
+// Kambi retired `eu-offering-api.kambicdn.com` (every listView now
+// returns HTTP 410 Gone). The working CA host is the dot-separated
+// `eu1.offering-api.kambicdn.com` subdomain — same one ballybet.ts and
+// proline.ts use (US-based operators use `us.offering-api.kambicdn.com`).
+// All three CA operators (rsicaon, leose, torstarcaon) share this host.
+const KAMBI_CDN = 'https://eu1.offering-api.kambicdn.com/offering/v2018'
 const DEFAULT_PARAMS = 'lang=en_CA&market=CA-ON'
 const PAGE_SIZE = 2000
 

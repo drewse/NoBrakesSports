@@ -418,11 +418,18 @@ export async function GET(req: NextRequest) {
 
   // Process Pinnacle results
   if (pinnacleSourceId) {
-    const byLeague: Record<string, { matched: number; unmatchedEvents: number; props: number }> = {}
+    const byLeague: Record<string, { matched: number; unmatchedEvents: number; props: number; badStart: number; noLeagueSlug: number }> = {}
     const unmatchedSamples: string[] = []
     for (const result of pinnacleResults) {
       const leagueSlug = PINNACLE_LEAGUE_TO_SLUG[result.parentEvent.leagueName] ?? ''
-      const bucket = (byLeague[leagueSlug] ||= { matched: 0, unmatchedEvents: 0, props: 0 })
+      const bucket = (byLeague[leagueSlug || 'UNKNOWN'] ||= { matched: 0, unmatchedEvents: 0, props: 0, badStart: 0, noLeagueSlug: 0 })
+      if (!leagueSlug) { bucket.noLeagueSlug++; continue }
+      // Guard against Pinnacle specials where startTime is empty/unparseable —
+      // findEvent's new Date() would throw and abort the whole loop.
+      if (!result.parentEvent.startTime || isNaN(new Date(result.parentEvent.startTime).getTime())) {
+        bucket.badStart++
+        continue
+      }
       const eventId = findEvent(leagueSlug, result.parentEvent.startTime, result.parentEvent.homeName, result.parentEvent.awayName)
       if (!eventId) {
         bucket.unmatchedEvents++
