@@ -52,9 +52,14 @@ export interface FanaticsResult {
 }
 
 /** Convert a probability (0-1) to an American odds integer.
- *  Returns null for non-finite / out-of-range inputs. */
+ *  Returns null for non-finite / out-of-range inputs, and also for the
+ *  placeholder `0.5` Fanatics returns on contracts that haven't started
+ *  trading yet — a real prediction-market bid/ask is never exactly 0.5,
+ *  so treating it as a sentinel filters out all the fake +100/-100 rows
+ *  that otherwise surface as huge phantom +EV opportunities. */
 export function probabilityToAmerican(p: number): number | null {
   if (!Number.isFinite(p) || p <= 0 || p >= 1) return null
+  if (p === 0.5) return null
   // Decimal odds = 1/p; then decimal→American.
   const d = 1 / p
   if (d >= 2) return Math.round((d - 1) * 100)
