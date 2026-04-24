@@ -85,12 +85,39 @@ export interface PinnaclePropResult {
 }
 
 /**
+ * Fetch with retry on transient network errors. Pinnacle's public
+ * guest API drops TLS connections under load ("Client network socket
+ * disconnected before secure TLS connection was established" =
+ * ECONNRESET) — always the first connection after a cold period.
+ * Retry twice with short backoff; most resets resolve on the second
+ * attempt.
+ */
+async function pipeFetchRetry(
+  url: string,
+  signal?: AbortSignal,
+  attempts = 3,
+): Promise<Response> {
+  let lastErr: unknown
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await pipeFetch(url, { headers: HEADERS, signal })
+    } catch (e) {
+      lastErr = e
+      if (signal?.aborted) throw e
+      // Backoff: 200ms, 600ms, 1400ms
+      await new Promise(r => setTimeout(r, 200 + 400 * i * (i + 1)))
+    }
+  }
+  throw lastErr
+}
+
+/**
  * Fetch all matchups (games + specials/props) for a league.
  */
 async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Promise<PinnacleMatchup[]> {
   const url = `${BASE}/leagues/${leagueId}/matchups`
   try {
-    const resp = await pipeFetch(url, { headers: HEADERS, signal })
+    const resp = await pipeFetchRetry(url, signal)
     if (!resp.ok) {
       console.error(`Pinnacle matchups ${leagueId}: HTTP ${resp.status}`)
       return []
@@ -108,7 +135,7 @@ async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Prom
 async function fetchMatchupMarkets(matchupId: number, signal?: AbortSignal): Promise<PinnacleMarket[]> {
   const url = `${BASE}/matchups/${matchupId}/markets/related/straight`
   try {
-    const resp = await pipeFetch(url, { headers: HEADERS, signal })
+    const resp = await pipeFetchRetry(url, signal)
     if (!resp.ok) return []
     return resp.json()
   } catch (e) {
@@ -125,13 +152,24 @@ export async function scrapePinnacleProps(
 ): Promise<PinnaclePropResult[]> {
   const results: PinnaclePropResult[] = []
 
-  // Fetch all leagues in parallel
-  const leagueData = await Promise.all(
-    PINNACLE_LEAGUES.map(async (league) => {
-      const matchups = await fetchLeagueMatchups(league.leagueId, signal)
-      return { league, matchups }
-    })
-  )
+  // Fetch leagues 3 at a time. All 10 in parallel triggered enough
+  // simultaneous TLS handshakes that Pinnacle reset connections on
+  // about half of them (ECONNRESET) — consistently NBA, MLB, NHL and
+  // a couple of soccer leagues. Batching + retry inside
+  // fetchLeagueMatchups brings success rate to ~100%.
+  const leagueData: Array<{ league: typeof PINNACLE_LEAGUES[number]; matchups: PinnacleMatchup[] }> = []
+  const LEAGUE_CONCURRENCY = 3
+  for (let i = 0; i < PINNACLE_LEAGUES.length; i += LEAGUE_CONCURRENCY) {
+    if (signal?.aborted) break
+    const batch = PINNACLE_LEAGUES.slice(i, i + LEAGUE_CONCURRENCY)
+    const batchResults = await Promise.all(
+      batch.map(async (league) => {
+        const matchups = await fetchLeagueMatchups(league.leagueId, signal)
+        return { league, matchups }
+      })
+    )
+    leagueData.push(...batchResults)
+  }
 
   for (const { league, matchups } of leagueData) {
     // Separate games from specials (props).
