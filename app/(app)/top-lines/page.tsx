@@ -335,10 +335,13 @@ export default async function TopEvLinesPage({
       })
       allSources.sort((a, b) => b.evPct - a.evPct)
 
-      // Best available = highest EV from a NON-sharp book (Pinnacle is the reference, not a bet)
-      const bettableSources = allSources.filter(s => s.name !== 'Pinnacle')
-      if (bettableSources.length === 0) return
-      const best = bettableSources[0]
+      // Best available = highest EV across all books (Pinnacle included).
+      // When Pinnacle itself is also the fair-prob reference, its EV vs
+      // itself is ~0% so it naturally falls below any real +EV pick; but
+      // on markets where Pinnacle happens to have the sharpest price, it
+      // now surfaces as a bettable option instead of being hidden.
+      if (allSources.length === 0) return
+      const best = allSources[0]
       evLines.push({
         eventId: snaps[0].event_id,
         eventTitle: event?.title ?? '—',
