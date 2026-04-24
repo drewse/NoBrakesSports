@@ -134,18 +134,17 @@ export async function scrapePinnacleProps(
   )
 
   for (const { league, matchups } of leagueData) {
-    // Separate games from specials (props)
+    // Separate games from specials (props).
     const games = matchups.filter(m => m.type === 'matchup')
-    // Don't hard-code category === 'Player Props'. Pinnacle groups NHL
-    // player props under that exact label, but for NBA / MLB the same
-    // contracts ship under category names like 'Specials' or per-stat
-    // buckets. Gate on description shape instead — mapPinnacleCategory
-    // only returns non-null for "Player Name (Stat)" where Stat is one
-    // of our recognized prop categories. A non-player-prop special
-    // (game winning margin, etc.) fails that regex and is filtered.
-    const specials = matchups.filter(m => {
-      if (m.type !== 'special') return false
-      if (!m.hasMarkets || m.isLive) return false
+    const allSpecials = matchups.filter(m => m.type === 'special' && !m.isLive)
+    // Gate on description shape (not special.category — Pinnacle uses
+    // different category names across leagues: 'Player Props' for NHL,
+    // other buckets for NBA / MLB). mapPinnacleCategory only returns
+    // non-null for "Player Name (Stat)" where Stat is in our map.
+    // Dropped the hasMarkets check — Pinnacle reports hasMarkets=false
+    // on plenty of specials that actually have open markets; filtering
+    // on it silently dropped NBA / MLB props.
+    const specials = allSpecials.filter(m => {
       const desc = m.special?.description ?? ''
       return mapPinnacleCategory(desc) !== null
     })
@@ -169,11 +168,24 @@ export async function scrapePinnacleProps(
 
     // Group specials by parent game
     const propsByGame = new Map<number, PinnacleMatchup[]>()
+    let orphanedSpecials = 0
     for (const s of specials) {
       const parentId = s.parent?.id
-      if (!parentId || !gameMap.has(parentId)) continue
+      if (!parentId || !gameMap.has(parentId)) { orphanedSpecials++; continue }
       if (!propsByGame.has(parentId)) propsByGame.set(parentId, [])
       propsByGame.get(parentId)!.push(s)
+    }
+
+    // Per-league visibility: which filter step is dropping props. If
+    // NBA shows `allSpecials=120, descMatched=0`, the description
+    // format differs from "Name (Stat)". If descMatched is healthy but
+    // orphaned=allMatched, the parent-id linkage is broken.
+    console.log(`[pinnacle-props:${league.name}] matchups=${matchups.length} games=${gameMap.size} allSpecials=${allSpecials.length} descMatched=${specials.length} orphaned=${orphanedSpecials} propsByGame=${propsByGame.size}`)
+    if (specials.length === 0 && allSpecials.length > 0) {
+      // Print a handful of raw descriptions so we can see the shape
+      // Pinnacle is actually sending for this league.
+      const samples = allSpecials.slice(0, 8).map(s => s.special?.description ?? '').filter(Boolean)
+      console.log(`[pinnacle-props:${league.name}] sample descriptions:`, samples)
     }
 
     // Fetch markets for each prop — batch with concurrency limit
