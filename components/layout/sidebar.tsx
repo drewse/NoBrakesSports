@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import {
-  LayoutDashboard, BarChart3,
+  LayoutDashboard, BarChart3, LineChart,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
   Star, Percent, Users, MessageSquare, Tag, GitBranch, X
 } from 'lucide-react'
@@ -23,6 +23,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Overview',      href: '/dashboard',   icon: LayoutDashboard },
   { label: 'Markets',       href: '/markets',      icon: BarChart3 },
+  { label: 'Odds',          href: '/odds',         icon: LineChart },
   { label: 'Top EV Lines',  href: '/top-lines',    icon: Star,           isPro: true },
   { label: 'Arbitrage',     href: '/arbitrage',    icon: Percent,        isPro: true },
   { label: 'Promotions',    href: '/promotions',   icon: Tag },
