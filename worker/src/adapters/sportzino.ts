@@ -24,6 +24,7 @@
  */
 
 import { withPage } from '../lib/browser.js'
+import { hydrateTeamName } from '../lib/team-abbr.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket, ScrapedEvent } from '../lib/types.js'
 
@@ -185,11 +186,18 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
     }
 
     if (gameMarkets.length === 0) continue
+
+    // Hydrate Sportzino's half-abbreviated names ("BOS Red Sox" →
+    // "Boston Red Sox", "NY Yankees" → "New York Yankees") so the
+    // writer matches canonical events instead of auto-creating stubs.
+    const hydratedHome = hydrateTeamName(homeName, meta.maybeLeague)
+    const hydratedAway = hydrateTeamName(awayName, meta.maybeLeague)
+
     out.push({
       event: {
         externalId: String(ev.id),
-        homeTeam: homeName,
-        awayTeam: awayName,
+        homeTeam: hydratedHome,
+        awayTeam: hydratedAway,
         startTime,
         leagueSlug: meta.maybeLeague,
         sport: meta.sport,
