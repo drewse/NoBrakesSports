@@ -245,7 +245,6 @@ export async function scrapePinnacleProps(
     }
     const observedStatuses = new Set<string>()
     const observedTypes = new Set<string>()
-    let firstMarketSample: any = null
 
     for (const [gameId, propMatchups] of propsByGame) {
       const parentEvent = gameMap.get(gameId)!
@@ -265,17 +264,6 @@ export async function scrapePinnacleProps(
               if (allMarkets.length === 0) diag.fetchEmpty++
               const markets = allMarkets.filter(m => m?.matchupId === pm.id)
               diag.afterMatchupFilter += markets.length
-              // Sample the FIRST actually-matched prop market (not the
-              // parent game moneyline). That's the row our status/type
-              // filters reject — the thing we need eyes on.
-              if (!firstMarketSample && markets.length > 0) {
-                firstMarketSample = {
-                  propMatchupId: pm.id,
-                  propDescription: description,
-                  matchedMarketCount: markets.length,
-                  matchedMarkets: markets.slice(0, 3),
-                }
-              }
               const props: NormalizedProp[] = []
 
               for (const market of markets) {
@@ -342,12 +330,11 @@ export async function scrapePinnacleProps(
       }
     }
 
-    // Only log diagnostics for leagues that had specials grouped.
+    // Keep a compact per-league diag line so a future Pinnacle API
+    // change (new status value, field rename, etc.) shows up here
+    // before it silently zeroes out the emitted count.
     if (propsByGame.size > 0) {
       console.log(`[pinnacle-props:${league.name}] market-fetch diag`, diag, 'statuses=', [...observedStatuses], 'types=', [...observedTypes])
-      if (firstMarketSample) {
-        console.log(`[pinnacle-props:${league.name}] first matched market sample`, JSON.stringify(firstMarketSample).slice(0, 1200))
-      }
     }
   }
 
