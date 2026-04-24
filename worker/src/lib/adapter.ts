@@ -30,11 +30,13 @@ const runners = new Map<string, RunnerState>()
 /** Kick off a forever-loop for each adapter. Crashes in one adapter do not
  *  affect the others. Returns a shutdown() function. */
 export function startScheduler(adapters: BookAdapter[]): () => Promise<void> {
-  // Stagger first runs so N adapters don't race to newContext() on the same
-  // Chromium the millisecond it launches. Browser-using adapters get ~4s
-  // apart, others go immediately. This was the root cause of 8/9 discovery
-  // adapters failing with "Target page, context or browser has been closed"
-  // on the first cycle after deploy.
+  // Wall-clock aligned scheduling. Each adapter fires on UTC ticks that
+  // are multiples of pollIntervalSec from the epoch — e.g. a 2h adapter
+  // runs at 00:00, 02:00, 04:00… UTC every day. A Railway redeploy at
+  // 02:30 doesn't trigger a scrape; the next one still lands at 04:00.
+  // This eliminates deploy-driven proxy burn while keeping the schedule
+  // predictable. Stagger browser adapters on first boot so N of them
+  // don't race to newContext() on the same millisecond.
   let browserIdx = 0
   for (const adapter of adapters) {
     const state: RunnerState = {
@@ -49,10 +51,8 @@ export function startScheduler(adapters: BookAdapter[]): () => Promise<void> {
       currentCtrl: null,
     }
     runners.set(adapter.slug, state)
-    const delay = adapter.needsBrowser
-      ? 1_000 + (browserIdx++ * 4_000)
-      : 1_000
-    scheduleNext(state, delay)
+    const stagger = adapter.needsBrowser ? (browserIdx++ * 4_000) : 0
+    scheduleAligned(state, stagger)
   }
 
   return async () => {
@@ -65,6 +65,20 @@ export function startScheduler(adapters: BookAdapter[]): () => Promise<void> {
 
 function scheduleNext(state: RunnerState, delayMs: number): void {
   state.timer = setTimeout(() => runOnce(state), delayMs)
+}
+
+/** Schedule the next run on the next wall-clock tick that is a multiple
+ *  of pollIntervalSec from the Unix epoch (UTC). Used on boot and after
+ *  successful runs so the schedule stays stable across redeploys. */
+function scheduleAligned(state: RunnerState, extraDelay = 0): void {
+  const pollMs = state.adapter.pollIntervalSec * 1000
+  const now = Date.now()
+  const nextTick = Math.ceil(now / pollMs) * pollMs
+  let delay = (nextTick - now) + extraDelay
+  // If we're essentially at the tick already (< 500ms), skip to the next
+  // one so we don't double-fire after a just-finished scrape.
+  if (delay < 500) delay += pollMs
+  scheduleNext(state, delay)
 }
 
 async function runOnce(state: RunnerState): Promise<void> {
@@ -117,10 +131,15 @@ async function runOnce(state: RunnerState): Promise<void> {
     state.currentCtrl = null
     state.running = false
 
-    // Backoff on repeated failures: double the poll interval, cap at 10 min
-    const base = state.adapter.pollIntervalSec * 1000
-    const backoffMult = Math.min(10, Math.pow(2, state.consecutiveFailures))
-    scheduleNext(state, base * backoffMult)
+    if (state.consecutiveFailures > 0) {
+      // On failure, back off from "now" rather than aligning — a broken
+      // adapter shouldn't keep slamming the exact aligned tick.
+      const base = state.adapter.pollIntervalSec * 1000
+      const backoffMult = Math.min(10, Math.pow(2, state.consecutiveFailures))
+      scheduleNext(state, base * backoffMult)
+    } else {
+      scheduleAligned(state)
+    }
   }
 }
 
