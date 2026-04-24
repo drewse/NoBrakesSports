@@ -281,14 +281,7 @@ export async function scrapePinnacleProps(
                 const prices = market.prices ?? []
 
                 // Build a participantId → role map from the special
-                // matchup's participants. Pinnacle ships the name as
-                // "Over" / "Under" (or "Yes" / "No") on each
-                // participant. Matching prices.participantId against
-                // this is the only reliable way to tell which side is
-                // which — positional order in the prices array varies
-                // by matchup (previously seeing the OVER price stored
-                // as UNDER on hockey goalscorer props, which created
-                // phantom 130%+ arbs on the arb page).
+                // matchup's participants.
                 const roleById = new Map<number, 'over' | 'under' | 'yes' | 'no'>()
                 for (const p of pm.participants ?? []) {
                   if (p?.id == null) continue
@@ -297,6 +290,14 @@ export async function scrapePinnacleProps(
                   else if (n === 'under') roleById.set(p.id, 'under')
                   else if (n === 'yes') roleById.set(p.id, 'yes')
                   else if (n === 'no') roleById.set(p.id, 'no')
+                }
+                // One-shot diagnostic: if we have no mappable roles for
+                // a special but the market does have prices, dump the
+                // raw participants + market to confirm Pinnacle's
+                // actual response shape. Only logs once per run.
+                if (roleById.size === 0 && prices.length > 0 && !(scrapePinnacleProps as any)._dumpedShape) {
+                  ;(scrapePinnacleProps as any)._dumpedShape = true
+                  console.log('[pinnacle-props] UNMAPPED SPECIAL participants=', JSON.stringify(pm.participants), 'market=', JSON.stringify(market).slice(0, 500))
                 }
                 const roleOf = (price: typeof prices[number]): 'over' | 'under' | 'yes' | 'no' | null => {
                   if (price?.designation === 'over') return 'over'
@@ -313,11 +314,23 @@ export async function scrapePinnacleProps(
                 if (market.type === 'total' || market.type === 'team_total') {
                   let overOutcome = prices.find(p => roleOf(p) === 'over')
                   let underOutcome = prices.find(p => roleOf(p) === 'under')
-                  // Last-resort positional fallback only if participant
-                  // map had no Over/Under entries.
-                  if (!overOutcome && !underOutcome) {
-                    overOutcome = prices[0]
-                    underOutcome = prices[1]
+                  // Price-sign fallback when neither designation nor
+                  // participant map resolve. For player totals (hockey
+                  // 0.5 goals/assists, baseball hit props, etc.) the
+                  // negative-odds side is almost always Under (favorite
+                  // to stay below the line) and positive-odds is Over.
+                  // Only falls through to naïve positional when both
+                  // prices share the same sign (e.g. ±115 on a 25.5
+                  // points line where either assignment is harmless).
+                  if (!overOutcome && !underOutcome && prices.length >= 2) {
+                    const a = prices[0]?.price, b = prices[1]?.price
+                    if (typeof a === 'number' && typeof b === 'number' && (a > 0) !== (b > 0)) {
+                      overOutcome = a > 0 ? prices[0] : prices[1]
+                      underOutcome = a > 0 ? prices[1] : prices[0]
+                    } else {
+                      overOutcome = prices[0]
+                      underOutcome = prices[1]
+                    }
                   }
                   props.push({
                     propCategory: mapped.category,
