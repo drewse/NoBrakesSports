@@ -21,5 +21,8 @@ export const powerplayAdapter = buildOffshoreProbeAdapter({
     { url: 'https://www.powerplay.ca/sports/baseball',   leagueSlug: 'mlb' },
     { url: 'https://www.powerplay.ca/sports/hockey',     leagueSlug: 'nhl' },
   ],
-  useProxy: true,   // PacketStream CA residential
+  // PacketStream CA got TCP-dropped here too. IPRoyal CA mobile clears
+  // the CF reputation wall that residential CIDRs hit.
+  useProxy: 'mobile',
+  pollIntervalSec: 7200,
 })

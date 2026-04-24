@@ -13,9 +13,9 @@ export const titanplayAdapter = buildOffshoreProbeAdapter({
     { url: 'https://titanplay.ca/en/sportsbook/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://titanplay.ca/en/sportsbook/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  // PacketStream CA also TCP-drops titanplay.ca (ERR_EMPTY_RESPONSE) —
-  // same blocker as Betovo / PowerPlay / Miseojeu. Needs IPRoyal CA
-  // mobile to unblock. Park at 24h until CA mobile is set up.
-  useProxy: true,
-  pollIntervalSec: 86400,
+  // PacketStream CA TCP-dropped titanplay.ca. Escalated to IPRoyal CA
+  // mobile — mobile CIDRs pass the CF-reputation wall that residential
+  // got blocked by.
+  useProxy: 'mobile',
+  pollIntervalSec: 7200,
 })

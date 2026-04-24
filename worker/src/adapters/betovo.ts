@@ -13,9 +13,9 @@ export const betovoAdapter = buildOffshoreProbeAdapter({
     { url: 'https://betovo.ca/en/sports/baseball/mlb',   leagueSlug: 'mlb' },
     { url: 'https://betovo.ca/en/sports/hockey/nhl',     leagueSlug: 'nhl' },
   ],
-  // PacketStream CA returns ERR_EMPTY_RESPONSE (TCP-dropped by Betovo's
-  // CF config — same blocker as 7 other offshore books). Park at 24h
-  // until IPRoyal CA mobile is set up.
-  useProxy: true,
-  pollIntervalSec: 86400,  // 24h — parked
+  // PacketStream CA returned ERR_EMPTY_RESPONSE. Escalated to IPRoyal
+  // CA mobile — mobile CIDRs pass the CF-reputation wall that residential
+  // got blocked by.
+  useProxy: 'mobile',
+  pollIntervalSec: 7200,
 })

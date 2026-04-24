@@ -16,5 +16,8 @@ export const miseojeuAdapter = buildOffshoreProbeAdapter({
     { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/baseball',   leagueSlug: 'mlb' },
     { url: 'https://miseojeu.lotoquebec.com/fr/offre-de-paris/hockey-sur-glace', leagueSlug: 'nhl' },
   ],
-  useProxy: true,
+  // PacketStream CA didn't clear Loto-Québec's edge. IPRoyal CA mobile
+  // keeps us inside Canada on a carrier IP the QC operator expects.
+  useProxy: 'mobile',
+  pollIntervalSec: 7200,
 })
