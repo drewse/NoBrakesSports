@@ -247,6 +247,12 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
 // lag, which would otherwise create two events per game.
 const TEAM_FULL_ALIASES: Record<string, string> = {
   'utah hockey club': 'utah mammoth',
+  // Oakland Athletics rebranded to just "Athletics" for 2025 when they
+  // left Oakland; some sources still ship "Oakland Athletics" or
+  // "Sacramento Athletics" (temp home in 2025-26). Collapse all three
+  // to the canonical "athletics".
+  'oakland athletics': 'athletics',
+  'sacramento athletics': 'athletics',
 }
 
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {

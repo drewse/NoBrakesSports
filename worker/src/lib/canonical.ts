@@ -76,6 +76,8 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
 // lib/pipelines/normalize.ts TEAM_FULL_ALIASES.
 const TEAM_FULL_ALIASES: Record<string, string> = {
   'utah hockey club': 'utah mammoth',
+  'oakland athletics': 'athletics',
+  'sacramento athletics': 'athletics',
 }
 
 function normalizeTeam(raw: string): string {
