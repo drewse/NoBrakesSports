@@ -127,6 +127,17 @@ export async function GET(request: NextRequest) {
     else marketInserted += Math.min(200, marketSnapshots.length - i)
   }
 
+  // Nuke existing Fanatics current_market_odds before upserting fresh
+  // ones. Upsert alone leaves stale rows orphaned — e.g. a +100 row for
+  // an event whose latest scrape produced no valid prices (placeholder
+  // filter rejected it) sticks around forever, surfacing as phantom
+  // arbs. sync-polymarket uses the same clear-then-insert pattern.
+  const { error: clearErr } = await db
+    .from('current_market_odds')
+    .delete()
+    .eq('source_id', sourceId)
+  if (clearErr) errors.push(`cmo clear: ${clearErr.message}`)
+
   const currentOddsRows = [...currentOddsByKey.values()]
   let currentOddsUpserted = 0
   for (let i = 0; i < currentOddsRows.length; i += 200) {

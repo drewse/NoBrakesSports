@@ -59,7 +59,12 @@ export interface FanaticsResult {
  *  that otherwise surface as huge phantom +EV opportunities. */
 export function probabilityToAmerican(p: number): number | null {
   if (!Number.isFinite(p) || p <= 0 || p >= 1) return null
-  if (p === 0.5) return null
+  // Fanatics seeds every contract with a near-0.5 placeholder on events
+  // that haven't started trading. Widened from `=== 0.5` to a narrow
+  // neighborhood because the API was also emitting 0.4999/0.5001 — still
+  // within the placeholder band, never a real price. A genuine live
+  // market moves off this range within seconds of the first trade.
+  if (p >= 0.495 && p <= 0.505) return null
   // Decimal odds = 1/p; then decimal→American.
   const d = 1 / p
   if (d >= 2) return Math.round((d - 1) * 100)
