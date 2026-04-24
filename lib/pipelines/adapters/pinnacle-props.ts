@@ -136,12 +136,19 @@ export async function scrapePinnacleProps(
   for (const { league, matchups } of leagueData) {
     // Separate games from specials (props)
     const games = matchups.filter(m => m.type === 'matchup')
-    const specials = matchups.filter(m =>
-      m.type === 'special' &&
-      m.special?.category === 'Player Props' &&
-      m.hasMarkets &&
-      !m.isLive
-    )
+    // Don't hard-code category === 'Player Props'. Pinnacle groups NHL
+    // player props under that exact label, but for NBA / MLB the same
+    // contracts ship under category names like 'Specials' or per-stat
+    // buckets. Gate on description shape instead — mapPinnacleCategory
+    // only returns non-null for "Player Name (Stat)" where Stat is one
+    // of our recognized prop categories. A non-player-prop special
+    // (game winning margin, etc.) fails that regex and is filtered.
+    const specials = matchups.filter(m => {
+      if (m.type !== 'special') return false
+      if (!m.hasMarkets || m.isLive) return false
+      const desc = m.special?.description ?? ''
+      return mapPinnacleCategory(desc) !== null
+    })
 
     // Build parent game map: gameId → event info
     const gameMap = new Map<number, PinnacleEvent>()
