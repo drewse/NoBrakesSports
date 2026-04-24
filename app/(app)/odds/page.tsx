@@ -186,9 +186,38 @@ async function loadOdds(
     })
     .filter((r): r is OddsRow => r !== null)
 
-  // 5. Order book columns alphabetically (stable across games).
+  // 5. Dedupe rows that refer to the same real game. Pre-fix residual
+  // events still in the DB can appear as multiple rows with the same
+  // title and start date — keep whichever has the most books quoting
+  // and drop the orphan. Also filters out obviously-broken best-odds
+  // (abs American > 5000) that leak in when a stale row carries an
+  // alt-line price written under the main market_type.
+  const dedup = new Map<string, OddsRow>()
+  for (const r of rows) {
+    const day = r.startTime.slice(0, 10)
+    const key = `${r.title.toLowerCase()}|${day}`
+    const existing = dedup.get(key)
+    if (!existing || r.byBook.size > existing.byBook.size) {
+      dedup.set(key, r)
+    }
+  }
+  const deduped = [...dedup.values()].map(r => {
+    const cap = (v: number | null) => v != null && Math.abs(v) > 5000 ? null : v
+    return {
+      ...r,
+      bestHome: cap(r.bestHome),
+      bestAway: cap(r.bestAway),
+      avgHome: cap(r.avgHome),
+      avgAway: cap(r.avgAway),
+    }
+  })
+  // Preserve start-time ordering from the events query.
+  const eventOrder = new Map(events.map((e, i) => [e.id, i]))
+  deduped.sort((a, b) => (eventOrder.get(a.eventId) ?? 0) - (eventOrder.get(b.eventId) ?? 0))
+
+  // 6. Order book columns alphabetically (stable across games).
   const bookList = [...books.values()].sort((a, b) => a.name.localeCompare(b.name))
-  return { rows, books: bookList }
+  return { rows: deduped, books: bookList }
 }
 
 /** Average American odds by converting to implied prob, averaging, and
