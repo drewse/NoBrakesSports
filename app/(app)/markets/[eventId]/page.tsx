@@ -91,11 +91,11 @@ export default async function EventDetailPage({
     byMarketType.set(snap.market_type, [...group, snap])
   }
 
-  // Collect market types present, in preferred display order
-  const marketTypes = [
-    ...MARKET_TYPE_ORDER.filter(t => byMarketType.has(t)),
-    ...Array.from(byMarketType.keys()).filter(t => !MARKET_TYPE_ORDER.includes(t)),
-  ]
+  // Collect market types present, only the ones we have proper display
+  // logic for. Alt-period variants (moneyline_h1, spread_h1, total_h1,
+  // total_i1, team_total, etc.) get skipped here — they previously
+  // leaked through as empty "Detailed comparison not available" cards.
+  const marketTypes = MARKET_TYPE_ORDER.filter(t => byMarketType.has(t))
 
   // Determine market shape (2-way vs 3-way)
   const leagueSlug = event.league?.slug ?? null
