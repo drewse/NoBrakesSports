@@ -226,72 +226,74 @@ export async function scrapePinnacleProps(
       console.log(`[pinnacle-props:${league.name}] sample descriptions:`, samples)
     }
 
-    // Fetch markets for each prop — batch with concurrency limit
+    // Fetch markets for each prop — batch with concurrency limit.
+    // Use Promise.allSettled (not Promise.all) and a per-prop try/catch
+    // so a malformed market on one special doesn't reject the whole
+    // Promise.all and propagate up, which would kill every league's
+    // worth of work and leave sync-props with pinnacleResults=[].
     const MAX_CONCURRENT = 5
 
     for (const [gameId, propMatchups] of propsByGame) {
       const parentEvent = gameMap.get(gameId)!
       const allProps: NormalizedProp[] = []
 
-      // Process props in concurrent batches
       for (let i = 0; i < propMatchups.length; i += MAX_CONCURRENT) {
         const batch = propMatchups.slice(i, i + MAX_CONCURRENT)
-        const batchResults = await Promise.all(
+        const batchResults = await Promise.allSettled(
           batch.map(async (pm) => {
-            const description = pm.special?.description ?? ''
-            const mapped = mapPinnacleCategory(description)
-            if (!mapped) return []
+            try {
+              const description = pm.special?.description ?? ''
+              const mapped = mapPinnacleCategory(description)
+              if (!mapped) return [] as NormalizedProp[]
 
-            const allMarkets = await fetchMatchupMarkets(pm.id, signal)
-            const props: NormalizedProp[] = []
+              const allMarkets = await fetchMatchupMarkets(pm.id, signal)
+              const props: NormalizedProp[] = []
+              const markets = allMarkets.filter(m => m?.matchupId === pm.id)
 
-            // CRITICAL: /markets/related/straight returns the prop market PLUS
-            // all parent game markets (spreads, totals, alternates). Only keep
-            // markets for THIS prop's matchupId.
-            const markets = allMarkets.filter(m => m.matchupId === pm.id)
+              for (const market of markets) {
+                if (market.period !== 0) continue
+                if (market.status !== 'open') continue
+                const prices = market.prices ?? []
 
-            for (const market of markets) {
-              // Only period 0 (full game), open markets
-              if (market.period !== 0) continue
-              if (market.status !== 'open') continue
-
-              if (market.type === 'total' || market.type === 'team_total') {
-                const overOutcome = market.prices.find(p => p.designation === 'over')
-                const underOutcome = market.prices.find(p => p.designation === 'under')
-
-                props.push({
-                  propCategory: mapped.category,
-                  playerName: mapped.playerName,
-                  lineValue: overOutcome?.points ?? underOutcome?.points ?? null,
-                  overPrice: overOutcome?.price ?? null,
-                  underPrice: underOutcome?.price ?? null,
-                  yesPrice: null,
-                  noPrice: null,
-                  isBinary: false,
-                })
-              } else if (market.type === 'moneyline') {
-                // Binary prop (e.g., anytime scorer)
-                const homeOutcome = market.prices.find(p => p.designation === 'home')
-                const awayOutcome = market.prices.find(p => p.designation === 'away')
-
-                props.push({
-                  propCategory: mapped.category,
-                  playerName: mapped.playerName,
-                  lineValue: null,
-                  overPrice: null,
-                  underPrice: null,
-                  yesPrice: homeOutcome?.price ?? null,
-                  noPrice: awayOutcome?.price ?? null,
-                  isBinary: true,
-                })
+                if (market.type === 'total' || market.type === 'team_total') {
+                  const overOutcome = prices.find(p => p?.designation === 'over')
+                  const underOutcome = prices.find(p => p?.designation === 'under')
+                  props.push({
+                    propCategory: mapped.category,
+                    playerName: mapped.playerName,
+                    lineValue: overOutcome?.points ?? underOutcome?.points ?? null,
+                    overPrice: overOutcome?.price ?? null,
+                    underPrice: underOutcome?.price ?? null,
+                    yesPrice: null,
+                    noPrice: null,
+                    isBinary: false,
+                  })
+                } else if (market.type === 'moneyline') {
+                  const homeOutcome = prices.find(p => p?.designation === 'home')
+                  const awayOutcome = prices.find(p => p?.designation === 'away')
+                  props.push({
+                    propCategory: mapped.category,
+                    playerName: mapped.playerName,
+                    lineValue: null,
+                    overPrice: null,
+                    underPrice: null,
+                    yesPrice: homeOutcome?.price ?? null,
+                    noPrice: awayOutcome?.price ?? null,
+                    isBinary: true,
+                  })
+                }
               }
+              return props
+            } catch (e) {
+              console.error(`[pinnacle-props] per-prop handler threw`, { matchupId: pm.id, err: e instanceof Error ? e.message : String(e) })
+              return [] as NormalizedProp[]
             }
-
-            return props
           })
         )
 
-        allProps.push(...batchResults.flat())
+        for (const r of batchResults) {
+          if (r.status === 'fulfilled') allProps.push(...r.value)
+        }
       }
 
       if (allProps.length > 0) {
@@ -300,5 +302,6 @@ export async function scrapePinnacleProps(
     }
   }
 
+  console.log(`[pinnacle-props] returning ${results.length} parent-events (${results.reduce((s, r) => s + r.props.length, 0)} total props)`)
   return results
 }
