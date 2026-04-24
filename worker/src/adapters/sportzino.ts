@@ -50,11 +50,10 @@ interface AltenarEvent {
   id: number
   sportId: number
   startDate?: string
-  start?: string
-  competitors?: Array<{ id: number; name: string; homeAway?: string; isHome?: boolean }>
-  name?: string
-  leagueName?: string
-  tournament?: { name?: string }
+  competitorIds: number[]      // [awayId, homeId] — matches "Away @ Home" name
+  name?: string                // "NY Yankees @ BOS Red Sox"
+  marketIds?: number[]         // event → markets (NOT market → event)
+  status?: number
 }
 
 interface AltenarMarket {
@@ -62,16 +61,17 @@ interface AltenarMarket {
   name: string
   oddIds: number[]
   typeId: number
-  eventId?: number
+  sbv?: number | string        // sportsbook value = handicap / total line
 }
 
 interface AltenarOdd {
   id: number
   typeId: number
-  price: number
-  competitorId?: number
-  name: string
+  price: number                // decimal odds
+  competitorId?: number        // may be absent on over/under odds
+  name: string                 // team name ("BOS Red Sox") or "Over" / "Under"
   oddStatus?: number
+  sbv?: number | string
 }
 
 interface AltenarResponse {
@@ -80,7 +80,9 @@ interface AltenarResponse {
   odds?: AltenarOdd[]
 }
 
-/** Walk one GetTopEvents body and join events → markets → odds. */
+/** Walk one GetTopEvents body and join events → markets → odds.
+ *  Real shape: events carry competitorIds[] + name, marketIds[] points at
+ *  the markets[] list, each market's oddIds[] references odds[]. */
 function buildScraped(body: AltenarResponse): ScrapedEvent[] {
   const events = body?.events ?? []
   const markets = body?.markets ?? []
@@ -89,45 +91,57 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
 
   const oddById = new Map<number, AltenarOdd>()
   for (const o of odds) oddById.set(o.id, o)
+  const marketById = new Map<number, AltenarMarket>()
+  for (const m of markets) marketById.set(m.id, m)
 
-  // Markets don't always inline eventId — many Altenar variants put it
-  // as a foreign key on the event instead. Cross-index both ways.
-  const marketsByEvent = new Map<number, AltenarMarket[]>()
-  for (const m of markets) {
-    const evId = m.eventId ?? (m as any).eId ?? (m as any).eventID
-    if (typeof evId === 'number') {
-      if (!marketsByEvent.has(evId)) marketsByEvent.set(evId, [])
-      marketsByEvent.get(evId)!.push(m)
-    }
+  // Build competitorId → name from the odds list (odds carry the
+  // team name on moneyline markets: "BOS Red Sox").
+  const competitorName = new Map<number, string>()
+  for (const o of odds) {
+    if (o.competitorId && o.name) competitorName.set(o.competitorId, o.name)
   }
 
   const out: ScrapedEvent[] = []
   for (const ev of events) {
     const meta = SPORT_TO_SLUG[ev.sportId]
-    if (!meta) continue   // skip non-US-major sports for now
+    if (!meta) continue
 
-    const start = ev.startDate ?? ev.start
+    const start = ev.startDate
     if (!start) continue
     const startTime = new Date(start).toISOString()
 
-    const competitors = ev.competitors ?? []
-    if (competitors.length < 2) continue
-    const home = competitors.find(c => c.isHome === true || c.homeAway === 'home') ?? competitors[0]
-    const away = competitors.find(c => c !== home) ?? competitors[1]
-    if (!home?.name || !away?.name) continue
+    const cIds = ev.competitorIds ?? []
+    if (cIds.length < 2) continue
+    // competitorIds[0] = away, competitorIds[1] = home
+    // (verified from sample: "NY Yankees @ BOS Red Sox" with
+    //  competitorIds=[50118,50121] → away=Yankees(50118), home=Red Sox(50121))
+    const awayId = cIds[0]
+    const homeId = cIds[1]
+    let awayName = competitorName.get(awayId)
+    let homeName = competitorName.get(homeId)
 
-    const evMarkets = marketsByEvent.get(ev.id) ?? []
+    // Fallback: parse from event.name ("Away @ Home")
+    if ((!awayName || !homeName) && typeof ev.name === 'string') {
+      const at = ev.name.indexOf(' @ ')
+      if (at > 0) {
+        awayName = awayName ?? ev.name.slice(0, at).trim()
+        homeName = homeName ?? ev.name.slice(at + 3).trim()
+      }
+    }
+    if (!awayName || !homeName) continue
+
     const gameMarkets: GameMarket[] = []
-
-    for (const m of evMarkets) {
-      const ids = m.oddIds ?? []
-      const related = ids.map(id => oddById.get(id)).filter(Boolean) as AltenarOdd[]
+    for (const mid of ev.marketIds ?? []) {
+      const m = marketById.get(mid)
+      if (!m) continue
+      const related = (m.oddIds ?? []).map(id => oddById.get(id)).filter(Boolean) as AltenarOdd[]
       if (related.length < 2) continue
 
       const name = String(m.name ?? '').toLowerCase()
-      if (/money/.test(name)) {
-        const homeOdd = related.find(o => o.competitorId === home.id)
-        const awayOdd = related.find(o => o.competitorId === away.id)
+
+      if (/money\s*line|moneyline/.test(name)) {
+        const homeOdd = related.find(o => o.competitorId === homeId)
+        const awayOdd = related.find(o => o.competitorId === awayId)
         const hp = homeOdd ? decimalToAmerican(homeOdd.price) : null
         const ap = awayOdd ? decimalToAmerican(awayOdd.price) : null
         if (hp == null && ap == null) continue
@@ -136,31 +150,35 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
           homePrice: hp, awayPrice: ap, drawPrice: null,
           spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
         })
-      } else if (/spread|handicap/.test(name)) {
-        const homeOdd = related.find(o => o.competitorId === home.id)
-        const awayOdd = related.find(o => o.competitorId === away.id)
+      } else if (/spread|handicap|run\s*line|puck\s*line/.test(name)) {
+        const homeOdd = related.find(o => o.competitorId === homeId)
+        const awayOdd = related.find(o => o.competitorId === awayId)
         const hp = homeOdd ? decimalToAmerican(homeOdd.price) : null
         const ap = awayOdd ? decimalToAmerican(awayOdd.price) : null
-        const line = (homeOdd as any)?.sbv ?? (homeOdd as any)?.line ?? null
+        const lineRaw = homeOdd?.sbv ?? m.sbv
+        const line = typeof lineRaw === 'number' ? lineRaw
+          : typeof lineRaw === 'string' ? parseFloat(lineRaw) : null
         if (hp == null && ap == null) continue
         gameMarkets.push({
           marketType: 'spread',
           homePrice: hp, awayPrice: ap, drawPrice: null,
-          spreadValue: typeof line === 'number' ? line : null,
+          spreadValue: Number.isFinite(line as number) ? (line as number) : null,
           totalValue: null, overPrice: null, underPrice: null,
         })
-      } else if (/total|over.*under/i.test(name)) {
-        const over  = related.find(o => /over/i.test(o.name))
-        const under = related.find(o => /under/i.test(o.name))
-        const op = over  ? decimalToAmerican(over.price)  : null
+      } else if (/total|over\/under|over.*under/.test(name)) {
+        const over = related.find(o => /^over/i.test(o.name))
+        const under = related.find(o => /^under/i.test(o.name))
+        const op = over ? decimalToAmerican(over.price) : null
         const up = under ? decimalToAmerican(under.price) : null
-        const line = (over as any)?.sbv ?? (over as any)?.line ?? null
+        const lineRaw = over?.sbv ?? m.sbv
+        const line = typeof lineRaw === 'number' ? lineRaw
+          : typeof lineRaw === 'string' ? parseFloat(lineRaw) : null
         if (op == null && up == null) continue
         gameMarkets.push({
           marketType: 'total',
           homePrice: null, awayPrice: null, drawPrice: null,
           spreadValue: null,
-          totalValue: typeof line === 'number' ? line : null,
+          totalValue: Number.isFinite(line as number) ? (line as number) : null,
           overPrice: op, underPrice: up,
         })
       }
@@ -170,8 +188,8 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
     out.push({
       event: {
         externalId: String(ev.id),
-        homeTeam: home.name,
-        awayTeam: away.name,
+        homeTeam: homeName,
+        awayTeam: awayName,
         startTime,
         leagueSlug: meta.maybeLeague,
         sport: meta.sport,
