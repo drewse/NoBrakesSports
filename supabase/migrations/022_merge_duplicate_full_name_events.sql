@@ -10,55 +10,78 @@
 -- Both canonical key implementations are now aligned; this migration
 -- cleans the historical duplicates.
 --
--- Strategy: group events by (league_id, start_time::date, title).
--- Within each group, keep the row with the most current_market_odds
--- entries (most sources = richer data). Delete the rest. ON DELETE
--- CASCADE clears associated current_market_odds / market_snapshots /
--- prop_odds / prediction_market_snapshots rows on the losers — the
--- winning row's rows are untouched.
+-- Concurrency: the naive single-statement DELETE with CASCADE deadlocks
+-- against the live cron/worker upserts hitting current_market_odds.
+-- Loop in small batches, short lock timeout, explicit child-first
+-- deletes (consistent lock order). Safe to interrupt and re-run — each
+-- batch is its own small transaction and the CTE re-identifies
+-- remaining duplicates on every iteration.
 --
--- Scope: only upcoming / recent events (last 7 days forward) to avoid
--- churning archived history. Safe to re-run.
+-- Scope: events in the ±2 week window so archived history is untouched.
 
-BEGIN;
+SET lock_timeout = '2s';
 
-WITH source_counts AS (
-  SELECT
-    e.id,
-    e.league_id,
-    e.start_time::date AS event_date,
-    e.title,
-    COALESCE((
-      SELECT COUNT(DISTINCT source_id)
-      FROM current_market_odds cmo
-      WHERE cmo.event_id = e.id
-    ), 0) AS source_count
-  FROM events e
-  WHERE e.start_time > NOW() - INTERVAL '2 days'
-    AND e.start_time < NOW() + INTERVAL '14 days'
-),
-duplicate_groups AS (
-  SELECT league_id, event_date, title, COUNT(*) AS group_size
-  FROM source_counts
-  GROUP BY league_id, event_date, title
-  HAVING COUNT(*) > 1
-),
-ranked AS (
-  SELECT
-    sc.id,
-    sc.source_count,
-    ROW_NUMBER() OVER (
-      PARTITION BY sc.league_id, sc.event_date, sc.title
-      -- Prefer rows with more sources; tiebreak on ID to be deterministic.
-      ORDER BY sc.source_count DESC, sc.id
-    ) AS rank
-  FROM source_counts sc
-  JOIN duplicate_groups dg
-    ON dg.league_id = sc.league_id
-   AND dg.event_date = sc.event_date
-   AND dg.title = sc.title
-)
-DELETE FROM events
-WHERE id IN (SELECT id FROM ranked WHERE rank > 1);
+DO $$
+DECLARE
+  batch_ids UUID[];
+  total_deleted INT := 0;
+  batch_deleted INT;
+BEGIN
+  LOOP
+    -- Identify up to 50 losers this iteration.
+    WITH source_counts AS (
+      SELECT
+        e.id,
+        e.league_id,
+        e.start_time::date AS event_date,
+        e.title,
+        COALESCE((
+          SELECT COUNT(DISTINCT source_id)
+          FROM current_market_odds cmo
+          WHERE cmo.event_id = e.id
+        ), 0) AS source_count
+      FROM events e
+      WHERE e.start_time > NOW() - INTERVAL '2 days'
+        AND e.start_time < NOW() + INTERVAL '14 days'
+    ),
+    duplicate_groups AS (
+      SELECT league_id, event_date, title
+      FROM source_counts
+      GROUP BY league_id, event_date, title
+      HAVING COUNT(*) > 1
+    ),
+    ranked AS (
+      SELECT
+        sc.id,
+        ROW_NUMBER() OVER (
+          PARTITION BY sc.league_id, sc.event_date, sc.title
+          ORDER BY sc.source_count DESC, sc.id
+        ) AS rnk
+      FROM source_counts sc
+      JOIN duplicate_groups dg
+        ON dg.league_id = sc.league_id
+       AND dg.event_date = sc.event_date
+       AND dg.title = sc.title
+    )
+    SELECT ARRAY_AGG(id) INTO batch_ids
+    FROM (SELECT id FROM ranked WHERE rnk > 1 LIMIT 50) x;
 
-COMMIT;
+    EXIT WHEN batch_ids IS NULL OR array_length(batch_ids, 1) IS NULL;
+
+    -- Delete children first in a consistent order so concurrent writes
+    -- don't produce a cyclic lock graph. Any per-event FKs not listed
+    -- here still fall through the ON DELETE CASCADE on events itself.
+    DELETE FROM current_market_odds       WHERE event_id = ANY(batch_ids);
+    DELETE FROM market_snapshots          WHERE event_id = ANY(batch_ids);
+    DELETE FROM prop_odds                 WHERE event_id = ANY(batch_ids);
+    DELETE FROM prediction_market_snapshots WHERE event_id = ANY(batch_ids);
+
+    DELETE FROM events WHERE id = ANY(batch_ids);
+    GET DIAGNOSTICS batch_deleted = ROW_COUNT;
+    total_deleted := total_deleted + batch_deleted;
+
+    EXIT WHEN batch_deleted = 0;
+  END LOOP;
+
+  RAISE NOTICE 'merged % duplicate event rows', total_deleted;
+END $$;
