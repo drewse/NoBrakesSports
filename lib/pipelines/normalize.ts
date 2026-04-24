@@ -240,6 +240,15 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
   'sixers ': '76ers ',
 }
 
+// Full-name aliases for teams that rebranded mid-cycle. Applied AFTER
+// city-prefix expansion so both old and new names hash identically.
+// "Utah Hockey Club" was renamed to "Utah Mammoth" for the 2025-26 NHL
+// season; some data sources update the nickname immediately, others
+// lag, which would otherwise create two events per game.
+const TEAM_FULL_ALIASES: Record<string, string> = {
+  'utah hockey club': 'utah mammoth',
+}
+
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
   const normalizeTeam = (name: string) => {
     let n = (name || '').toLowerCase().trim()
@@ -254,6 +263,8 @@ export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'ho
         break
       }
     }
+    // Apply full-name rebrand aliases last.
+    if (TEAM_FULL_ALIASES[n]) n = TEAM_FULL_ALIASES[n]
     return n
   }
   // Parse through Date() so non-ISO startTime strings collapse to the

@@ -72,6 +72,12 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
   'sixers ': '76ers ',
 }
 
+// Full-name aliases for mid-season rebrands. Must stay in sync with
+// lib/pipelines/normalize.ts TEAM_FULL_ALIASES.
+const TEAM_FULL_ALIASES: Record<string, string> = {
+  'utah hockey club': 'utah mammoth',
+}
+
 function normalizeTeam(raw: string): string {
   let t = (raw || '').toLowerCase().trim()
   // Strip common parentheticals (pitcher names, TBD markers)
@@ -85,6 +91,8 @@ function normalizeTeam(raw: string): string {
       break
     }
   }
+  // Full-name rebrand aliases (applied last)
+  if (TEAM_FULL_ALIASES[t]) t = TEAM_FULL_ALIASES[t]
   return t
 }
 
