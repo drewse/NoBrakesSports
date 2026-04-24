@@ -103,12 +103,24 @@ export default async function EventDetailPage({
   const moneylineShape = getMarketShape(leagueSlug, sportSlug, 'moneyline')
   const isThreeWay = moneylineShape === '3way'
 
-  // Fetch prop odds for this event
-  const { data: propOddsRaw } = await supabase
-    .from('prop_odds')
-    .select('*, source:market_sources(id, name, slug)')
-    .eq('event_id', eventId)
-    .gt('snapshot_time', snapshotCutoff)
+  // Fetch prop odds for this event. Paginate past the default PostgREST
+  // 1000-row cap — single events easily have 3-5k prop rows across all
+  // books (DraftKings alone writes ~800, PointsBet ~200 per player), and
+  // the implicit cap was silently truncating Pinnacle / other later-
+  // written sources out of the result set.
+  const PROP_PAGE = 1000
+  const propOddsRaw: any[] = []
+  for (let offset = 0; ; offset += PROP_PAGE) {
+    const { data: page } = await supabase
+      .from('prop_odds')
+      .select('*, source:market_sources(id, name, slug)')
+      .eq('event_id', eventId)
+      .gt('snapshot_time', snapshotCutoff)
+      .range(offset, offset + PROP_PAGE - 1)
+    if (!page || page.length === 0) break
+    propOddsRaw.push(...page)
+    if (page.length < PROP_PAGE) break
+  }
 
   const propOdds = (propOddsRaw ?? []).map((p: any) => ({
     source_id: p.source_id,
