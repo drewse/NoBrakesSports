@@ -164,6 +164,8 @@ const PINNACLE_CATEGORY_MAP: Record<string, string> = {
   'rebounds': 'player_rebounds',
   'assists': 'player_assists',
   'threes': 'player_threes',
+  'threes made': 'player_threes',
+  '3-pointers made': 'player_threes',
   '3-point fg': 'player_threes',
   'pts+rebs+asts': 'player_pts_reb_ast',
   'pts + rebs + asts': 'player_pts_reb_ast',
@@ -193,20 +195,41 @@ const PINNACLE_CATEGORY_MAP: Record<string, string> = {
   'shots on target': 'player_shots_target',
 }
 
+// Substrings that identify a non-player (team / game) prop so the
+// "Name Total Stat" regex doesn't false-match things like
+// "Tampa Bay Rays Exact Total Runs" or "Paris SG Exact Total Goals".
+const PINNACLE_NON_PLAYER_MARKERS = /\b(exact|odd\/even|range|winning|margin|1st\s*half|correct\s*score|both\s*teams|no\s*bet|race\s*to|first\s*team|handicap|team|winner|goalscorer)\b/i
+
 /**
  * Map a Pinnacle special description to a canonical prop category.
- * Description format: "Player Name (Stat)" e.g. "Jared McCain (Points)"
+ * Two observed description formats:
+ *   NHL:  "Connor Hellebuyck (Saves)"         — parens around stat
+ *   NBA:  "Jrue Holiday Total Assists"         — "Total" infix, no parens
+ *   MLB:  "Aaron Judge Total Home Runs"        — same as NBA
  */
 export function mapPinnacleCategory(description: string): { category: string; playerName: string } | null {
-  const match = description.match(/^(.+?)\s*\((.+?)\)\s*$/)
-  if (!match) return null
-
-  const [, rawPlayer, rawStat] = match
-  const statLower = rawStat.toLowerCase().trim()
-  const category = PINNACLE_CATEGORY_MAP[statLower]
-  if (!category) return null
-
-  return { category, playerName: normalizePlayerName(rawPlayer) }
+  // Format 1: "Player Name (Stat)"
+  const parenMatch = description.match(/^(.+?)\s*\((.+?)\)\s*$/)
+  if (parenMatch) {
+    const [, rawPlayer, rawStat] = parenMatch
+    const category = PINNACLE_CATEGORY_MAP[rawStat.toLowerCase().trim()]
+    if (category) return { category, playerName: normalizePlayerName(rawPlayer) }
+  }
+  // Format 2: "Player Name Total {Stat}"
+  const totalMatch = description.match(/^(.+?)\s+Total\s+(.+?)$/i)
+  if (totalMatch) {
+    const [, rawPlayer, rawStat] = totalMatch
+    // Reject team / game props that also contain " Total ".
+    if (PINNACLE_NON_PLAYER_MARKERS.test(rawPlayer)) return null
+    // Require a player-shaped prefix (2-3 words, each starting uppercase).
+    // Stops "Paris Saint-Germain" and other team names from slipping
+    // through when their Total-Goals market is labeled similarly.
+    const words = rawPlayer.trim().split(/\s+/)
+    if (words.length < 2 || words.length > 4) return null
+    const category = PINNACLE_CATEGORY_MAP[rawStat.toLowerCase().trim()]
+    if (category) return { category, playerName: normalizePlayerName(rawPlayer) }
+  }
+  return null
 }
 
 // ── Player name normalization ────────────────────────────────────────────────
