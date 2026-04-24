@@ -43,7 +43,7 @@ export const PINNACLE_LEAGUES: { sport: string; leagueId: number; name: string }
 interface PinnacleMatchup {
   id: number
   type: 'matchup' | 'special'
-  participants?: { name: string; alignment?: string }[]
+  participants?: { id?: number; name: string; alignment?: string }[]
   special?: {
     category: string
     description: string
@@ -280,15 +280,45 @@ export async function scrapePinnacleProps(
                 if (st === 'closed' || st === 'suspended' || st === 'settled') { diag.skippedStatus++; continue }
                 const prices = market.prices ?? []
 
+                // Build a participantId → role map from the special
+                // matchup's participants. Pinnacle ships the name as
+                // "Over" / "Under" (or "Yes" / "No") on each
+                // participant. Matching prices.participantId against
+                // this is the only reliable way to tell which side is
+                // which — positional order in the prices array varies
+                // by matchup (previously seeing the OVER price stored
+                // as UNDER on hockey goalscorer props, which created
+                // phantom 130%+ arbs on the arb page).
+                const roleById = new Map<number, 'over' | 'under' | 'yes' | 'no'>()
+                for (const p of pm.participants ?? []) {
+                  if (p?.id == null) continue
+                  const n = (p.name ?? '').toLowerCase().trim()
+                  if (n === 'over') roleById.set(p.id, 'over')
+                  else if (n === 'under') roleById.set(p.id, 'under')
+                  else if (n === 'yes') roleById.set(p.id, 'yes')
+                  else if (n === 'no') roleById.set(p.id, 'no')
+                }
+                const roleOf = (price: typeof prices[number]): 'over' | 'under' | 'yes' | 'no' | null => {
+                  if (price?.designation === 'over') return 'over'
+                  if (price?.designation === 'under') return 'under'
+                  if (price?.designation === 'home') return 'over'
+                  if (price?.designation === 'away') return 'under'
+                  if (price?.participantId != null) {
+                    const r = roleById.get(price.participantId)
+                    if (r) return r
+                  }
+                  return null
+                }
+
                 if (market.type === 'total' || market.type === 'team_total') {
-                  // Pinnacle's prop totals don't ship a `designation`
-                  // field anymore — just participantId + points + price
-                  // in a fixed [over, under] order. Fall back to
-                  // positional indexing when the designation lookup
-                  // misses so prices actually land in DB instead of
-                  // both columns being null.
-                  const overOutcome = prices.find(p => p?.designation === 'over') ?? prices[0]
-                  const underOutcome = prices.find(p => p?.designation === 'under') ?? prices[1]
+                  let overOutcome = prices.find(p => roleOf(p) === 'over')
+                  let underOutcome = prices.find(p => roleOf(p) === 'under')
+                  // Last-resort positional fallback only if participant
+                  // map had no Over/Under entries.
+                  if (!overOutcome && !underOutcome) {
+                    overOutcome = prices[0]
+                    underOutcome = prices[1]
+                  }
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
@@ -301,17 +331,21 @@ export async function scrapePinnacleProps(
                   })
                   diag.emitted++
                 } else if (market.type === 'moneyline') {
-                  // Same positional fallback for binary/yes-no specials.
-                  const homeOutcome = prices.find(p => p?.designation === 'home') ?? prices[0]
-                  const awayOutcome = prices.find(p => p?.designation === 'away') ?? prices[1]
+                  // Binary specials (Yes/No). Same map-based resolution.
+                  let yesOutcome = prices.find(p => { const r = roleOf(p); return r === 'yes' || r === 'over' })
+                  let noOutcome = prices.find(p => { const r = roleOf(p); return r === 'no' || r === 'under' })
+                  if (!yesOutcome && !noOutcome) {
+                    yesOutcome = prices[0]
+                    noOutcome = prices[1]
+                  }
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
                     lineValue: null,
                     overPrice: null,
                     underPrice: null,
-                    yesPrice: homeOutcome?.price ?? null,
-                    noPrice: awayOutcome?.price ?? null,
+                    yesPrice: yesOutcome?.price ?? null,
+                    noPrice: noOutcome?.price ?? null,
                     isBinary: true,
                   })
                   diag.emitted++
