@@ -124,8 +124,9 @@ export async function GET(req: NextRequest) {
     // and produces garbage player names / stale lines that collide with the
     // worker's writes on the same (source_id, event_id, prop_category, player,
     // line_value) key and cause fake arbs/+EV.
-    const [kambi, dk, fd, bw, mgm, bwinRes, ppRes, prizepicksRes] = await Promise.allSettled([
+    const [kambi, pin, dk, fd, bw, mgm, bwinRes, ppRes, prizepicksRes] = await Promise.allSettled([
       scrapeAllKambiOperators(controller.signal),
+      scrapePinnacleProps(controller.signal),
       scrapeDraftKings(controller.signal),
       scrapeFanDuel(controller.signal),
       scrapeBetway(controller.signal),
@@ -141,6 +142,13 @@ export async function GET(req: NextRequest) {
       if (totalEvents === 0) errors.push('Kambi: scrape succeeded but returned 0 events')
     } else {
       errors.push(`Kambi scrape failed: ${String(kambi.reason)}`)
+    }
+
+    if (pin.status === 'fulfilled') {
+      pinnacleResults = pin.value
+      if (pinnacleResults.length === 0) errors.push('Pinnacle: scrape succeeded but returned 0 events')
+    } else {
+      errors.push(`Pinnacle scrape failed: ${String(pin.reason)}`)
     }
 
     if (dk.status === 'fulfilled') {
