@@ -29,7 +29,7 @@ export function FilterBar({ selection }: { selection: MarketSelection }) {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="w-full max-w-3xl mx-auto flex items-center justify-between gap-2 px-4 py-2 bg-nb-900/60 hover:bg-nb-900 border border-border rounded-full transition-colors"
+        className="flex items-center justify-between gap-2 px-4 py-2 bg-nb-900/60 hover:bg-nb-900 border border-border rounded-full transition-colors"
       >
         <div className="flex items-center gap-2 text-sm">
           <Pill>{leagueLabel}</Pill>

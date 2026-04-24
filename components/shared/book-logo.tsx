@@ -65,8 +65,20 @@ const BOOK_CONFIG: Record<string, BookConfig> = {
   lowvig:              { abbrev: 'LV',  bg: 'bg-[#0a1f4d]',      text: 'text-white',        hasLogo: true, logoExt: 'jpg' },
   mybookie:            { abbrev: 'MB',  bg: 'bg-black',          text: 'text-[#f57c00]',    hasLogo: true },
   sportsbetting:       { abbrev: 'SB',  bg: 'bg-[#0a3a8c]',      text: 'text-white',        hasLogo: true, logoExt: 'jpg' },
-  polymarket:          { abbrev: 'PM',  bg: 'bg-[#0052ff]',      text: 'text-white' },
-  kalshi:              { abbrev: 'KL',  bg: 'bg-[#6366f1]',      text: 'text-white' },
+  // Fanatics ships under three different market_sources rows (slugs:
+  // 'fanatics', 'fanatics_markets', and the canonical 'fanaticsmarkets').
+  // Alias all three to the same logo file so the UI is consistent.
+  fanatics:            { abbrev: 'FN',  bg: 'bg-black',          text: 'text-white',        hasLogo: true, logoExt: 'webp' },
+  fanatics_markets:    { abbrev: 'FN',  bg: 'bg-black',          text: 'text-white',        hasLogo: true, logoSlug: 'fanaticsmarkets' },
+  // Brand-matched fallback colors (used if image fails to load too).
+  betanysports:        { abbrev: 'BA',  bg: 'bg-[#1a1a1a]',      text: 'text-[#ff8c00]' },
+  betsson:             { abbrev: 'BS',  bg: 'bg-[#00b14f]',      text: 'text-white',        hasLogo: true },
+  espnbet:             { abbrev: 'ES',  bg: 'bg-[#d20a11]',      text: 'text-white',        hasLogo: true },
+  fliff:               { abbrev: 'FL',  bg: 'bg-[#ff5cb6]',      text: 'text-white',        hasLogo: true, logoExt: 'jpg' },
+  unibet:              { abbrev: 'UN',  bg: 'bg-[#147b3c]',      text: 'text-[#ffd400]',    hasLogo: true },
+  williamhill:         { abbrev: 'WH',  bg: 'bg-[#003b71]',      text: 'text-[#ffcc00]',    hasLogo: true },
+  polymarket:          { abbrev: 'PM',  bg: 'bg-[#0052ff]',      text: 'text-white',        hasLogo: true },
+  kalshi:              { abbrev: 'KL',  bg: 'bg-[#6366f1]',      text: 'text-white',        hasLogo: true },
   the_odds_api:        { abbrev: 'OA',  bg: 'bg-nb-700',         text: 'text-white' },
 }
 
@@ -141,6 +153,14 @@ const NAME_TO_SLUG: Record<string, string> = {
   'MyBookie.ag':         'mybookie',
   'SportsBetting':       'sportsbetting',
   'SportsBetting.ag':    'sportsbetting',
+  'BetAnySports':        'betanysports',
+  'Betsson':             'betsson',
+  'ESPN Bet':            'espnbet',
+  'ESPNBet':             'espnbet',
+  'Fliff':               'fliff',
+  'Unibet':              'unibet',
+  'William Hill':        'williamhill',
+  'WilliamHill':         'williamhill',
   'Polymarket':          'polymarket',
   'Kalshi':              'kalshi',
 }
