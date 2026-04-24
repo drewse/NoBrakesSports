@@ -233,6 +233,21 @@ export async function scrapePinnacleProps(
     // worth of work and leave sync-props with pinnacleResults=[].
     const MAX_CONCURRENT = 5
 
+    // Per-league market-fetch diagnostics. Track how many fetchMatchupMarkets
+    // calls returned 0 markets, how many markets got filtered by matchupId /
+    // period / status / type, and sample the first successful market shape so
+    // we can see what Pinnacle is actually sending.
+    const diag = {
+      propsCalled: 0,
+      fetchEmpty: 0,
+      afterMatchupFilter: 0,
+      skippedPeriod: 0,
+      skippedStatus: 0,
+      skippedType: 0,
+      emitted: 0,
+    }
+    let firstMarketSample: any = null
+
     for (const [gameId, propMatchups] of propsByGame) {
       const parentEvent = gameMap.get(gameId)!
       const allProps: NormalizedProp[] = []
@@ -246,13 +261,25 @@ export async function scrapePinnacleProps(
               const mapped = mapPinnacleCategory(description)
               if (!mapped) return [] as NormalizedProp[]
 
+              diag.propsCalled++
               const allMarkets = await fetchMatchupMarkets(pm.id, signal)
+              if (allMarkets.length === 0) diag.fetchEmpty++
+              if (!firstMarketSample && allMarkets.length > 0) {
+                firstMarketSample = {
+                  propMatchupId: pm.id,
+                  propDescription: description,
+                  marketCount: allMarkets.length,
+                  firstMarket: allMarkets[0],
+                  matchupIds: [...new Set(allMarkets.map(m => m?.matchupId))].slice(0, 5),
+                }
+              }
               const props: NormalizedProp[] = []
               const markets = allMarkets.filter(m => m?.matchupId === pm.id)
+              diag.afterMatchupFilter += markets.length
 
               for (const market of markets) {
-                if (market.period !== 0) continue
-                if (market.status !== 'open') continue
+                if (market.period !== 0) { diag.skippedPeriod++; continue }
+                if (market.status !== 'open') { diag.skippedStatus++; continue }
                 const prices = market.prices ?? []
 
                 if (market.type === 'total' || market.type === 'team_total') {
@@ -268,6 +295,7 @@ export async function scrapePinnacleProps(
                     noPrice: null,
                     isBinary: false,
                   })
+                  diag.emitted++
                 } else if (market.type === 'moneyline') {
                   const homeOutcome = prices.find(p => p?.designation === 'home')
                   const awayOutcome = prices.find(p => p?.designation === 'away')
@@ -281,6 +309,9 @@ export async function scrapePinnacleProps(
                     noPrice: awayOutcome?.price ?? null,
                     isBinary: true,
                   })
+                  diag.emitted++
+                } else {
+                  diag.skippedType++
                 }
               }
               return props
@@ -298,6 +329,14 @@ export async function scrapePinnacleProps(
 
       if (allProps.length > 0) {
         results.push({ parentEvent, props: allProps })
+      }
+    }
+
+    // Only log diagnostics for leagues that had specials grouped.
+    if (propsByGame.size > 0) {
+      console.log(`[pinnacle-props:${league.name}] market-fetch diag`, diag)
+      if (firstMarketSample) {
+        console.log(`[pinnacle-props:${league.name}] first market sample`, JSON.stringify(firstMarketSample).slice(0, 800))
       }
     }
   }
