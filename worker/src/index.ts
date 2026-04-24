@@ -39,15 +39,30 @@ import { stakeAdapter } from './adapters/stake.js'
 //   betrivers_on — handled by the Vercel pipeline (kambi)
 //   jackpotbet   — domain is parked/dead (confirmed via discovery log)
 //   casumo       — Casumo CA has no sportsbook product, confirmed 2026-04-22
+// Temporarily disabled to cut proxy spend until we have paying users:
+//   caesars       — IPRoyal CA mobile, 1h cadence (biggest single
+//                    consumer at ~70 MB/scrape = 990 MB/week)
+//   betmgm_on     — PacketStream CA residential, 180s cadence —
+//                    residential not mobile, but burn is 627 MB/week
+//                    because it polls every 3 min
+//   thescore      — IPRoyal CA mobile, 1h cadence, 275 MB/week
+//                    (same tier as caesars, lower per-scrape cost)
+//                    Note: thescore pipeline heartbeat / last_checked
+//                    will go stale once disabled
+//   betvictor     — IPRoyal CA mobile (wasn't covered by original
+//                    budget planning), 465 MB/week
+//                    consumer at ~70 MB/scrape = 990 MB/week)
+//   hard_rock_bet — IPRoyal US mobile, discovery-only output, 237 MB/week
+// Re-enable by uncommenting from ALL_ADAPTERS below.
 const ALL_ADAPTERS: BookAdapter[] = [
   pointsbetAdapter,
   pinnacleAdapter,
   bet365Adapter,
-  caesarsAdapter,
-  betmgmAdapter,
+  // caesarsAdapter,      // disabled — too heavy (see note above)
+  // betmgmAdapter,       // disabled — 3-min polling burns residential proxy
   prolineAdapter,
-  thescoreAdapter,
-  betvictorAdapter,
+  // thescoreAdapter,     // disabled — mobile-tier burn
+  // betvictorAdapter,    // disabled — mobile-tier burn
   bet99Adapter,
   eightyEightSportAdapter,
   betanoAdapter,
@@ -61,7 +76,7 @@ const ALL_ADAPTERS: BookAdapter[] = [
   betonlineAdapter,           // BetOnline API — adapter fully parsed, ready for live data
   lowvigAdapter,              // LowVig — same SAS platform
   sportsbettingAgAdapter,     // Sportsbetting.ag — same SAS platform
-  hardRockAdapter,            // Hard Rock Bet — discovery mode
+  // hardRockAdapter,         // disabled — mobile-tier burn, discovery only
   mybookieAdapter,            // MyBookie.ag — discovery mode
   bookmakerEuAdapter,         // Bookmaker.eu — discovery mode
   betusAdapter,               // BetUS Panama — discovery mode
