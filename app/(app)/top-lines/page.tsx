@@ -232,32 +232,38 @@ export default async function TopEvLinesPage({
   // Await game-level snapshots (prop batches are running in parallel)
   const { data: snapshots } = await snapshotsPromise
 
-  // ── Dedup + Group by (event_id, market_type, line_value) ───────────────
-  // line_value MUST be part of the key, otherwise a book's alt-line row
-  // (e.g. Proline+ quoting Over 225.5 @ +235) gets grouped with every
-  // other book's main-line snap at 217.5 — the +EV page then displays
-  // "Over 217.5 from Proline @ +235" as a huge phantom opportunity
+  // ── Dedup + Group by (event, market_type, line) ──────────────────────
+  // The actual line MUST be part of the key. Without it, a book's
+  // alt-line row (e.g. Proline+ Over 225.5 @ +235) gets grouped with
+  // every other book's main-line snap at 217.5, and the +EV page shows
+  // "Over 217.5 from Proline @ +235" as a massive phantom opportunity
   // because it's comparing a 225.5 price against a 217.5 consensus.
-  // Each (event, market_type, line_value) must be its own group so EV
-  // is only computed across books actually quoting the same line.
+  //
+  // NOTE: `line_value` is always `0` for main-line rows in our schema
+  // (NULL can't be part of a unique constraint). The real line lives
+  // in `spread_value` (for spread rows) or `total_value` (for total
+  // rows). Use those columns directly — `line_value ?? fallback`
+  // doesn't work because 0 isn't nullish.
 
   type Snap = NonNullable<typeof snapshots>[number]
 
-  // Step 1: Dedup — keep latest per (event, source, market_type, line_value)
-  const lineKey = (s: Snap) => {
-    const lv = (s as any).line_value ?? s.spread_value ?? s.total_value ?? ''
-    return `${s.event_id}|${s.source_id}|${s.market_type}|${lv}`
+  const lineOf = (s: Snap): string => {
+    if (s.market_type === 'spread')  return s.spread_value != null ? String(s.spread_value) : ''
+    if (s.market_type === 'total')   return s.total_value  != null ? String(s.total_value)  : ''
+    return '' // moneyline has no line
   }
+
+  // Step 1: Dedup — keep latest per (event, source, market_type, line)
   const latestByKey = new Map<string, Snap>()
   for (const snap of snapshots ?? []) {
-    const key = lineKey(snap)
+    const key = `${snap.event_id}|${snap.source_id}|${snap.market_type}|${lineOf(snap)}`
     const existing = latestByKey.get(key)
     if (!existing || snap.snapshot_time > existing.snapshot_time) {
       latestByKey.set(key, snap)
     }
   }
 
-  // Step 2: Group deduped snaps by (event, market_type, line_value)
+  // Step 2: Group deduped snaps by (event, market_type, line)
   const groupMap = new Map<string, Snap[]>()
   for (const snap of latestByKey.values()) {
     const sourceSlug: string = (snap as any).source?.slug ?? ''
@@ -267,8 +273,7 @@ export default async function TopEvLinesPage({
     if (!ev) continue
     if (!isUpcomingEvent(ev.start_time)) continue
 
-    const lv = (snap as any).line_value ?? snap.spread_value ?? snap.total_value ?? ''
-    const key = `${snap.event_id}::${snap.market_type}::${lv}`
+    const key = `${snap.event_id}::${snap.market_type}::${lineOf(snap)}`
     if (!groupMap.has(key)) groupMap.set(key, [])
     groupMap.get(key)!.push(snap)
   }
