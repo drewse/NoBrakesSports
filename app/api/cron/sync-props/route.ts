@@ -418,14 +418,31 @@ export async function GET(req: NextRequest) {
 
   // Process Pinnacle results
   if (pinnacleSourceId) {
+    const byLeague: Record<string, { matched: number; unmatchedEvents: number; props: number }> = {}
+    const unmatchedSamples: string[] = []
     for (const result of pinnacleResults) {
       const leagueSlug = PINNACLE_LEAGUE_TO_SLUG[result.parentEvent.leagueName] ?? ''
+      const bucket = (byLeague[leagueSlug] ||= { matched: 0, unmatchedEvents: 0, props: 0 })
       const eventId = findEvent(leagueSlug, result.parentEvent.startTime, result.parentEvent.homeName, result.parentEvent.awayName)
-      if (!eventId) continue
+      if (!eventId) {
+        bucket.unmatchedEvents++
+        if (unmatchedSamples.length < 6) {
+          unmatchedSamples.push(
+            `${leagueSlug} "${result.parentEvent.homeName}" vs "${result.parentEvent.awayName}" @ ${result.parentEvent.startTime}`
+          )
+        }
+        continue
+      }
+      bucket.matched++
+      bucket.props += result.props.length
 
       for (const prop of result.props) {
         propRows.push(buildPropRow(eventId, pinnacleSourceId, prop, now))
       }
+    }
+    console.log('[pinnacle-props] event-match breakdown', byLeague)
+    if (unmatchedSamples.length) {
+      console.log('[pinnacle-props] unmatched event samples', unmatchedSamples)
     }
   }
 
