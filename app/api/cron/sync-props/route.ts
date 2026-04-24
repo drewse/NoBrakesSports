@@ -1074,11 +1074,75 @@ function propKey(
   return `${eventId}|${sourceId}|${category}|${playerName}|${lineValue ?? 'null'}`
 }
 
+// Must stay aligned with lib/pipelines/normalize.ts and
+// worker/src/lib/canonical.ts TEAM_CITY_ALIASES. sync-props has its own
+// event-matching index (findEvent / makeMatchKey), but the normalization
+// MUST produce the same canonical team string the rest of the pipeline
+// uses or a DK/Pinnacle/Kambi scrape sending "HOU Rockets" won't find
+// the "Houston Rockets" event row the canonical-key path already wrote.
+// 3-letter prefixes listed before 2-letter so startsWith picks the more
+// specific one first.
 const TEAM_CITY_ALIASES: Record<string, string> = {
-  'la ': 'los angeles ', 'ny ': 'new york ', 'gs ': 'golden state ',
-  'sa ': 'san antonio ', 'no ': 'new orleans ', 'okc ': 'oklahoma city ',
-  'tb ': 'tampa bay ', 'kc ': 'kansas city ', 'gb ': 'green bay ',
-  'ne ': 'new england ',
+  // 3-letter
+  'okc ': 'oklahoma city ', 'okc': 'oklahoma city',
+  'phi ': 'philadelphia ',  'phi': 'philadelphia',
+  'phx ': 'phoenix ',       'phx': 'phoenix',
+  'pho ': 'phoenix ',       'pho': 'phoenix',
+  'hou ': 'houston ',       'hou': 'houston',
+  'por ': 'portland ',      'por': 'portland',
+  'orl ': 'orlando ',       'orl': 'orlando',
+  'chi ': 'chicago ',       'chi': 'chicago',
+  'det ': 'detroit ',       'det': 'detroit',
+  'atl ': 'atlanta ',       'atl': 'atlanta',
+  'bos ': 'boston ',        'bos': 'boston',
+  'was ': 'washington ',    'was': 'washington',
+  'wsh ': 'washington ',    'wsh': 'washington',
+  'dal ': 'dallas ',        'dal': 'dallas',
+  'den ': 'denver ',        'den': 'denver',
+  'mia ': 'miami ',         'mia': 'miami',
+  'min ': 'minnesota ',     'min': 'minnesota',
+  'mil ': 'milwaukee ',     'mil': 'milwaukee',
+  'mem ': 'memphis ',       'mem': 'memphis',
+  'ind ': 'indiana ',       'ind': 'indiana',
+  'sac ': 'sacramento ',    'sac': 'sacramento',
+  'uta ': 'utah ',          'uta': 'utah',
+  'cle ': 'cleveland ',     'cle': 'cleveland',
+  'nsh ': 'nashville ',     'nsh': 'nashville',
+  'cgy ': 'calgary ',       'cgy': 'calgary',
+  'van ': 'vancouver ',     'van': 'vancouver',
+  'edm ': 'edmonton ',      'edm': 'edmonton',
+  'mtl ': 'montreal ',      'mtl': 'montreal',
+  'ott ': 'ottawa ',        'ott': 'ottawa',
+  'wpg ': 'winnipeg ',      'wpg': 'winnipeg',
+  'buf ': 'buffalo ',       'buf': 'buffalo',
+  'cin ': 'cincinnati ',    'cin': 'cincinnati',
+  'pit ': 'pittsburgh ',    'pit': 'pittsburgh',
+  'bal ': 'baltimore ',     'bal': 'baltimore',
+  'jax ': 'jacksonville ',  'jax': 'jacksonville',
+  'ten ': 'tennessee ',     'ten': 'tennessee',
+  'car ': 'carolina ',      'car': 'carolina',
+  'ari ': 'arizona ',       'ari': 'arizona',
+  'cha ': 'charlotte ',     'cha': 'charlotte',
+  'col ': 'colorado ',      'col': 'colorado',
+  'sea ': 'seattle ',       'sea': 'seattle',
+  'tor ': 'toronto ',       'tor': 'toronto',
+  // 2-letter
+  'la ': 'los angeles ',    'la': 'los angeles',
+  'ny ': 'new york ',       'ny': 'new york',
+  'sf ': 'san francisco ',  'sf': 'san francisco',
+  'gs ': 'golden state ',   'gs': 'golden state',
+  'sa ': 'san antonio ',    'sa': 'san antonio',
+  'sd ': 'san diego ',      'sd': 'san diego',
+  'kc ': 'kansas city ',    'kc': 'kansas city',
+  'gb ': 'green bay ',      'gb': 'green bay',
+  'lv ': 'las vegas ',      'lv': 'las vegas',
+  'ne ': 'new england ',    'ne': 'new england',
+  'no ': 'new orleans ',    'no': 'new orleans',
+  'nj ': 'new jersey ',     'nj': 'new jersey',
+  'tb ': 'tampa bay ',      'tb': 'tampa bay',
+  // Nicknames
+  'philly ': 'philadelphia ', 'philly': 'philadelphia',
+  'sixers': '76ers',
 }
 
 function normalizeTeamForMatch(name: string): string {
