@@ -305,18 +305,27 @@ export async function GET(request: NextRequest) {
     // closer to game time, the next Kalshi fire matches and inserts odds.
     if (!dbEvent) { pairedUnmatchedEvent++; continue }
 
-    // Map each Kalshi contract to home or away via yes_sub_title.
+    // Map each Kalshi contract to home or away using the CANONICAL DB
+    // event's title, NOT Kalshi's own parsed home. Kalshi uses
+    // "Home vs Away" convention but its "home" often disagrees with the
+    // DB event's home (e.g. DB title = "Los Angeles Dodgers vs Chicago
+    // Cubs" has home=Dodgers; Kalshi title = "Chicago vs Los Angeles"
+    // has home=Cubs). Keying on Kalshi's home flipped every Kalshi
+    // moneyline relative to every other book — producing phantom
+    // arbitrage at ~21-26% profit on any slightly-off matchup.
+    const dbTitleParts = (dbEvent.title as string).split(/\s+vs\.?\s+/i)
+    const dbHomeLower = (dbTitleParts[0] ?? '').trim().toLowerCase()
     const aSub = ((pair.a as any).yes_sub_title ?? '').trim()
     const bSub = ((pair.b as any).yes_sub_title ?? '').trim()
-    const aFull = resolveFullName(sport, aSub)
-    const bFull = resolveFullName(sport, bSub)
+    const aFull = resolveFullName(sport, aSub).toLowerCase()
+    const bFull = resolveFullName(sport, bSub).toLowerCase()
 
-    const aIsHome = aFull.toLowerCase() === homeFull.toLowerCase()
-    const bIsHome = bFull.toLowerCase() === homeFull.toLowerCase()
-    if (aIsHome === bIsHome) { pairedUnmatchedTeam++; continue }
+    const aIsDbHome = aFull === dbHomeLower || dbHomeLower.includes(aFull) || aFull.includes(dbHomeLower)
+    const bIsDbHome = bFull === dbHomeLower || dbHomeLower.includes(bFull) || bFull.includes(dbHomeLower)
+    if (aIsDbHome === bIsDbHome) { pairedUnmatchedTeam++; continue }
 
-    const homeMarket = aIsHome ? pair.a : pair.b
-    const awayMarket = aIsHome ? pair.b : pair.a
+    const homeMarket = aIsDbHome ? pair.a : pair.b
+    const awayMarket = aIsDbHome ? pair.b : pair.a
     const homeProb = kalshiPriceToProb(homeMarket, 'yes')
     const awayProb = kalshiPriceToProb(awayMarket, 'yes')
     const homePrice = probToAmerican(homeProb)
