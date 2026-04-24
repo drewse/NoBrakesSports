@@ -878,14 +878,30 @@ export async function GET(req: NextRequest) {
   }
 
   // 5. Fetch existing hashes for change detection
+  // PostgREST caps un-ranged SELECTs at 1000 rows by default — with the
+  // full Pinnacle + Kambi + DK + FD + BetMGM prop catalog that cap was
+  // silently truncating existingProps, so every prop beyond row 1000
+  // got treated as "new" and re-upserted on every 2-min cycle. Paginate
+  // explicitly so change detection sees all existing rows.
   const eventIds = [...new Set(dedupedRows.map(r => r.event_id))]
-  const { data: existingProps } = await db
-    .from('prop_odds')
-    .select('event_id, source_id, prop_category, player_name, line_value, odds_hash')
-    .in('event_id', eventIds)
+  const existingProps: Array<{
+    event_id: string; source_id: string; prop_category: string;
+    player_name: string; line_value: number | null; odds_hash: string
+  }> = []
+  const EXISTING_PAGE = 1000
+  for (let offset = 0; ; offset += EXISTING_PAGE) {
+    const { data: page } = await db
+      .from('prop_odds')
+      .select('event_id, source_id, prop_category, player_name, line_value, odds_hash')
+      .in('event_id', eventIds)
+      .range(offset, offset + EXISTING_PAGE - 1)
+    if (!page || page.length === 0) break
+    existingProps.push(...(page as typeof existingProps))
+    if (page.length < EXISTING_PAGE) break
+  }
 
   const existingHashMap = new Map<string, string>()
-  for (const ep of existingProps ?? []) {
+  for (const ep of existingProps) {
     const key = propKey(ep.event_id, ep.source_id, ep.prop_category, ep.player_name, ep.line_value)
     existingHashMap.set(key, ep.odds_hash)
   }
