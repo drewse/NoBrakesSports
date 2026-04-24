@@ -155,7 +155,19 @@ interface PinnMatchup {
   league: { id: number; name: string; group: string }
   startTime: string  // ISO 8601
   participants: Array<{ alignment: 'home' | 'away'; name: string }>
-  parentId?: number | null
+  parentId?: number | null  // parent matchup for alt-line variants
+}
+
+/** Detect Pinnacle daily-parlay placeholder team names like
+ *  "Home Goals (3 Games)" / "Away Teams (4 Games)" / "Home Runs (5 Games)".
+ *  Also blocks the raw "Home Teams" / "Away Teams" labels Odds API
+ *  sometimes passes through. */
+function isPlaceholderTeam(name: string): boolean {
+  const t = (name || '').trim()
+  if (!t) return true
+  if (/\(\d+\s*Games?\)/i.test(t)) return true
+  if (/^(home|away)\s+(teams?|goals?|runs?|points?)(\s|$)/i.test(t)) return true
+  return false
 }
 
 interface PinnPrice {
@@ -290,6 +302,12 @@ export const pinnacleAdapter: SourceAdapter = {
         const home = matchup.participants.find(p => p.alignment === 'home')?.name ?? ''
         const away = matchup.participants.find(p => p.alignment === 'away')?.name ?? ''
         if (!home || !away) continue
+        // Pinnacle exposes daily-parlay aggregate wagers as matchups with
+        // team names like "Home Goals (3 Games)" / "Away Goals (3 Games)"
+        // (or Teams / Runs / Points variants). They show up on Markets as
+        // fake head-to-heads. Skip anything whose team name is a
+        // placeholder-style multi-game aggregate.
+        if (isPlaceholderTeam(home) || isPlaceholderTeam(away)) continue
         allEvents.push(normalizeEvent({
           externalId: String(matchup.id),
           homeTeam:   home,

@@ -33,6 +33,18 @@ const MARKET_TYPE_MAP: Record<string, 'moneyline' | 'spread' | 'total'> = {
   'TOTAL_POINTS_(OVER/UNDER)': 'total',
 }
 
+// FanDuel bundles Professional Women's Hockey League (PWHL) games under
+// its NHL page. Filter them out until/unless we add a PWHL league row
+// so they don't pollute the NHL Markets list.
+const PWHL_TEAMS: Set<string> = new Set([
+  'Boston Fleet',
+  'Minnesota Frost',
+  'Montreal Victoire',
+  'New York Sirens',
+  'Ottawa Charge',
+  'Toronto Sceptres',
+])
+
 export interface FDEvent {
   eventId: string
   name: string
@@ -371,6 +383,15 @@ async function fetchPage(page: typeof FD_PAGES[number]): Promise<FDResult[]> {
 
       const away = parts[0].trim()
       const home = parts[1].trim()
+
+      // FanDuel bundles PWHL (women's pro hockey) games under its NHL
+      // page. The adapter then writes them as NHL events, polluting the
+      // NHL league on Markets. Skip any game with a known PWHL team
+      // name. No PWHL league slug in our schema yet; if that changes
+      // these can be re-routed instead of dropped.
+      if (page.leagueSlug === 'nhl' && (PWHL_TEAMS.has(home) || PWHL_TEAMS.has(away))) {
+        continue
+      }
 
       eventMap.set(id, {
         eventId: id,
