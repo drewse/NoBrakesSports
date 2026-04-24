@@ -173,13 +173,22 @@ export const prolineAdapter: BookAdapter = {
         const offers = offersByEvent.get(eventId) ?? []
         const gameMarkets: GameMarket[] = []
 
-        const ml = offers.find(o => {
+        // Kambi returns many betoffers per event — one main line and a
+        // stack of alt lines for spread/total. Always prefer `main:true`
+        // so we don't accidentally store an alt's price against what
+        // looks like the primary line (bug that produced Over 217.5
+        // @ +235 when the real main line was -110).
+        const pickMain = <T extends { main?: boolean }>(arr: T[]): T | undefined =>
+          arr.find(o => o.main) ?? arr[0]
+
+        const mlCandidates = offers.filter(o => {
           const bName = (o.betOfferType?.englishName ?? '').toLowerCase()
           const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
           if (bName === 'match' || bName === 'money line' || bName === 'moneyline' || bName === 'winner') return true
           if (cLabel === 'full time' || cLabel.includes('moneyline') || cLabel.includes('money line')) return true
           return false
         })
+        const ml = pickMain(mlCandidates)
         if (ml) {
           const home = ml.outcomes?.find(o => o.type === 'OT_ONE')
           const away = ml.outcomes?.find(o => o.type === 'OT_TWO')
@@ -192,9 +201,10 @@ export const prolineAdapter: BookAdapter = {
           })
         }
 
-        const spread = offers.find(o =>
+        const spreadCandidates = offers.filter(o =>
           o.betOfferType?.englishName === 'Handicap'
           || (o.criterion?.englishLabel ?? '').toLowerCase().includes('handicap'))
+        const spread = pickMain(spreadCandidates)
         if (spread) {
           const home = spread.outcomes?.find(o => o.type === 'OT_ONE')
           const away = spread.outcomes?.find(o => o.type === 'OT_TWO')
@@ -208,9 +218,10 @@ export const prolineAdapter: BookAdapter = {
           })
         }
 
-        const total = offers.find(o =>
+        const totalCandidates = offers.filter(o =>
           o.betOfferType?.englishName === 'Over/Under'
           || (o.criterion?.englishLabel ?? '').toLowerCase().includes('total'))
+        const total = pickMain(totalCandidates)
         if (total) {
           const over = total.outcomes?.find(o => o.type === 'OT_OVER')
           const under = total.outcomes?.find(o => o.type === 'OT_UNDER')
