@@ -165,12 +165,22 @@ export const pinnacleAdapter: BookAdapter = {
           !m.isLive
         )
 
-        // Build game map for event lookup
+        // Build game map for event lookup. Skip Pinnacle's daily-parlay
+        // placeholder matchups ("Home Goals (3 Games)" / "Away Teams
+        // (4 Games)" etc.) — they show up as real matchups in this API
+        // but aren't a head-to-head game.
+        const isPlaceholderTeam = (name: string): boolean => {
+          if (!name) return true
+          if (/\(\d+\s*Games?\)/i.test(name)) return true
+          if (/^(home|away)\s+(teams?|goals?|runs?|points?)(\s|$)/i.test(name)) return true
+          return false
+        }
         const gameMap = new Map<number, { event: NormalizedEvent; gameMarkets: GameMarket[]; props: NormalizedProp[] }>()
         for (const g of games) {
           const home = g.participants?.find(p => p.alignment === 'home')?.name ?? ''
           const away = g.participants?.find(p => p.alignment === 'away')?.name ?? ''
           if (!home || !away) continue
+          if (isPlaceholderTeam(home) || isPlaceholderTeam(away)) continue
           gameMap.set(g.id, {
             event: {
               externalId: String(g.id),
