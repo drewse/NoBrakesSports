@@ -85,7 +85,15 @@ function normalizeTeam(raw: string): string {
   return t
 }
 
-/** Deterministic key shared across all adapters — date + sorted team pair. */
+/** Deterministic key shared across all adapters — date + sorted team pair.
+ *  Must produce identical output to lib/pipelines/normalize.ts
+ *  canonicalEventKey() — any divergence creates duplicate events because
+ *  worker-side writes and Vercel-side cron writes compute different
+ *  external_id values and the unique constraint lets both through.
+ *  Date parsing goes through `new Date(...).toISOString()` so non-ISO
+ *  startTime strings (e.g. "04/24/2026 18:40", local-offset ISO like
+ *  "2026-04-24T21:50:00-04:00") collapse to the same UTC date both
+ *  sides. */
 export function canonicalEventKey(args: {
   leagueSlug: string
   startTime: string
@@ -93,7 +101,10 @@ export function canonicalEventKey(args: {
   awayTeam: string
 }): string {
   const teams = [normalizeTeam(args.homeTeam), normalizeTeam(args.awayTeam)].sort()
-  const date = (args.startTime || '').slice(0, 10)
+  const parsed = new Date(args.startTime)
+  const date = isNaN(parsed.getTime())
+    ? (args.startTime || '').slice(0, 10)  // fall back to raw slice if unparseable
+    : parsed.toISOString().slice(0, 10)
   return `${args.leagueSlug}:${date}:${teams[0]}:${teams[1]}`
 }
 

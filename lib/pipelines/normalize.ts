@@ -236,7 +236,11 @@ const TEAM_CITY_ALIASES: Record<string, string> = {
 
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
   const normalizeTeam = (name: string) => {
-    let n = name.toLowerCase().trim().replace(/\s+/g, ' ')
+    let n = (name || '').toLowerCase().trim()
+    // Strip parentheticals (MLB adapters sometimes append pitcher names
+    // like "New York Yankees (Gerrit Cole)"). Must match worker's
+    // canonical.ts exactly so both sides produce the same key.
+    n = n.replace(/\s*\(.*?\)\s*/g, ' ').trim().replace(/\s+/g, ' ')
     // Expand city abbreviations so "la clippers" → "los angeles clippers"
     for (const [abbr, full] of Object.entries(TEAM_CITY_ALIASES)) {
       if (n.startsWith(abbr)) {
@@ -246,7 +250,12 @@ export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'ho
     }
     return n
   }
-  const date = new Date(event.startTime).toISOString().slice(0, 10) // YYYY-MM-DD UTC
+  // Parse through Date() so non-ISO startTime strings collapse to the
+  // same UTC date both sides. Fall back to a raw slice if unparseable.
+  const parsed = new Date(event.startTime)
+  const date = isNaN(parsed.getTime())
+    ? (event.startTime || '').slice(0, 10)
+    : parsed.toISOString().slice(0, 10)
   // Sort alphabetically so "Away vs Home" and "Home vs Away" produce the same key
   const teams = [normalizeTeam(event.homeTeam), normalizeTeam(event.awayTeam)].sort()
   return `${event.leagueSlug}:${date}:${teams[0]}:${teams[1]}`
