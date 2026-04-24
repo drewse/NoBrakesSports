@@ -159,20 +159,79 @@ export function normalizeEvent(raw: RawEventInput): CanonicalEvent {
  *   canonicalEventKey(event)
  *   // → "nba:2026-04-09:toronto raptors:miami heat"
  */
-// City abbreviation → full name mapping for canonical team name normalization.
-// Books use inconsistent naming: "LA Clippers" vs "Los Angeles Clippers",
-// "NY Knicks" vs "New York Knicks", etc.
+// City abbreviation → full name mapping for canonical team name
+// normalization. Every ABBR covers any team from that city across NBA /
+// MLB / NHL / NFL so "HOU Rockets" and "Houston Rockets" collapse to
+// the same canonical key (otherwise duplicate event rows get created —
+// one from the short-form source like Sportzino/Polymarket, one from
+// the full-name sources).
+//
+// Each alias appears twice: with a trailing space (for "ABBR Nickname"
+// format like "HOU Rockets") and without (for the rare bare-abbr
+// case). Matching is first-hit startsWith, so insertion order matters
+// — specific/longer prefixes must come BEFORE their shorter variants
+// ("okc " before any generic "ok" entry).
 const TEAM_CITY_ALIASES: Record<string, string> = {
-  'la ': 'los angeles ',
-  'ny ': 'new york ',
-  'gs ': 'golden state ',
-  'sa ': 'san antonio ',
-  'no ': 'new orleans ',
-  'okc ': 'oklahoma city ',
-  'tb ': 'tampa bay ',
-  'kc ': 'kansas city ',
-  'gb ': 'green bay ',
-  'ne ': 'new england ',
+  // 3-letter first so "okc lakers" can't accidentally match "ok "
+  'okc ': 'oklahoma city ', 'okc': 'oklahoma city',
+  'phi ': 'philadelphia ',  'phi': 'philadelphia',
+  'phx ': 'phoenix ',       'phx': 'phoenix',
+  'pho ': 'phoenix ',       'pho': 'phoenix',
+  'hou ': 'houston ',       'hou': 'houston',
+  'por ': 'portland ',      'por': 'portland',
+  'orl ': 'orlando ',       'orl': 'orlando',
+  'chi ': 'chicago ',       'chi': 'chicago',
+  'det ': 'detroit ',       'det': 'detroit',
+  'atl ': 'atlanta ',       'atl': 'atlanta',
+  'bos ': 'boston ',        'bos': 'boston',
+  'was ': 'washington ',    'was': 'washington',
+  'wsh ': 'washington ',    'wsh': 'washington',
+  'dal ': 'dallas ',        'dal': 'dallas',
+  'den ': 'denver ',        'den': 'denver',
+  'mia ': 'miami ',         'mia': 'miami',
+  'min ': 'minnesota ',     'min': 'minnesota',
+  'mil ': 'milwaukee ',     'mil': 'milwaukee',
+  'mem ': 'memphis ',       'mem': 'memphis',
+  'ind ': 'indiana ',       'ind': 'indiana',
+  'sac ': 'sacramento ',    'sac': 'sacramento',
+  'uta ': 'utah ',          'uta': 'utah',
+  'cle ': 'cleveland ',     'cle': 'cleveland',
+  'nsh ': 'nashville ',     'nsh': 'nashville',
+  'cgy ': 'calgary ',       'cgy': 'calgary',
+  'van ': 'vancouver ',     'van': 'vancouver',
+  'edm ': 'edmonton ',      'edm': 'edmonton',
+  'mtl ': 'montreal ',      'mtl': 'montreal',
+  'ott ': 'ottawa ',        'ott': 'ottawa',
+  'wpg ': 'winnipeg ',      'wpg': 'winnipeg',
+  'buf ': 'buffalo ',       'buf': 'buffalo',
+  'cin ': 'cincinnati ',    'cin': 'cincinnati',
+  'pit ': 'pittsburgh ',    'pit': 'pittsburgh',
+  'bal ': 'baltimore ',     'bal': 'baltimore',
+  'jax ': 'jacksonville ',  'jax': 'jacksonville',
+  'ten ': 'tennessee ',     'ten': 'tennessee',
+  'car ': 'carolina ',      'car': 'carolina',
+  'ari ': 'arizona ',       'ari': 'arizona',
+  'cha ': 'charlotte ',     'cha': 'charlotte',
+  'col ': 'colorado ',      'col': 'colorado',
+  'sea ': 'seattle ',       'sea': 'seattle',
+  'tor ': 'toronto ',       'tor': 'toronto',
+  // 2-letter
+  'la ': 'los angeles ',    'la': 'los angeles',
+  'ny ': 'new york ',       'ny': 'new york',
+  'sf ': 'san francisco ',  'sf': 'san francisco',
+  'gs ': 'golden state ',   'gs': 'golden state',
+  'sa ': 'san antonio ',    'sa': 'san antonio',
+  'sd ': 'san diego ',      'sd': 'san diego',
+  'kc ': 'kansas city ',    'kc': 'kansas city',
+  'gb ': 'green bay ',      'gb': 'green bay',
+  'lv ': 'las vegas ',      'lv': 'las vegas',
+  'ne ': 'new england ',    'ne': 'new england',
+  'no ': 'new orleans ',    'no': 'new orleans',
+  'nj ': 'new jersey ',     'nj': 'new jersey',
+  'tb ': 'tampa bay ',      'tb': 'tampa bay',
+  // Nicknames
+  'philly ': 'philadelphia ', 'philly': 'philadelphia',
+  'sixers': '76ers',
 }
 
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
