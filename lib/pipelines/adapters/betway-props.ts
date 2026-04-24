@@ -517,19 +517,11 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               if (!propCategory) continue
 
               // Diagnostic: flag titles that classify as MLB stats but
-              // contain a disambiguating phrase we might be mishandling
-              // ("hits only", parenthetical variants, or a stat name that
-              // doesn't match the category we assigned). Logs at most once
-              // per category per event to keep the signal readable.
-              if (
-                (league.category === 'baseball') &&
-                (/hits only|\(|\/|,/i.test(market.Title ?? '')) &&
-                Math.random() < 0.2   // sample — don't spam
-              ) {
-                console.log(
-                  `[Betway:${league.group}] classified "${market.Title}" as ${propCategory} (group=${groupCName})`,
-                )
-              }
+              // (Classification sampling log removed — it was producing
+              // thousands of lines per run and crowding out the summary /
+              // Pinnacle / Kambi diagnostic output. Per-market category
+              // mapping is now trusted; re-enable narrowly if a specific
+              // mis-classification needs diagnosis.)
 
               // Extract player name: "Total Points - Brandon Miller (CHA)"
               const playerRaw = extractPlayerName(market.Title ?? '')
