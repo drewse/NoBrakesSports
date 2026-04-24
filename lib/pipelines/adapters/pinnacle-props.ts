@@ -281,8 +281,14 @@ export async function scrapePinnacleProps(
                 const prices = market.prices ?? []
 
                 if (market.type === 'total' || market.type === 'team_total') {
-                  const overOutcome = prices.find(p => p?.designation === 'over')
-                  const underOutcome = prices.find(p => p?.designation === 'under')
+                  // Pinnacle's prop totals don't ship a `designation`
+                  // field anymore — just participantId + points + price
+                  // in a fixed [over, under] order. Fall back to
+                  // positional indexing when the designation lookup
+                  // misses so prices actually land in DB instead of
+                  // both columns being null.
+                  const overOutcome = prices.find(p => p?.designation === 'over') ?? prices[0]
+                  const underOutcome = prices.find(p => p?.designation === 'under') ?? prices[1]
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
@@ -295,8 +301,9 @@ export async function scrapePinnacleProps(
                   })
                   diag.emitted++
                 } else if (market.type === 'moneyline') {
-                  const homeOutcome = prices.find(p => p?.designation === 'home')
-                  const awayOutcome = prices.find(p => p?.designation === 'away')
+                  // Same positional fallback for binary/yes-no specials.
+                  const homeOutcome = prices.find(p => p?.designation === 'home') ?? prices[0]
+                  const awayOutcome = prices.find(p => p?.designation === 'away') ?? prices[1]
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
