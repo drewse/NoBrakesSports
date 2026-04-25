@@ -66,6 +66,10 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'Bally Bet',        note: 'Kambi public CDN · Railway' },
   { name: 'Novig',            note: 'Exchange · Railway' },
   { name: 'Circa Sports',     note: 'Direct IP · Railway' },
+  // ── Wiring up — no proxy needed, piggybacks on an existing adapter ──
+  { name: 'DraftKings Predictions', note: 'Wiring up · same DK API as DraftKings · pending first cycle' },
+  { name: 'Sports Interaction',     note: 'Wiring up · Entain CDS like bwin/partypoker · pending first cycle' },
+  { name: 'Crypto.com Markets',     note: 'Wiring up · CFTC event contracts like Kalshi · pending first cycle' },
 ]
 
 const PAUSED: BookEntry[] = [
@@ -99,8 +103,6 @@ const REMOVED: BookEntry[] = [
 ]
 
 const NOT_IMPLEMENTED: BookEntry[] = [
-  // CA-only
-  { name: 'Sports Interaction', note: 'CA · Entain GraphQL' },
   // US majors / regionals not yet started
   { name: 'Betfred Sports',     note: 'US regional · planned' },
   { name: 'Betly',              note: 'US regional · planned' },
@@ -120,8 +122,6 @@ const NOT_IMPLEMENTED: BookEntry[] = [
   { name: 'BetDex',             note: 'Solana exchange · planned' },
   { name: 'BetOpenly',          note: 'P2P exchange · planned' },
   { name: 'Rebet',              note: 'Social P2P · planned' },
-  { name: 'Crypto.com Markets', note: 'Event contracts · planned' },
-  { name: 'DraftKings Predictions', note: 'DK predictions · planned' },
   // DFS / sweepstakes
   { name: 'Fliff',              note: 'Sweepstakes · planned' },
   { name: 'Sportzino US',       note: 'Sweepstakes · planned' },
