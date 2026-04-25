@@ -34,6 +34,7 @@ const PACKETSTREAM_LIVE: BookEntry[] = [
   { name: 'Betano',     note: 'Kaizen SSR · Railway' },
   { name: 'TonyBet',    note: 'BetConstruct · Railway' },
   { name: 'Betovo',     note: 'CA discovery · Railway' },
+  { name: 'Sports Interaction', note: 'Entain CDS · Railway · awaiting first cycle' },
 ]
 
 const IPROYAL_LIVE: BookEntry[] = [
@@ -90,11 +91,10 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportzino',       note: 'Discovery · Railway' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
-  // Adapter shipped on Vercel but circuit-broken — needs Railway move
-  { name: 'Sports Interaction',     note: 'Vercel Playwright OOM · circuit open since 2026-04-09 · needs Railway migration' },
-  // Awaiting recon before scaffolding
-  { name: 'DraftKings Predictions', note: 'Need DK Predictions league/eventGroup id from DevTools' },
-  { name: 'Crypto.com Markets',     note: 'Need a DevTools HAR of the Predictions section' },
+  // Discovery probe shipped — polling endpoint reachable, but listing
+  // endpoint that produces today's marketTickers is still TBD
+  { name: 'DraftKings Predictions', note: 'Polling probe at /api/cron/sync-dk-predictions · need listing endpoint to make it self-refreshing' },
+  { name: 'Crypto.com Markets',     note: 'Captured screenshot only shows RSC navigation · need a real REST/XHR capture' },
 ]
 
 const REMOVED: BookEntry[] = [

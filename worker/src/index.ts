@@ -33,6 +33,7 @@ import { titanplayAdapter } from './adapters/titanplay.js'
 import { sportzinoAdapter } from './adapters/sportzino.js'
 import { betovoAdapter } from './adapters/betovo.js'
 import { stakeAdapter } from './adapters/stake.js'
+import { sportsInteractionAdapter } from './adapters/sports-interaction.js'
 
 // Removed:
 //   fanduel_on   — handled by the Vercel pipeline (fanduel-props.ts)
@@ -83,6 +84,7 @@ const ALL_ADAPTERS: BookAdapter[] = [
   sportzinoAdapter,           // Sportzino (US sweeps) — direct Railway IP
   betovoAdapter,              // Betovo (CA) — PacketStream CA residential
   stakeAdapter,               // Stake.us (CF-gated sweeps) — IPRoyal US mobile
+  sportsInteractionAdapter,   // Sports Interaction CA — Entain CDS via PacketStream
 ]
 
 const log = createLogger('main')

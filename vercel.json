@@ -58,6 +58,7 @@
     "app/api/cron/sync-sleeper/route.ts": { "maxDuration": 90 },
     "app/api/cron/sync-bovada/route.ts": { "maxDuration": 60 },
     "app/api/cron/sync-fanatics-markets/route.ts": { "maxDuration": 60 },
-    "app/api/cron/sync-betonline/route.ts": { "maxDuration": 90 }
+    "app/api/cron/sync-betonline/route.ts": { "maxDuration": 90 },
+    "app/api/cron/sync-dk-predictions/route.ts": { "maxDuration": 60 }
   }
 }
