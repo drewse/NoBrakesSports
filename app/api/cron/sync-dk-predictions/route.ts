@@ -1,28 +1,43 @@
 // GET /api/cron/sync-dk-predictions
 //
-// Two-step sync for DraftKings Predictions:
+// DraftKings Predictions sync.
 //
-//   1. Discovery — POST https://api.draftkings.com/en/scoreboard/v1/competitionSummary
-//      body: { competitionDkIds: [<id>...] }
-//      Returns the markets / outcomes that exist for that competition.
-//      Walk the response to collect every "marketTicker" (DKPx-…) string.
+// Endpoint:
+//   POST https://api.draftkings.com/en/predict/v1/polling/clients/web/markets
+//   body: { marketTickers: string[], languageCode: 'en' }
+//   origin: https://predictions.draftkings.com
 //
-//   2. Pricing — POST https://api.draftkings.com/en/predict/v1/polling/clients/web/markets
-//      body: { marketTickers: <from step 1>, languageCode: 'en' }
-//      Returns the live yes/no probabilities for each ticker.
+// Response shape (verified 2026-04-25):
+//   {
+//     "markets": {
+//       "<ticker>": {
+//         "ticker": "...", "volume": <num>, "lastPrice": <num>,
+//         "details": {
+//           "binary": {
+//             "yesAsk": <0-100>, "yesBid": <0-100>,
+//             "noAsk":  <0-100>, "noBid":  <0-100>,
+//             "hasYesAskOffers": <bool>, "hasYesBidOffers": <bool>,
+//             "hasNoAskOffers":  <bool>, "hasNoBidOffers":  <bool>
+//           }
+//         }
+//       }, ...
+//     },
+//     "exchange": { "status": "Open" }
+//   }
 //
-// Both endpoints are public over HTTPS — the cookies in the captured curl
-// were Akamai bot-management challenge cookies that DK sets on real
-// browsers; api.draftkings.com itself accepts plain JSON POSTs from
-// server contexts as long as the Origin header matches the predictions
-// app. If a Vercel IP gets gated, we'll fall back to pipeFetch (the
-// proxy helper used by the other DK adapters) — but on the first run
-// we try direct fetch and surface the result.
+// Pricing convention:
+//   yes_price = (yesBid + yesAsk) / 200      // cents → 0..1 probability
+//   no_price  = (noBid  + noAsk)  / 200
+//   Skip markets where both bid and ask are 0 on at least one side.
 //
-// This route is intentionally forgiving: it logs the response shape of
-// both calls and only writes to prediction_market_snapshots when it can
-// confidently identify a yes/no probability. As we iterate the parser
-// from real response samples, more fields get unlocked.
+// Ticker discovery:
+//   We don't yet have the URL DK uses to list today's tickers — the
+//   captured curl arrived with the list inlined. Until we identify it,
+//   tickers come from DK_PREDICTIONS_TICKERS in env (newline-or-comma
+//   separated) with a small built-in seed for first run. Ticker shape:
+//     DKP3-SP{LEAGUE}GL{TYPE}{MARKET_ID}-{OUTCOME_ID}   game lines
+//     DKP2-NSZ2AMR2VXDTDA-{TEAM_ABBR}M0001              NBA Finals winner
+//     DKP3-SP{LEAGUE}TFEC{TOURNAMENT_ID}-{OUTCOME_ID}   conf champion etc.
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -30,13 +45,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 export const runtime = 'nodejs'
 export const maxDuration = 60
 
-const SUMMARY_URL = 'https://api.draftkings.com/en/scoreboard/v1/competitionSummary'
-const POLL_URL    = 'https://api.draftkings.com/en/predict/v1/polling/clients/web/markets'
-
-// Known competition IDs. 968006 was confirmed as NBA via DevTools
-// (2026-04-25 capture). Add MLB/NHL/NFL once we have their IDs from
-// the next DevTools session — first-pass logging will surface them.
-const COMPETITION_IDS = [968006]
+const POLL_URL = 'https://api.draftkings.com/en/predict/v1/polling/clients/web/markets'
 
 const HEADERS: Record<string, string> = {
   Accept:           'application/json',
@@ -45,6 +54,75 @@ const HEADERS: Record<string, string> = {
   Origin:           'https://predictions.draftkings.com',
   Referer:          'https://predictions.draftkings.com/',
   'User-Agent':     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+}
+
+// Seed ticker list captured from a real DevTools session 2026-04-25.
+// Mostly current-day NBA game lines (ML/SPR/TP) + NBA Finals winner +
+// Eastern/Western Conference champion futures. These will go stale as
+// games finish — refresh from DK_PREDICTIONS_TICKERS env (one ticker
+// per line or comma-separated) until we find the listing endpoint.
+const SEED_TICKERS = [
+  // NBA game lines (today)
+  'DKP3-SPNBAGLMLXAL4CJWM7HAFG-WXAL4CJWXV89WT',
+  'DKP3-SPNBAGLMLXAL4CJWM7HAFG-WXAL4CJWYX62JO',
+  'DKP3-SPNBAGLSPRXALFUE8JS2N97FG-W-11.5XALFUE8O91PVK',
+  'DKP3-SPNBAGLTPXALFUKNJUWZBFG-O209.5XALFUKNQHAN47',
+  'DKP3-SPNBAGLMLXAL4CJX03C851FG-WXAL4CJXB18HWO',
+  'DKP3-SPNBAGLMLXAL4CJX03C851FG-WXAL4CJXC33MT',
+  'DKP3-SPNBAGLSPRXALG0TS2K5I4TFG-W-1.5XALG0TSLM3NVH',
+  'DKP3-SPNBAGLTPXALG10B5RHS4EFG-O229.5XALG10BDZL5EY',
+  'DKP3-SPNBAGLMLXAL4IZB9KCPHBFG-WXAL4IZBQAGW4Q',
+  'DKP3-SPNBAGLMLXAL4IZB9KCPHBFG-WXAL4IZBRIF199',
+  'DKP3-SPNBAGLSPRXALFWJE927750FG-W-3.5XALFWJEH544G5',
+  'DKP3-SPNBAGLTPXALFWPX43AXNZFG-O220.5XALFWPXBT79A5',
+  'DKP3-SPNBAGLMLXAL4IZBSKE40PFG-WXAL4IZC247KOQ',
+  'DKP3-SPNBAGLMLXAL4IZBSKE40PFG-WXAL4IZC376YYG',
+  'DKP3-SPNBAGLSPRXALHIEQF86NZ4FG-W-5.5XALHIEQNGDU4P',
+  'DKP3-SPNBAGLTPXALHIL648BFE8FG-O218.5XALHIL6BVES21',
+  'DKP3-SPNBAGLMLXAL4IZC49I23FG-WXAL4IZCEH4OXI',
+  'DKP3-SPNBAGLMLXAL4IZC49I23FG-WXAL4IZCFHFC3J',
+  'DKP3-SPNBAGLSPRXALH9U68JJ4SJFG-W-7.5XALH9U6GVLCWI',
+  'DKP3-SPNBAGLTPXALHA0L205738FG-O213.5XALHA0LA41KTL',
+  'DKP3-SPNBAGLMLXAL4IZCGMKUUYFG-WXAL4IZCSF4TBZ',
+  'DKP3-SPNBAGLMLXAL4IZCGMKUUYFG-WXAL4IZCTIJFBY',
+  'DKP3-SPNBAGLSPRXALHBZBR98917FG-W-4.5XALHBZCBPK5OF',
+  'DKP3-SPNBAGLTPXALHC5QO7E4IXFG-O207.5XALHC5QVMF9ZF',
+  'DKP3-SPNBAGLMLXALBSGY5N16LMFG-WXALBSGYINEM9T',
+  'DKP3-SPNBAGLMLXALBSGY5N16LMFG-WXALBSGYHB8QGO',
+  'DKP3-SPNBAGLSPRXALICEZMH93NDFG-W-3.5XALICEZUK5M7Z',
+  'DKP3-SPNBAGLTPXALICLEROC2N0FG-O202.5XALICLEYBHR1D',
+  'DKP3-SPNBAGLMLXALBSGYJYFR85FG-WXALBSGYY282GT',
+  'DKP3-SPNBAGLMLXALBSGYJYFR85FG-WXALBSGYZ6JCON',
+  'DKP3-SPNBAGLSPRXALIIUJDS7J4NFG-W-26.5XALIIUJG3ANC0',
+  'DKP3-SPNBAGLTPXALIJ0YGFBMSNFG-O188.5XALIJ0YIS7BIB',
+  // NBA Finals winner futures
+  'DKP2-NSZ2AMR2VXDTDA-OKCM0001',
+  'DKP2-NSZ2AMR2VXDTDA-SASM0001',
+  'DKP2-NSZ2AMR2VXDTDA-BOSM0001',
+  'DKP2-NSZ2AMR2VXDTDA-CLEM0001',
+  'DKP2-NSZ2AMR2VXDTDA-DENM0001',
+  'DKP2-NSZ2AMR2VXDTDA-PHIM0001',
+  'DKP2-NSZ2AMR2VXDTDA-ORLM0001',
+  'DKP2-NSZ2AMR2VXDTDA-ATLM0001',
+  'DKP2-NSZ2AMR2VXDTDA-TORM0001',
+  // Eastern Conference winner
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMEGN',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMBSZ',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMLJZ',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMTIV',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMG59',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMNDB',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKM5OC',
+  'DKP3-SPNBATFECWXAFGKLZB5P-XAFGKMVDB',
+  // Western Conference winner
+  'DKP3-SPNBATFWCWXAFGNDK4YP-XAFGNEAGI',
+]
+
+function loadTickers(): string[] {
+  const env = process.env.DK_PREDICTIONS_TICKERS
+  if (!env) return SEED_TICKERS
+  const parsed = env.split(/[\n,]/).map(s => s.trim()).filter(Boolean)
+  return parsed.length > 0 ? parsed : SEED_TICKERS
 }
 
 function verifyCron(request: NextRequest): boolean {
@@ -56,215 +134,177 @@ function verifyCron(request: NextRequest): boolean {
   )
 }
 
-async function postJson(url: string, body: unknown) {
-  const start = Date.now()
-  let resp: Response
-  try {
-    resp = await fetch(url, {
-      method:  'POST',
-      headers: HEADERS,
-      body:    JSON.stringify(body),
-    })
-  } catch (e: any) {
-    return { ok: false, status: 0, elapsedMs: Date.now() - start, error: e?.message ?? String(e), data: null as any, text: '' }
-  }
-  const text = await resp.text()
-  let data: any = null
-  try { data = JSON.parse(text) } catch { /* ignore */ }
-  return { ok: resp.ok, status: resp.status, elapsedMs: Date.now() - start, error: null as string | null, data, text }
+interface BinaryDetails {
+  yesAsk: number; yesBid: number
+  noAsk:  number; noBid:  number
+  hasYesAskOffers?: boolean; hasYesBidOffers?: boolean
+  hasNoAskOffers?:  boolean; hasNoBidOffers?:  boolean
 }
 
-/** Recursively walk a JSON tree and collect every string that looks
- *  like a DraftKings Predictions ticker (DKP3-… or DKP2-…). */
-function collectTickers(root: unknown): string[] {
-  const out = new Set<string>()
-  const stack: unknown[] = [root]
-  while (stack.length) {
-    const v = stack.pop()
-    if (!v) continue
-    if (typeof v === 'string') {
-      if (/^DKP\d+-/.test(v)) out.add(v)
-      continue
-    }
-    if (Array.isArray(v)) {
-      for (const it of v) stack.push(it)
-      continue
-    }
-    if (typeof v === 'object') {
-      for (const it of Object.values(v as Record<string, unknown>)) stack.push(it)
-    }
-  }
-  return [...out]
-}
-
-/** Walk the polling response and return one row per market with whatever
- *  yes/no price + title we can identify. The DK polling shape isn't
- *  documented, so we look for the most common field shapes and fall
- *  back to logging raw items we can't classify. */
-interface PriceRow {
+interface PolledMarket {
   ticker: string
-  yesProb: number | null
-  noProb:  number | null
-  title:   string | null
-  raw:     unknown
+  volume: number
+  lastPrice: number
+  details?: { binary?: BinaryDetails }
 }
-function extractPrices(pollData: any): { rows: PriceRow[]; rawItems: number; arrayKey: string | null } {
-  const rows: PriceRow[] = []
-  if (!pollData || typeof pollData !== 'object') return { rows, rawItems: 0, arrayKey: null }
 
-  // Find the first array under any top-level key — that's almost always
-  // the markets list in DK API responses.
-  let items: any[] = []
-  let arrayKey: string | null = null
-  if (Array.isArray(pollData)) {
-    items = pollData
-  } else {
-    for (const [k, v] of Object.entries(pollData)) {
-      if (Array.isArray(v) && v.length > 0) { items = v as any[]; arrayKey = k; break }
-    }
+interface PolledResponse {
+  markets?: Record<string, PolledMarket>
+  exchange?: { status: string }
+}
+
+interface SnapshotRow {
+  ticker: string
+  yesProb: number
+  noProb:  number
+  volume:  number
+}
+
+/** Convert one polled market to a snapshot row. Returns null when no
+ *  meaningful price exists (both yes sides 0, or both no sides 0). */
+function rowFor(market: PolledMarket): SnapshotRow | null {
+  const b = market?.details?.binary
+  if (!b) return null
+  const { yesBid, yesAsk, noBid, noAsk } = b
+  if (yesBid === 0 && yesAsk === 0) return null
+  if (noBid  === 0 && noAsk  === 0) return null
+  // Mid-market price in cents → 0..1 probability.
+  const yesProb = (yesBid + yesAsk) / 200
+  const noProb  = (noBid  + noAsk)  / 200
+  if (!isFinite(yesProb) || !isFinite(noProb)) return null
+  return {
+    ticker:  market.ticker,
+    yesProb: Math.round(yesProb * 10000) / 10000,
+    noProb:  Math.round(noProb  * 10000) / 10000,
+    volume:  market.volume ?? 0,
   }
+}
 
-  for (const it of items) {
-    if (!it || typeof it !== 'object') continue
-    const ticker = String(it.marketTicker ?? it.ticker ?? it.id ?? '')
-    if (!/^DKP\d+-/.test(ticker)) continue
-
-    // Common probability field shapes seen in DK predict-style payloads:
-    //   probability (0..1), yesProbability (0..1), price (0..100 cents),
-    //   yesPrice/noPrice (0..100 cents).
-    const yesProbRaw =
-      it.yesProbability ?? it.probability ?? it.yesProb ?? null
-    const noProbRaw =
-      it.noProbability  ?? it.noProb ?? null
-    const yesCents =
-      it.yesPrice ?? it.price ?? null
-    const noCents =
-      it.noPrice ?? null
-
-    const yesProb =
-      typeof yesProbRaw === 'number' ? yesProbRaw :
-      typeof yesCents === 'number'   ? yesCents / 100 : null
-    const noProb =
-      typeof noProbRaw === 'number'  ? noProbRaw :
-      typeof noCents  === 'number'   ? noCents / 100 :
-      yesProb != null                ? 1 - yesProb : null
-
-    rows.push({
-      ticker,
-      yesProb,
-      noProb,
-      title: (it.displayName ?? it.title ?? it.name ?? null) as string | null,
-      raw:   it,
-    })
+/** Decode a ticker into a human-readable contract title. The ticker
+ *  encodes meaning (league, market type, outcome key) but not team
+ *  names, so the best we can do without a separate metadata fetch is
+ *  the structural label. We log the bare ticker as a fallback so the
+ *  row is still useful for join/diff downstream. */
+function titleFor(ticker: string): string {
+  // Game line — moneyline / spread / total
+  const gl = ticker.match(/^DKP3-SP([A-Z]+)GL(ML|SPR|TP)([A-Z0-9]+)-(.+)$/)
+  if (gl) {
+    const [, league, kind] = gl
+    const human =
+      kind === 'ML'  ? 'Moneyline' :
+      kind === 'SPR' ? 'Spread' :
+      kind === 'TP'  ? 'Total Points' : kind
+    return `${league} ${human} · ${ticker}`
   }
-
-  return { rows, rawItems: items.length, arrayKey }
+  // Tournament — eastern / western champ etc.
+  const tf = ticker.match(/^DKP3-SP([A-Z]+)TF([A-Z]+)CW([A-Z0-9]+)-([A-Z0-9]+)$/)
+  if (tf) {
+    const [, league, suffix] = tf
+    const human =
+      suffix === 'EC' ? 'Eastern Conference Winner' :
+      suffix === 'WC' ? 'Western Conference Winner' :
+      `${suffix} Winner`
+    return `${league} ${human} · ${ticker}`
+  }
+  // NBA Finals futures (DKP2-…-{TEAM}M0001)
+  const fin = ticker.match(/^DKP2-[A-Z0-9]+-([A-Z]{2,3})M\d+$/)
+  if (fin) {
+    const [, team] = fin
+    return `NBA Finals Winner · ${team} · ${ticker}`
+  }
+  return ticker
 }
 
 export async function GET(request: NextRequest) {
   if (!verifyCron(request)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const tickers = loadTickers()
   const start = Date.now()
 
-  // ── Step 1: discover tickers from competitionSummary ──────────────
-  const summary = await postJson(SUMMARY_URL, { competitionDkIds: COMPETITION_IDS })
-  if (!summary.ok || !summary.data) {
+  let resp: Response
+  try {
+    resp = await fetch(POLL_URL, {
+      method:  'POST',
+      headers: HEADERS,
+      body:    JSON.stringify({ marketTickers: tickers, languageCode: 'en' }),
+    })
+  } catch (e: any) {
     return NextResponse.json({
-      ok: false,
-      stage: 'summary',
-      httpStatus: summary.status,
+      ok: false, stage: 'fetch',
+      error: e?.message ?? String(e),
       elapsedMs: Date.now() - start,
-      error: summary.error,
-      preview: summary.text.slice(0, 600),
     })
   }
-  const tickers = collectTickers(summary.data)
+  if (!resp.ok) {
+    const text = await resp.text()
+    return NextResponse.json({
+      ok: false, stage: 'http',
+      httpStatus: resp.status,
+      preview:    text.slice(0, 400),
+      elapsedMs:  Date.now() - start,
+    })
+  }
+  const data = (await resp.json()) as PolledResponse
 
-  // ── Step 2: poll prices for every discovered ticker ───────────────
-  let poll = { ok: false, status: 0, elapsedMs: 0, error: null as string | null, data: null as any, text: '' }
-  let extracted = { rows: [] as PriceRow[], rawItems: 0, arrayKey: null as string | null }
-  if (tickers.length > 0) {
-    poll = await postJson(POLL_URL, { marketTickers: tickers, languageCode: 'en' })
-    extracted = extractPrices(poll.data)
+  const rows: SnapshotRow[] = []
+  for (const m of Object.values(data.markets ?? {})) {
+    const r = rowFor(m)
+    if (r) rows.push(r)
   }
 
-  // ── Step 3: write to prediction_market_snapshots ──────────────────
-  let snapshotsInserted = 0
-  let writeError: string | null = null
-  if (extracted.rows.length > 0) {
-    try {
-      const db = createAdminClient()
-      const { data: src } = await db
-        .from('market_sources')
-        .select('id')
-        .eq('slug', 'draftkings_predictions')
-        .maybeSingle()
-      let sourceId = src?.id as string | undefined
-      if (!sourceId) {
-        const { data: created } = await db
-          .from('market_sources')
-          .insert({
-            name: 'DraftKings Predictions',
-            slug: 'draftkings_predictions',
-            source_type: 'sportsbook',
-            is_active: true,
-          })
-          .select('id').single()
-        sourceId = created?.id
-      }
-      if (sourceId) {
-        const now = new Date().toISOString()
-        const rows = extracted.rows
-          .filter(r => r.yesProb != null && r.noProb != null && r.title)
-          .map(r => ({
-            source_id:            sourceId,
-            contract_title:       r.title!,
-            external_contract_id: r.ticker,
-            yes_price:            Math.round((r.yesProb as number) * 10000) / 10000,
-            no_price:             Math.round((r.noProb  as number) * 10000) / 10000,
-            snapshot_time:        now,
-          }))
-        if (rows.length > 0) {
-          const { error } = await db.from('prediction_market_snapshots').insert(rows)
-          if (error) writeError = error.message
-          else snapshotsInserted = rows.length
-        }
-      } else {
-        writeError = 'failed to resolve market_sources row'
-      }
-    } catch (e: any) {
-      writeError = e?.message ?? String(e)
+  // Resolve / create the market_sources row
+  const db = createAdminClient()
+  const { data: existing } = await db
+    .from('market_sources')
+    .select('id').eq('slug', 'draftkings_predictions').maybeSingle()
+  let sourceId = existing?.id as string | undefined
+  if (!sourceId) {
+    const { data: created, error } = await db
+      .from('market_sources')
+      .insert({
+        name:        'DraftKings Predictions',
+        slug:        'draftkings_predictions',
+        source_type: 'sportsbook',
+        is_active:   true,
+      })
+      .select('id').single()
+    if (error || !created?.id) {
+      return NextResponse.json({
+        ok: false, stage: 'market_sources',
+        error: error?.message ?? 'unable to resolve source row',
+        elapsedMs: Date.now() - start,
+      })
     }
+    sourceId = created.id
+  }
+
+  let inserted = 0
+  let writeError: string | null = null
+  if (rows.length > 0) {
+    const now = new Date().toISOString()
+    const { error } = await db.from('prediction_market_snapshots').insert(
+      rows.map(r => ({
+        source_id:            sourceId,
+        contract_title:       titleFor(r.ticker),
+        external_contract_id: r.ticker,
+        yes_price:            r.yesProb,
+        no_price:             r.noProb,
+        total_volume:         r.volume,
+        snapshot_time:        now,
+      })),
+    )
+    if (error) writeError = error.message
+    else inserted = rows.length
   }
 
   return NextResponse.json({
-    ok: summary.ok,
-    competitionIds: COMPETITION_IDS,
-    summary: {
-      httpStatus: summary.status,
-      elapsedMs:  summary.elapsedMs,
-      keys:       summary.data && typeof summary.data === 'object'
-                  ? Object.keys(summary.data as Record<string, unknown>).slice(0, 20)
-                  : null,
-      tickerCount: tickers.length,
-      sampleTickers: tickers.slice(0, 5),
-    },
-    poll: tickers.length > 0
-      ? {
-          httpStatus: poll.status,
-          elapsedMs:  poll.elapsedMs,
-          rawItems:   extracted.rawItems,
-          arrayKey:   extracted.arrayKey,
-          parsedRows: extracted.rows.length,
-          sampleRow:  extracted.rows[0] ?? null,
-          // Surface one raw item too so we can refine field detection
-          rawSample:  extracted.rawItems > 0 && Array.isArray(poll.data)
-                      ? poll.data[0]
-                      : (extracted.arrayKey && poll.data ? (poll.data as any)[extracted.arrayKey][0] : null),
-        }
-      : null,
-    snapshotsInserted,
+    ok: true,
+    exchangeStatus: data.exchange?.status ?? null,
+    requestedTickers: tickers.length,
+    polledMarkets:    Object.keys(data.markets ?? {}).length,
+    pricedRows:       rows.length,
+    inserted,
     writeError,
     elapsedMs: Date.now() - start,
   })

@@ -60,6 +60,7 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'Kalshi',           note: 'Prediction · Vercel cron' },
   { name: 'Polymarket',       note: 'Prediction · Vercel cron' },
   { name: 'Fanatics Markets', note: 'Prediction · Vercel cron' },
+  { name: 'DraftKings Predictions', note: 'Prediction · Vercel cron · 5 min · NBA only · seeded ticker list, listing endpoint TBD' },
   // Railway direct-IP
   { name: 'PointsBet ON',     note: 'PointsBet API · Railway' },
   { name: 'Pinnacle',         note: 'Pinnacle API · Railway' },
@@ -91,10 +92,6 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportzino',       note: 'Discovery · Railway' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
-  // DK Predictions probe (competitionSummary works → returns team/score
-  // metadata; need the markets-list endpoint that produces today's
-  // marketTickers to complete the loop)
-  { name: 'DraftKings Predictions', note: 'Probe at /api/cron/sync-dk-predictions returns scoreboard meta · still need markets-list XHR' },
 ]
 
 const REMOVED: BookEntry[] = [

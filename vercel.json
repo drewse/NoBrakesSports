@@ -37,6 +37,10 @@
       "schedule": "*/2 * * * *"
     },
     {
+      "path": "/api/cron/sync-dk-predictions",
+      "schedule": "*/5 * * * *"
+    },
+    {
       "path": "/api/cron/random-arb-alert",
       "schedule": "*/30 * * * *"
     },
