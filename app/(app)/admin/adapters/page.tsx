@@ -66,10 +66,6 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'Bally Bet',        note: 'Kambi public CDN · Railway' },
   { name: 'Novig',            note: 'Exchange · Railway' },
   { name: 'Circa Sports',     note: 'Direct IP · Railway' },
-  // ── Wiring up — no proxy needed, piggybacks on an existing adapter ──
-  { name: 'DraftKings Predictions', note: 'Wiring up · same DK API as DraftKings · pending first cycle' },
-  { name: 'Sports Interaction',     note: 'Wiring up · Entain CDS like bwin/partypoker · pending first cycle' },
-  { name: 'Crypto.com Markets',     note: 'Wiring up · CFTC event contracts like Kalshi · pending first cycle' },
 ]
 
 const PAUSED: BookEntry[] = [
@@ -94,6 +90,11 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportzino',       note: 'Discovery · Railway' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
+  // Adapter shipped on Vercel but circuit-broken — needs Railway move
+  { name: 'Sports Interaction',     note: 'Vercel Playwright OOM · circuit open since 2026-04-09 · needs Railway migration' },
+  // Awaiting recon before scaffolding
+  { name: 'DraftKings Predictions', note: 'Need DK Predictions league/eventGroup id from DevTools' },
+  { name: 'Crypto.com Markets',     note: 'Need a DevTools HAR of the Predictions section' },
 ]
 
 const REMOVED: BookEntry[] = [
