@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FilterBar } from '@/components/odds/filter-bar'
@@ -39,7 +40,11 @@ export default async function OddsPage({
       {/* Centered filter bar with time range to its right */}
       <div className="flex items-center justify-center gap-3 flex-wrap">
         <FilterBar selection={selection} />
-        <TimeFilter value={within} />
+        {/* useSearchParams in TimeFilter needs a Suspense boundary at
+         *  build time or the App Router bails the whole page out. */}
+        <Suspense fallback={null}>
+          <TimeFilter value={within} />
+        </Suspense>
       </div>
 
       {!plan && (
