@@ -2,7 +2,8 @@ import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FilterBar } from '@/components/odds/filter-bar'
-import { TimeFilter, timeRangeFromParam, hoursForRange, type TimeRangeId } from '@/components/odds/time-filter'
+import { TimeFilter } from '@/components/odds/time-filter'
+import { timeRangeFromParam, hoursForRange, type TimeRangeId } from '@/lib/odds/time-range'
 import { OddsTable, type OddsRow, type BookColumn, type OddsCell } from '@/components/odds/odds-table'
 import {
   selectionFromParams, planForSelection,

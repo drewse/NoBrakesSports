@@ -2,25 +2,7 @@
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Clock } from 'lucide-react'
-
-export const TIME_RANGES = [
-  { id: '12h', label: '12H', hours: 12   },
-  { id: '24h', label: '24H', hours: 24   },
-  { id: '3d',  label: '3D',  hours: 72   },
-  { id: '7d',  label: '7D',  hours: 168  },
-  { id: 'all', label: 'All', hours: null },
-] as const
-
-export type TimeRangeId = typeof TIME_RANGES[number]['id']
-
-export function timeRangeFromParam(raw: string | undefined): TimeRangeId {
-  const found = TIME_RANGES.find(r => r.id === raw)
-  return found?.id ?? 'all'
-}
-
-export function hoursForRange(id: TimeRangeId): number | null {
-  return TIME_RANGES.find(r => r.id === id)?.hours ?? null
-}
+import { TIME_RANGES, type TimeRangeId } from '@/lib/odds/time-range'
 
 export function TimeFilter({ value }: { value: TimeRangeId }) {
   const router = useRouter()
