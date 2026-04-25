@@ -35,7 +35,6 @@ const NAV_ITEMS: NavItem[] = [
 
 const BOTTOM_ITEMS: NavItem[] = [
   { label: 'Account', href: '/account', icon: Settings },
-  { label: 'Admin', href: '/admin', icon: Shield },
 ]
 
 interface SidebarProps {
@@ -110,17 +109,20 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
 
           <div className="my-3 border-t border-border" />
 
-          {BOTTOM_ITEMS.map((item) => {
-            if (item.href === '/account') return <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
-            if (!isAdmin) return null
-            return <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
-          })}
+          {BOTTOM_ITEMS.map((item) => (
+            <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
+          ))}
 
           {isAdmin && (
             <>
               <div className="mt-3 mb-1.5 px-2">
                 <p className="text-[9px] font-semibold text-nb-700 uppercase tracking-widest">Internal</p>
               </div>
+              <NavLink
+                item={{ label: 'Admin', href: '/admin', icon: Shield }}
+                pathname={pathname}
+                isPro={false}
+              />
               <NavLink
                 item={{ label: 'Data Pipelines', href: '/admin/data-pipelines', icon: GitBranch }}
                 pathname={pathname}
