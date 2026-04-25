@@ -34,7 +34,7 @@ const PACKETSTREAM_LIVE: BookEntry[] = [
   { name: 'Betano',     note: 'Kaizen SSR · Railway' },
   { name: 'TonyBet',    note: 'BetConstruct · Railway' },
   { name: 'Betovo',     note: 'CA discovery · Railway' },
-  { name: 'Sports Interaction', note: 'Entain CDS · Railway · awaiting first cycle' },
+  { name: 'Sports Interaction', note: 'Entain CDS · Railway · NBA/MLB/NHL game lines + props · awaiting first cycle' },
 ]
 
 const IPROYAL_LIVE: BookEntry[] = [
@@ -84,6 +84,7 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportsbetting.ag', note: 'CF-blocked · awaits IPRoyal US' },
   { name: 'PowerPlay',       note: 'TCP-drop on PacketStream · awaits IPRoyal CA' },
   { name: 'Miseojeu',        note: 'TCP-drop on PacketStream · awaits IPRoyal CA' },
+  { name: 'Crypto.com Markets', note: 'Cloudflare 403 from datacenter, page is RSC-only · needs Playwright + IPRoyal' },
   // Discovery-only / partial — running but not producing markets yet
   { name: 'BetMGM ON props', note: 'Markets endpoint broken · events flow' },
   { name: 'MyBookie',        note: 'Discovery · awaits PROXY_URL_US' },
@@ -119,8 +120,7 @@ const NOT_IMPLEMENTED: BookEntry[] = [
   { name: 'Onyx Odds',          note: 'Exchange · planned' },
   { name: 'BetDex',             note: 'Solana exchange · planned' },
   { name: 'BetOpenly',          note: 'P2P exchange · planned' },
-  { name: 'Rebet',              note: 'Social P2P · planned' },
-  { name: 'Crypto.com Markets', note: 'Site uses Next.js RSC navigation only · blocked on a real REST capture' },
+  { name: 'Rebet',               note: 'Social P2P · planned' },
   // DFS / sweepstakes
   { name: 'Fliff',              note: 'Sweepstakes · planned' },
   { name: 'Sportzino US',       note: 'Sweepstakes · planned' },
