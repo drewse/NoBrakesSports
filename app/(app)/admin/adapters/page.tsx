@@ -90,10 +90,12 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportzino',       note: 'Discovery · Railway' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
-  // Dead
-  { name: 'Casumo',          note: 'No CA sportsbook product · removed' },
-  { name: 'Jackpot.bet',     note: 'Domain parked · removed' },
-  { name: 'Unibet US',       note: 'Kindred exited US · 2024' },
+]
+
+const REMOVED: BookEntry[] = [
+  { name: 'Casumo',      note: 'No CA sportsbook product · confirmed 2026-04-22' },
+  { name: 'Jackpot.bet', note: 'Domain parked / dead · confirmed via discovery log' },
+  { name: 'Unibet US',   note: 'Kindred exited US market · May 2024' },
 ]
 
 const NOT_IMPLEMENTED: BookEntry[] = [
@@ -133,7 +135,7 @@ const NOT_IMPLEMENTED: BookEntry[] = [
 const COLUMNS: Array<{
   title: string
   subtitle: string
-  tone: 'green' | 'sky' | 'violet' | 'amber' | 'nb'
+  tone: 'green' | 'sky' | 'violet' | 'amber' | 'nb' | 'red'
   entries: BookEntry[]
 }> = [
   { title: 'Live · PacketStream',  subtitle: 'Residential CA / US',   tone: 'green',  entries: PACKETSTREAM_LIVE },
@@ -141,6 +143,7 @@ const COLUMNS: Array<{
   { title: 'Live · No proxy',      subtitle: 'Vercel + direct IP',    tone: 'sky',    entries: NO_PROXY_LIVE },
   { title: 'Paused',               subtitle: 'Adapter shipped',       tone: 'amber',  entries: PAUSED },
   { title: 'Not yet implemented',  subtitle: 'Planned / next up',     tone: 'nb',     entries: NOT_IMPLEMENTED },
+  { title: 'Removed',              subtitle: 'Dead · no longer tracked', tone: 'red', entries: REMOVED },
 ]
 
 const TONE: Record<typeof COLUMNS[number]['tone'], { dot: string; chip: string }> = {
@@ -149,6 +152,7 @@ const TONE: Record<typeof COLUMNS[number]['tone'], { dot: string; chip: string }
   sky:    { dot: 'bg-sky-400',    chip: 'bg-sky-500/10 text-sky-400 border-sky-500/20' },
   amber:  { dot: 'bg-amber-400',  chip: 'bg-amber-500/10 text-amber-400 border-amber-500/20' },
   nb:     { dot: 'bg-nb-500',     chip: 'bg-nb-800 text-nb-300 border-nb-700' },
+  red:    { dot: 'bg-red-400',    chip: 'bg-red-500/10 text-red-400 border-red-500/20' },
 }
 
 export default async function AdaptersPage() {
@@ -179,7 +183,7 @@ export default async function AdaptersPage() {
         when an adapter ships, gets paused, or rotates proxies.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6 gap-3 sm:gap-4">
         {COLUMNS.map(col => {
           const tone = TONE[col.tone]
           return (
