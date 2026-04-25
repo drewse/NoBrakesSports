@@ -91,10 +91,10 @@ const PAUSED: BookEntry[] = [
   { name: 'Sportzino',       note: 'Discovery · Railway' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
-  // Discovery probe shipped — polling endpoint reachable, but listing
-  // endpoint that produces today's marketTickers is still TBD
-  { name: 'DraftKings Predictions', note: 'Polling probe at /api/cron/sync-dk-predictions · need listing endpoint to make it self-refreshing' },
-  { name: 'Crypto.com Markets',     note: 'Captured screenshot only shows RSC navigation · need a real REST/XHR capture' },
+  // DK Predictions probe (competitionSummary works → returns team/score
+  // metadata; need the markets-list endpoint that produces today's
+  // marketTickers to complete the loop)
+  { name: 'DraftKings Predictions', note: 'Probe at /api/cron/sync-dk-predictions returns scoreboard meta · still need markets-list XHR' },
 ]
 
 const REMOVED: BookEntry[] = [
@@ -123,6 +123,7 @@ const NOT_IMPLEMENTED: BookEntry[] = [
   { name: 'BetDex',             note: 'Solana exchange · planned' },
   { name: 'BetOpenly',          note: 'P2P exchange · planned' },
   { name: 'Rebet',              note: 'Social P2P · planned' },
+  { name: 'Crypto.com Markets', note: 'Site uses Next.js RSC navigation only · blocked on a real REST capture' },
   // DFS / sweepstakes
   { name: 'Fliff',              note: 'Sweepstakes · planned' },
   { name: 'Sportzino US',       note: 'Sweepstakes · planned' },
