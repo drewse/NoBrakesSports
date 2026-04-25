@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Users, CreditCard, Activity, Flag, Database, ChevronRight, CheckCircle2, Clock, Wrench, AlertCircle, Gauge } from 'lucide-react'
+import { Users, CreditCard, Activity, Flag, Database, ChevronRight, CheckCircle2, Clock, Wrench, AlertCircle, Gauge, Plug } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
@@ -12,6 +12,7 @@ const ADMIN_SECTIONS = [
   { href: '/admin/subscriptions', icon: CreditCard, label: 'Subscriptions', desc: 'View subscription status and billing' },
   { href: '/admin/data-health', icon: Activity, label: 'Data Source Health', desc: 'Monitor market source status' },
   { href: '/admin/proxy-usage', icon: Gauge, label: 'Proxy Bandwidth', desc: 'Track mobile / residential proxy spend' },
+  { href: '/admin/adapters', icon: Plug, label: 'Adapters', desc: 'Books bucketed by proxy tier and status' },
   { href: '/admin/feature-flags', icon: Flag, label: 'Feature Flags', desc: 'Toggle features for users or tiers' },
 ]
 

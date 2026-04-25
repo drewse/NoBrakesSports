@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, BarChart3, LineChart,
   Bookmark, History, Settings, Shield, ChevronRight, Zap,
-  Star, Percent, Users, MessageSquare, Tag, GitBranch, X
+  Star, Percent, Users, MessageSquare, Tag, GitBranch, X, Plug
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
@@ -123,6 +123,11 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
               </div>
               <NavLink
                 item={{ label: 'Data Pipelines', href: '/admin/data-pipelines', icon: GitBranch }}
+                pathname={pathname}
+                isPro={false}
+              />
+              <NavLink
+                item={{ label: 'Adapters', href: '/admin/adapters', icon: Plug }}
                 pathname={pathname}
                 isPro={false}
               />
