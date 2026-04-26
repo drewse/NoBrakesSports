@@ -71,10 +71,10 @@ export function PropsTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-nb-900/60 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
-              <th className="sticky left-0 z-20 bg-nb-900 px-4 py-3 text-left w-[260px]">Player</th>
-              <th className="px-3 py-3 text-center w-[110px]">Best Odds</th>
-              <th className="px-3 py-3 text-center w-[110px]">Avg Odds</th>
+            <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
+              <th className="sticky left-0 z-30 bg-nb-950 px-4 py-3 text-left w-[260px]">Player</th>
+              <th className="sticky left-[260px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40">Best Odds</th>
+              <th className="sticky left-[370px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">Avg Odds</th>
               {books.map(b => (
                 <th key={b.id} className="px-2 py-3 text-center min-w-[92px] border-l border-border/40">
                   <div className="flex justify-center">
@@ -100,9 +100,11 @@ export function PropsTable({
             })}
           </tbody>
           <tfoot>
-            <tr className="bg-nb-900/40 text-[10px] text-nb-500">
-              <td className="sticky left-0 bg-nb-900/60 px-4 py-2 uppercase tracking-wider">Over / Under</td>
-              <td colSpan={2 + books.length} className="px-3 py-2">
+            <tr className="bg-nb-950 text-[10px] text-nb-500">
+              <td className="sticky left-0 z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider">Over / Under</td>
+              <td className="sticky left-[260px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40" />
+              <td className="sticky left-[370px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+              <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>
             </tr>
@@ -126,9 +128,9 @@ function GameBlock({
     <>
       <tr
         onClick={onToggle}
-        className="border-b border-border/40 bg-nb-900/30 hover:bg-nb-900/60 cursor-pointer"
+        className="border-b border-border/40 bg-nb-900 hover:bg-nb-800 cursor-pointer"
       >
-        <td className="sticky left-0 z-10 bg-nb-900 px-4 py-3 align-middle">
+        <td className="sticky left-0 z-20 bg-inherit px-4 py-3 align-middle w-[260px]">
           <div className="space-y-0.5">
             <div className="text-xs font-medium text-white truncate">{game.homeTeam}</div>
             <div className="text-xs font-medium text-white truncate">{game.awayTeam}</div>
@@ -138,7 +140,11 @@ function GameBlock({
             </div>
           </div>
         </td>
-        <td colSpan={colSpan - 1} className="px-3 py-3">
+        {/* Frozen Best/Avg slots so the OPEN/CLOSE bar doesn't slide
+         *  under the sticky game name. */}
+        <td className="sticky left-[260px] z-20 bg-inherit border-l border-border/40 w-[110px]" />
+        <td className="sticky left-[370px] z-20 bg-inherit border-l border-border/40 w-[110px] shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+        <td colSpan={colSpan - 3} className="px-3 py-3">
           <div className="flex items-center justify-center gap-2 text-nb-400 hover:text-white transition-colors">
             <ChevronDown
               className={`h-4 w-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
@@ -156,9 +162,9 @@ function GameBlock({
       {isOpen && game.players.map(p => (
         <tr
           key={`${game.eventId}:${p.playerName}`}
-          className="border-b border-border/30 bg-nb-950/40 hover:bg-nb-900/30"
+          className="border-b border-border/30 bg-nb-950 hover:bg-nb-900"
         >
-          <td className="sticky left-0 z-10 bg-nb-950 px-4 py-2.5 align-middle">
+          <td className="sticky left-0 z-20 bg-inherit px-4 py-2.5 align-middle w-[260px]">
             <div className="space-y-0.5">
               <div className="text-xs font-medium text-white truncate">{p.playerName}</div>
               {p.consensusLine != null && (
@@ -168,10 +174,10 @@ function GameBlock({
               )}
             </div>
           </td>
-          <td className="px-3 py-2.5 text-center align-middle">
+          <td className="sticky left-[260px] z-20 bg-inherit px-3 py-2.5 text-center align-middle w-[110px] border-l border-border/40">
             <OUStack over={p.bestOver} under={p.bestUnder} accent />
           </td>
-          <td className="px-3 py-2.5 text-center align-middle">
+          <td className="sticky left-[370px] z-20 bg-inherit px-3 py-2.5 text-center align-middle w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
             <OUStack over={p.avgOver} under={p.avgUnder} />
           </td>
           {books.map(b => {
@@ -186,7 +192,7 @@ function GameBlock({
       ))}
 
       {isOpen && game.players.length === 0 && (
-        <tr className="border-b border-border/30 bg-nb-950/40">
+        <tr className="border-b border-border/30 bg-nb-950">
           <td colSpan={colSpan} className="px-4 py-6 text-center text-xs text-nb-500">
             No props quoted for this game.
           </td>

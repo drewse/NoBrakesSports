@@ -72,10 +72,10 @@ export function OddsTable({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border bg-nb-900/60 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
-              <th className="sticky left-0 z-20 bg-nb-900 px-4 py-3 text-left w-[260px]">Game</th>
-              <th className="px-3 py-3 text-center w-[110px]">Best Odds</th>
-              <th className="px-3 py-3 text-center w-[110px]">Avg Odds</th>
+            <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
+              <th className="sticky left-0 z-30 bg-nb-950 px-4 py-3 text-left w-[260px]">Game</th>
+              <th className="sticky left-[260px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40">Best Odds</th>
+              <th className="sticky left-[370px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">Avg Odds</th>
               {books.map(b => (
                 <th key={b.id} className="px-2 py-3 text-center min-w-[92px] border-l border-border/40">
                   <div className="flex justify-center">
@@ -89,10 +89,11 @@ export function OddsTable({
             {rows.map((r, idx) => (
               <tr
                 key={r.eventId}
-                className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950/40' : 'bg-nb-900/20'}`}
+                className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'}`}
               >
-                {/* Game matchup */}
-                <td className="sticky left-0 z-10 bg-inherit px-4 py-3 align-middle">
+                {/* Game matchup — sticky, solid bg so scrolled book columns
+                 *  don't bleed through underneath. */}
+                <td className="sticky left-0 z-20 bg-inherit px-4 py-3 align-middle w-[260px]">
                   <div className="space-y-0.5">
                     <div className="text-xs font-medium text-white truncate">{r.homeTeam}</div>
                     <div className="text-xs font-medium text-white truncate">{r.awayTeam}</div>
@@ -103,17 +104,18 @@ export function OddsTable({
                   </div>
                 </td>
 
-                {/* Best odds */}
-                <td className="px-3 py-3 text-center align-middle">
+                {/* Best odds — also sticky next to Game */}
+                <td className="sticky left-[260px] z-20 bg-inherit px-3 py-3 text-center align-middle w-[110px] border-l border-border/40">
                   <OddsStack top={r.bestHome} bottom={r.bestAway} accent />
                 </td>
 
-                {/* Avg odds */}
-                <td className="px-3 py-3 text-center align-middle">
+                {/* Avg odds — sticky, last frozen column. shadow on the
+                 *  right edge gives a visual cue the books scroll under. */}
+                <td className="sticky left-[370px] z-20 bg-inherit px-3 py-3 text-center align-middle w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
                   <OddsStack top={r.avgHome} bottom={r.avgAway} />
                 </td>
 
-                {/* Book columns */}
+                {/* Book columns — these scroll under the frozen group. */}
                 {books.map(b => {
                   const cell = r.byBook.get(b.id)
                   return (
@@ -126,9 +128,11 @@ export function OddsTable({
             ))}
           </tbody>
           <tfoot>
-            <tr className="bg-nb-900/40 text-[10px] text-nb-500">
-              <td className="sticky left-0 bg-nb-900/60 px-4 py-2 uppercase tracking-wider">{topLabel} / {botLabel}</td>
-              <td colSpan={2 + books.length} className="px-3 py-2">
+            <tr className="bg-nb-950 text-[10px] text-nb-500">
+              <td className="sticky left-0 z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider">{topLabel} / {botLabel}</td>
+              <td className="sticky left-[260px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40" />
+              <td className="sticky left-[370px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+              <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>
             </tr>
