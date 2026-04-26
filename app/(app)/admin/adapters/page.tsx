@@ -63,6 +63,12 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'DraftKings Predictions', note: 'Prediction · Vercel cron · 5 min · NBA only · seeded ticker list, listing endpoint TBD' },
   { name: 'Robinhood Predict',  note: 'White-label Kalshi · same contracts · covered by sync-kalshi cron' },
   { name: 'Coinbase Derivatives', note: 'Kalshi-routed event contracts · covered by sync-kalshi cron' },
+  // ── Books unlocked by the Action Network aggregator ───────────────
+  { name: 'Hard Rock Bet',      note: 'Lines via Action Network · Vercel cron · 5 min' },
+  { name: 'bet365',             note: 'Lines via Action Network · Vercel cron · 5 min · WSS-only direct scrape stays parked' },
+  { name: 'theScore Bet',       note: 'Lines via Action Network · Vercel cron · 5 min · IPRoyal direct scrape stays parked' },
+  { name: 'Caesars',            note: 'Lines via Action Network · Vercel cron · 5 min · IPRoyal direct scrape stays parked' },
+  { name: 'Fanatics',           note: 'Lines via Action Network · Vercel cron · 5 min' },
   // Railway direct-IP
   { name: 'PointsBet ON',     note: 'PointsBet API · Railway' },
   { name: 'Pinnacle',         note: 'Pinnacle API · Railway' },
@@ -73,13 +79,14 @@ const NO_PROXY_LIVE: BookEntry[] = [
 ]
 
 const PAUSED: BookEntry[] = [
-  // Disabled in worker/index.ts to cut mobile-proxy spend
-  { name: 'Caesars',         note: 'IPRoyal CA · disabled — proxy spend' },
-  { name: 'theScore Bet',    note: 'IPRoyal CA · disabled — proxy spend' },
-  { name: 'BetVictor',       note: 'IPRoyal CA · disabled — proxy spend' },
-  { name: 'Hard Rock Bet',   note: 'IPRoyal US · disabled — proxy spend' },
+  // Disabled in worker/index.ts to cut mobile-proxy spend (now also
+  // partially covered for game lines by the Action Network feed)
+  { name: 'Caesars (direct)',    note: 'IPRoyal CA · disabled — proxy spend · game lines via Action Network' },
+  { name: 'theScore Bet (direct)', note: 'IPRoyal CA · disabled — proxy spend · game lines via Action Network' },
+  { name: 'BetVictor',           note: 'IPRoyal CA · disabled — proxy spend' },
+  { name: 'Hard Rock Bet (direct)', note: 'IPRoyal US · disabled — proxy spend · game lines via Action Network' },
   // Adapter shipped but blocked / awaiting unlock
-  { name: 'bet365',          note: 'WSS-only transport — parked' },
+  { name: 'bet365 (direct)',     note: 'WSS-only transport · parked · game lines via Action Network' },
   { name: 'BetParx',         note: 'CF-blocked · awaits IPRoyal US' },
   { name: 'BetOnline',       note: 'CF-blocked · awaits IPRoyal US' },
   { name: 'LowVig',          note: 'CF-blocked · awaits IPRoyal US' },

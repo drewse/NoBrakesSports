@@ -41,6 +41,10 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/cron/sync-action-network",
+      "schedule": "4-59/5 * * * *"
+    },
+    {
       "path": "/api/cron/random-arb-alert",
       "schedule": "*/30 * * * *"
     },
@@ -63,6 +67,7 @@
     "app/api/cron/sync-bovada/route.ts": { "maxDuration": 60 },
     "app/api/cron/sync-fanatics-markets/route.ts": { "maxDuration": 60 },
     "app/api/cron/sync-betonline/route.ts": { "maxDuration": 90 },
-    "app/api/cron/sync-dk-predictions/route.ts": { "maxDuration": 60 }
+    "app/api/cron/sync-dk-predictions/route.ts": { "maxDuration": 60 },
+    "app/api/cron/sync-action-network/route.ts": { "maxDuration": 90 }
   }
 }
