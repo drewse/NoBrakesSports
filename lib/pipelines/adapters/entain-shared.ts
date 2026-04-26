@@ -139,11 +139,20 @@ export async function scrapeEntain(config: EntainConfig, signal?: AbortSignal): 
   const HEADERS = makeHeaders(config)
   const results: EntainResult[] = []
 
-  // Fetch fixture lists in parallel
+  // Fetch fixture lists in parallel.
+  //
+  // Using state=Upcoming (was: state=Latest). Verified live against BetMGM:
+  //   state=Latest    → 14 NBA fixtures, MISSING Tor/Cle + Phi/Bos, padded
+  //                     with 9 unparseable June "? vs ?" futures rows.
+  //   state=Upcoming  →  7 NBA fixtures, all the real upcoming games with
+  //                     proper team names (incl. Tor/Cle + Phi/Bos), no
+  //                     futures noise.
+  // Same observation applies to bwin / partypoker since they share this
+  // scrapeEntain code path.
   const leagueFixtures = await Promise.all(
     ENTAIN_LEAGUES.map(async (league) => {
       try {
-        const resp = await fetch(`${BASE}/fixtures?${COMMON}&state=Latest&sportIds=${league.sportId}&take=200`, {
+        const resp = await fetch(`${BASE}/fixtures?${COMMON}&state=Upcoming&sportIds=${league.sportId}&take=200`, {
           headers: HEADERS, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
         })
         if (!resp.ok) return { league, fixtures: [] }
