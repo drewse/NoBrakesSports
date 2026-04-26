@@ -210,15 +210,56 @@ async function loadGameOdds(
     })
     .filter((r): r is OddsRow => r !== null)
 
-  // Dedupe same-title same-day rows; cap absurd best-odds.
+  // Dedupe by sorted team pair + 24h ET-anchored day bucket. Two
+  // separate event rows for the same matchup show up when sportsbooks
+  // and prediction markets disagree on the start time by 30+ min — a
+  // strict (title, UTC-date) key misses both axes:
+  //   - Title order can flip ("Den vs Min" vs "Min vs Den") so book
+  //     coverage gets split across two rows even on the same day.
+  //   - Evening US games near 00:00 UTC straddle the calendar boundary,
+  //     so a 19:10 ET start and a 22:35 ET start for the SAME game
+  //     land on different UTC dates with slice(0,10).
+  // Bucket = floor((epoch_ms - 5h_offset) / 86_400_000) anchors the
+  // day boundary at 05:00 UTC (≈ midnight ET), which keeps every NBA /
+  // MLB / NHL slate on a single bucket.
+  const ET_OFFSET_MS = 5 * 3600 * 1000
   const dedup = new Map<string, OddsRow>()
   for (const r of rows) {
-    const day = r.startTime.slice(0, 10)
-    const key = `${r.title.toLowerCase()}|${day}`
+    const ts = new Date(r.startTime).getTime()
+    const bucket = isFinite(ts) ? Math.floor((ts - ET_OFFSET_MS) / 86_400_000) : r.startTime.slice(0, 10)
+    const teams = [r.homeTeam, r.awayTeam].map(s => (s ?? '').toLowerCase().trim()).sort().join('|')
+    const key = `${teams}|${bucket}`
     const existing = dedup.get(key)
-    if (!existing || r.byBook.size > existing.byBook.size) {
-      dedup.set(key, r)
+    if (!existing) { dedup.set(key, r); continue }
+    // Same matchup landed on two event rows (e.g. Polymarket / Kalshi
+    // create their own event with a slightly different start time).
+    // Pick the row with more books as the winner BUT merge the loser's
+    // byBook entries into it, then recompute best / avg so prediction-
+    // market quotes still show up next to the sportsbook columns.
+    const winner = r.byBook.size >= existing.byBook.size ? r : existing
+    const loser  = winner === r ? existing : r
+    const mergedByBook = new Map(winner.byBook)
+    for (const [bid, cell] of loser.byBook) if (!mergedByBook.has(bid)) mergedByBook.set(bid, cell)
+    let bestHome: number | null = null, bestAway: number | null = null
+    let bestHomeBook: string | null = null, bestAwayBook: string | null = null
+    const homePrices: number[] = [], awayPrices: number[] = []
+    for (const cell of mergedByBook.values()) {
+      if (cell.homePrice != null) {
+        homePrices.push(cell.homePrice)
+        if (bestHome == null || cell.homePrice > bestHome) { bestHome = cell.homePrice; bestHomeBook = cell.sourceId }
+      }
+      if (cell.awayPrice != null) {
+        awayPrices.push(cell.awayPrice)
+        if (bestAway == null || cell.awayPrice > bestAway) { bestAway = cell.awayPrice; bestAwayBook = cell.sourceId }
+      }
     }
+    dedup.set(key, {
+      ...winner,
+      byBook: mergedByBook,
+      bestHome, bestAway, bestHomeBook, bestAwayBook,
+      avgHome: homePrices.length ? Math.round(avgAmerican(homePrices)) : null,
+      avgAway: awayPrices.length ? Math.round(avgAmerican(awayPrices)) : null,
+    })
   }
   const deduped = [...dedup.values()].map(r => {
     const cap = (v: number | null) => v != null && Math.abs(v) > 5000 ? null : v
@@ -357,12 +398,30 @@ async function loadPropOdds(
     })
     .filter((g): g is PropsGameRow => g !== null)
 
+  // Same dedup shape as the game-level loader: (sorted team pair, ET
+  // 24h bucket). Keeps prediction-market start-time drift from
+  // splitting a player-prop slate into two rows.
+  const ET_OFFSET_MS = 5 * 3600 * 1000
+  const propsDedup = new Map<string, PropsGameRow>()
+  for (const r of rows) {
+    const ts = new Date(r.startTime).getTime()
+    const bucket = isFinite(ts) ? Math.floor((ts - ET_OFFSET_MS) / 86_400_000) : r.startTime.slice(0, 10)
+    const teams = [r.homeTeam, r.awayTeam].map(s => (s ?? '').toLowerCase().trim()).sort().join('|')
+    const key = `${teams}|${bucket}`
+    const existing = propsDedup.get(key)
+    const playerCount = (g: PropsGameRow) => g.players.length
+    if (!existing || playerCount(r) > playerCount(existing)) {
+      propsDedup.set(key, r)
+    }
+  }
+  const dedupedProps = [...propsDedup.values()]
+
   // Preserve start-time ordering from events query.
   const eventOrder = new Map(events.map((e, i) => [e.id, i]))
-  rows.sort((a, b) => (eventOrder.get(a.eventId) ?? 0) - (eventOrder.get(b.eventId) ?? 0))
+  dedupedProps.sort((a, b) => (eventOrder.get(a.eventId) ?? 0) - (eventOrder.get(b.eventId) ?? 0))
 
   const bookList = [...books.values()].sort((a, b) => a.name.localeCompare(b.name))
-  return { kind: 'props', rows, books: bookList }
+  return { kind: 'props', rows: dedupedProps, books: bookList }
 }
 
 /** Average American odds by converting to implied prob, averaging, and
