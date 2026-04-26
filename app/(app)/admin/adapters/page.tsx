@@ -61,6 +61,8 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'Polymarket',       note: 'Prediction · Vercel cron' },
   { name: 'Fanatics Markets', note: 'Prediction · Vercel cron' },
   { name: 'DraftKings Predictions', note: 'Prediction · Vercel cron · 5 min · NBA only · seeded ticker list, listing endpoint TBD' },
+  { name: 'Robinhood Predict',  note: 'White-label Kalshi · same contracts · covered by sync-kalshi cron' },
+  { name: 'Coinbase Derivatives', note: 'Kalshi-routed event contracts · covered by sync-kalshi cron' },
   // Railway direct-IP
   { name: 'PointsBet ON',     note: 'PointsBet API · Railway' },
   { name: 'Pinnacle',         note: 'Pinnacle API · Railway' },
@@ -122,8 +124,7 @@ const NOT_IMPLEMENTED: BookEntry[] = [
   { name: 'BetOpenly',          note: 'P2P exchange · planned' },
   { name: 'Rebet',               note: 'Social P2P · planned' },
   // DFS / sweepstakes
-  { name: 'Fliff',              note: 'Sweepstakes · planned' },
-  { name: 'Sportzino US',       note: 'Sweepstakes · planned' },
+  { name: 'Fliff',              note: 'Sweepstakes · API mobile-only · datacenter probe refused' },
   { name: 'Thrillzz',           note: 'Sweepstakes · planned' },
   // Offshore
   { name: 'BetAnySports',       note: 'Offshore reduced juice · planned' },
