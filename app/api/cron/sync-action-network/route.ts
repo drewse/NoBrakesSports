@@ -159,11 +159,18 @@ export async function GET(request: NextRequest) {
   const sinceIso = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString()
   const { data: dbEvents } = await db
     .from('events')
-    .select('id, title, start_time, leagues(slug)')
+    .select('id, title, start_time, external_id, leagues(slug)')
     .gt('start_time', sinceIso)
     .limit(5000)
 
-  const eventByKey = new Map<string, string>()
+  // Two events can share the same (league, team-pair, day) — usually a
+  // canonical row plus an orphan with a corrupted external_id from an
+  // older bug. A naive last-wins map silently picks the orphan. Resolve
+  // collisions by preferring the event with (a) shorter external_id (no
+  // doubled-syllable garbage), then (b) more existing source coverage,
+  // then (c) earlier start_time.
+  type EventCandidate = { id: string; extLen: number; sourceCount: number; start: string }
+  const candidatesByKey = new Map<string, EventCandidate[]>()
   for (const e of (dbEvents ?? []) as any[]) {
     const slug = e.leagues?.slug
     const title = e.title as string
@@ -171,7 +178,37 @@ export async function GET(request: NextRequest) {
     const parts = title.split(/\s+vs\.?\s+/i)
     if (parts.length !== 2) continue
     const day = String(e.start_time).slice(0, 10)
-    eventByKey.set(`${slug}|${pairKey(parts[0], parts[1])}|${day}`, e.id as string)
+    const k = `${slug}|${pairKey(parts[0], parts[1])}|${day}`
+    const list = candidatesByKey.get(k) ?? []
+    list.push({ id: e.id, extLen: (e.external_id ?? '').length, sourceCount: 0, start: e.start_time })
+    candidatesByKey.set(k, list)
+  }
+
+  // Hydrate sourceCount for keys with collisions (cheap when no dupes).
+  const collisionEventIds: string[] = []
+  for (const list of candidatesByKey.values()) {
+    if (list.length > 1) for (const c of list) collisionEventIds.push(c.id)
+  }
+  if (collisionEventIds.length > 0) {
+    const { data: counts } = await db
+      .from('current_market_odds')
+      .select('event_id')
+      .in('event_id', collisionEventIds)
+    const tally = new Map<string, number>()
+    for (const r of (counts ?? []) as any[]) tally.set(r.event_id, (tally.get(r.event_id) ?? 0) + 1)
+    for (const list of candidatesByKey.values()) {
+      for (const c of list) c.sourceCount = tally.get(c.id) ?? 0
+    }
+  }
+
+  const eventByKey = new Map<string, string>()
+  for (const [k, list] of candidatesByKey) {
+    list.sort((a, b) =>
+      a.extLen - b.extLen
+      || b.sourceCount - a.sourceCount
+      || a.start.localeCompare(b.start),
+    )
+    eventByKey.set(k, list[0].id)
   }
 
   // 4. Walk each game's odds entries and build markets per book.
