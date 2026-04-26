@@ -81,7 +81,7 @@ export function OddsTable({
   return (
     <div className="rounded-lg border border-border overflow-hidden bg-nb-950">
       <div className="overflow-x-auto">
-        <table className="text-sm border-collapse" style={{ minWidth: '100%' }}>
+        <table className="text-sm border-separate" style={{ minWidth: '100%', borderSpacing: 0 }}>
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
               <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Game</th>
