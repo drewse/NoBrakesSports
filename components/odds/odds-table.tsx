@@ -85,8 +85,8 @@ export function OddsTable({
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
               <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Game</th>
-              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40" style={cellBest}>Best Odds</th>
-              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-r border-border/40" style={cellAvg}>Avg Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-nb-700" style={cellBest}>Best Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-r border-nb-700" style={cellAvg}>Avg Odds</th>
               {books.map(b => (
                 <th key={b.id} className="px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92 }}>
                   <div className="flex justify-center">
@@ -112,10 +112,10 @@ export function OddsTable({
                     </div>
                   </div>
                 </td>
-                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-border/40" style={cellBest}>
+                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-nb-700" style={cellBest}>
                   <OddsStack top={r.bestHome} bottom={r.bestAway} accent />
                 </td>
-                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-r border-border/40" style={cellAvg}>
+                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
                   <OddsStack top={r.avgHome} bottom={r.avgAway} />
                 </td>
                 {books.map(b => {
@@ -132,8 +132,8 @@ export function OddsTable({
           <tfoot>
             <tr className="bg-nb-950 text-[10px] text-nb-500">
               <td className="sticky z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider" style={{ ...cellGame, left: 0 }}>{topLabel} / {botLabel}</td>
-              <td className="sticky z-20 bg-nb-950 border-l border-border/40" style={cellBest} />
-              <td className="sticky z-20 bg-nb-950 border-l border-r border-border/40" style={cellAvg} />
+              <td className="sticky z-20 bg-nb-950 border-l border-nb-700" style={cellBest} />
+              <td className="sticky z-20 bg-nb-950 border-l border-r border-nb-700" style={cellAvg} />
               <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>
