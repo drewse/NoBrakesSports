@@ -67,17 +67,28 @@ export function OddsTable({
     )
   }
 
+  // Frozen-group widths. Used as inline style + matching `left:` offsets
+  // so the first three columns render at EXACTLY these pixel widths
+  // regardless of table content. Tailwind `w-[260px]` is just a hint;
+  // a `w-full` table will reflow it and break the sticky offsets.
+  const W_GAME = 260
+  const W_BEST = 110
+  const W_AVG = 110
+  const cellGame = { width: W_GAME, minWidth: W_GAME, maxWidth: W_GAME } as const
+  const cellBest = { width: W_BEST, minWidth: W_BEST, maxWidth: W_BEST, left: W_GAME } as const
+  const cellAvg  = { width: W_AVG,  minWidth: W_AVG,  maxWidth: W_AVG,  left: W_GAME + W_BEST } as const
+
   return (
-    <div className="rounded-lg border border-border overflow-hidden bg-nb-950/40">
+    <div className="rounded-lg border border-border overflow-hidden bg-nb-950">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="text-sm" style={{ minWidth: '100%' }}>
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
-              <th className="sticky left-0 z-30 bg-nb-950 px-4 py-3 text-left w-[260px]">Game</th>
-              <th className="sticky left-[260px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40">Best Odds</th>
-              <th className="sticky left-[370px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">Avg Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Game</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40" style={cellBest}>Best Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>Avg Odds</th>
               {books.map(b => (
-                <th key={b.id} className="px-2 py-3 text-center min-w-[92px] border-l border-border/40">
+                <th key={b.id} className="px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92 }}>
                   <div className="flex justify-center">
                     <BookLogo name={b.slug} size="sm" />
                   </div>
@@ -91,9 +102,7 @@ export function OddsTable({
                 key={r.eventId}
                 className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'}`}
               >
-                {/* Game matchup — sticky, solid bg so scrolled book columns
-                 *  don't bleed through underneath. */}
-                <td className="sticky left-0 z-20 bg-inherit px-4 py-3 align-middle w-[260px]">
+                <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
                   <div className="space-y-0.5">
                     <div className="text-xs font-medium text-white truncate">{r.homeTeam}</div>
                     <div className="text-xs font-medium text-white truncate">{r.awayTeam}</div>
@@ -103,23 +112,16 @@ export function OddsTable({
                     </div>
                   </div>
                 </td>
-
-                {/* Best odds — also sticky next to Game */}
-                <td className="sticky left-[260px] z-20 bg-inherit px-3 py-3 text-center align-middle w-[110px] border-l border-border/40">
+                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-border/40" style={cellBest}>
                   <OddsStack top={r.bestHome} bottom={r.bestAway} accent />
                 </td>
-
-                {/* Avg odds — sticky, last frozen column. shadow on the
-                 *  right edge gives a visual cue the books scroll under. */}
-                <td className="sticky left-[370px] z-20 bg-inherit px-3 py-3 text-center align-middle w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
+                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>
                   <OddsStack top={r.avgHome} bottom={r.avgAway} />
                 </td>
-
-                {/* Book columns — these scroll under the frozen group. */}
                 {books.map(b => {
                   const cell = r.byBook.get(b.id)
                   return (
-                    <td key={b.id} className="px-2 py-3 text-center align-middle border-l border-border/40">
+                    <td key={b.id} className="px-2 py-3 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
                       <OddsStack top={cell?.homePrice ?? null} bottom={cell?.awayPrice ?? null} />
                     </td>
                   )
@@ -129,9 +131,9 @@ export function OddsTable({
           </tbody>
           <tfoot>
             <tr className="bg-nb-950 text-[10px] text-nb-500">
-              <td className="sticky left-0 z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider">{topLabel} / {botLabel}</td>
-              <td className="sticky left-[260px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40" />
-              <td className="sticky left-[370px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+              <td className="sticky z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider" style={{ ...cellGame, left: 0 }}>{topLabel} / {botLabel}</td>
+              <td className="sticky z-20 bg-nb-950 border-l border-border/40" style={cellBest} />
+              <td className="sticky z-20 bg-nb-950 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg} />
               <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>

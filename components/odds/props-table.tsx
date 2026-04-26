@@ -66,17 +66,27 @@ export function PropsTable({
 
   const colSpan = 3 + books.length
 
+  // See odds-table.tsx for rationale — exact pixel widths via inline
+  // style so the sticky `left:` offsets line up with the actual column
+  // widths.
+  const W_GAME = 260
+  const W_BEST = 110
+  const W_AVG = 110
+  const cellGame = { width: W_GAME, minWidth: W_GAME, maxWidth: W_GAME } as const
+  const cellBest = { width: W_BEST, minWidth: W_BEST, maxWidth: W_BEST, left: W_GAME } as const
+  const cellAvg  = { width: W_AVG,  minWidth: W_AVG,  maxWidth: W_AVG,  left: W_GAME + W_BEST } as const
+
   return (
-    <div className="rounded-lg border border-border overflow-hidden bg-nb-950/40">
+    <div className="rounded-lg border border-border overflow-hidden bg-nb-950">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="text-sm" style={{ minWidth: '100%' }}>
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
-              <th className="sticky left-0 z-30 bg-nb-950 px-4 py-3 text-left w-[260px]">Player</th>
-              <th className="sticky left-[260px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40">Best Odds</th>
-              <th className="sticky left-[370px] z-30 bg-nb-950 px-3 py-3 text-center w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">Avg Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Player</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40" style={cellBest}>Best Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>Avg Odds</th>
               {books.map(b => (
-                <th key={b.id} className="px-2 py-3 text-center min-w-[92px] border-l border-border/40">
+                <th key={b.id} className="px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92 }}>
                   <div className="flex justify-center">
                     <BookLogo name={b.slug} size="sm" />
                   </div>
@@ -95,15 +105,18 @@ export function PropsTable({
                   isOpen={isOpen}
                   onToggle={() => toggle(game.eventId)}
                   colSpan={colSpan}
+                  cellGame={cellGame}
+                  cellBest={cellBest}
+                  cellAvg={cellAvg}
                 />
               )
             })}
           </tbody>
           <tfoot>
             <tr className="bg-nb-950 text-[10px] text-nb-500">
-              <td className="sticky left-0 z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider">Over / Under</td>
-              <td className="sticky left-[260px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40" />
-              <td className="sticky left-[370px] z-20 bg-nb-950 px-3 py-2 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+              <td className="sticky z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider" style={{ ...cellGame, left: 0 }}>Over / Under</td>
+              <td className="sticky z-20 bg-nb-950 border-l border-border/40" style={cellBest} />
+              <td className="sticky z-20 bg-nb-950 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg} />
               <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>
@@ -116,13 +129,16 @@ export function PropsTable({
 }
 
 function GameBlock({
-  game, books, isOpen, onToggle, colSpan,
+  game, books, isOpen, onToggle, colSpan, cellGame, cellBest, cellAvg,
 }: {
   game: PropsGameRow
   books: BookColumn[]
   isOpen: boolean
   onToggle: () => void
   colSpan: number
+  cellGame: React.CSSProperties
+  cellBest: React.CSSProperties
+  cellAvg:  React.CSSProperties
 }) {
   return (
     <>
@@ -130,7 +146,7 @@ function GameBlock({
         onClick={onToggle}
         className="border-b border-border/40 bg-nb-900 hover:bg-nb-800 cursor-pointer"
       >
-        <td className="sticky left-0 z-20 bg-inherit px-4 py-3 align-middle w-[260px]">
+        <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
           <div className="space-y-0.5">
             <div className="text-xs font-medium text-white truncate">{game.homeTeam}</div>
             <div className="text-xs font-medium text-white truncate">{game.awayTeam}</div>
@@ -140,10 +156,8 @@ function GameBlock({
             </div>
           </div>
         </td>
-        {/* Frozen Best/Avg slots so the OPEN/CLOSE bar doesn't slide
-         *  under the sticky game name. */}
-        <td className="sticky left-[260px] z-20 bg-inherit border-l border-border/40 w-[110px]" />
-        <td className="sticky left-[370px] z-20 bg-inherit border-l border-border/40 w-[110px] shadow-[2px_0_0_0_rgba(0,0,0,1)]" />
+        <td className="sticky z-20 bg-inherit border-l border-border/40" style={cellBest} />
+        <td className="sticky z-20 bg-inherit border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg} />
         <td colSpan={colSpan - 3} className="px-3 py-3">
           <div className="flex items-center justify-center gap-2 text-nb-400 hover:text-white transition-colors">
             <ChevronDown
@@ -164,7 +178,7 @@ function GameBlock({
           key={`${game.eventId}:${p.playerName}`}
           className="border-b border-border/30 bg-nb-950 hover:bg-nb-900"
         >
-          <td className="sticky left-0 z-20 bg-inherit px-4 py-2.5 align-middle w-[260px]">
+          <td className="sticky z-20 bg-inherit px-4 py-2.5 align-middle" style={{ ...cellGame, left: 0 }}>
             <div className="space-y-0.5">
               <div className="text-xs font-medium text-white truncate">{p.playerName}</div>
               {p.consensusLine != null && (
@@ -174,16 +188,16 @@ function GameBlock({
               )}
             </div>
           </td>
-          <td className="sticky left-[260px] z-20 bg-inherit px-3 py-2.5 text-center align-middle w-[110px] border-l border-border/40">
+          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-border/40" style={cellBest}>
             <OUStack over={p.bestOver} under={p.bestUnder} accent />
           </td>
-          <td className="sticky left-[370px] z-20 bg-inherit px-3 py-2.5 text-center align-middle w-[110px] border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]">
+          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>
             <OUStack over={p.avgOver} under={p.avgUnder} />
           </td>
           {books.map(b => {
             const cell = p.byBook.get(b.id)
             return (
-              <td key={b.id} className="px-2 py-2.5 text-center align-middle border-l border-border/40">
+              <td key={b.id} className="px-2 py-2.5 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
                 <OUStack over={cell?.overPrice ?? null} under={cell?.underPrice ?? null} />
               </td>
             )
