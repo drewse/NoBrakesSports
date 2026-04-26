@@ -189,16 +189,23 @@ function GameBlock({
             </div>
           </td>
           <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-nb-700" style={cellBest}>
-            <OUStack over={p.bestOver} under={p.bestUnder} accent />
+            <OUStack over={p.bestOver} under={p.bestUnder} accentOver accentUnder />
           </td>
           <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
             <OUStack over={p.avgOver} under={p.avgUnder} />
           </td>
           {books.map(b => {
             const cell = p.byBook.get(b.id)
+            const isBestOver  = cell?.overPrice  != null && p.bestOver  != null && cell.overPrice  === p.bestOver
+            const isBestUnder = cell?.underPrice != null && p.bestUnder != null && cell.underPrice === p.bestUnder
             return (
               <td key={b.id} className="px-2 py-2.5 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
-                <OUStack over={cell?.overPrice ?? null} under={cell?.underPrice ?? null} />
+                <OUStack
+                  over={cell?.overPrice ?? null}
+                  under={cell?.underPrice ?? null}
+                  accentOver={isBestOver}
+                  accentUnder={isBestUnder}
+                />
               </td>
             )
           })}
@@ -217,14 +224,15 @@ function GameBlock({
 }
 
 function OUStack({
-  over, under, accent,
+  over, under, accentOver, accentUnder,
 }: {
   over: number | null
   under: number | null
-  accent?: boolean
+  accentOver?: boolean
+  accentUnder?: boolean
 }) {
-  const overCls = over == null ? 'text-nb-700' : accent ? 'text-green-400 font-bold' : 'text-white'
-  const underCls = under == null ? 'text-nb-700' : accent ? 'text-green-400 font-bold' : 'text-white'
+  const overCls = over == null ? 'text-nb-700' : accentOver ? 'text-green-400 font-bold' : 'text-white'
+  const underCls = under == null ? 'text-nb-700' : accentUnder ? 'text-green-400 font-bold' : 'text-white'
   return (
     <div className="flex flex-col items-center gap-0.5 font-mono">
       <span className={`text-xs ${overCls}`}>{over == null ? '—' : formatOdds(over)}</span>

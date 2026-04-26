@@ -268,7 +268,19 @@ async function loadGameOdds(
   const eventOrder = new Map(events.map((e, i) => [e.id, i]))
   deduped.sort((a, b) => (eventOrder.get(a.eventId) ?? 0) - (eventOrder.get(b.eventId) ?? 0))
 
-  const bookList = [...books.values()].sort((a, b) => a.name.localeCompare(b.name))
+  // Sort books by how many of the displayed games they actually quote
+  // (more rows with this book = comes first). Ties fall back to name
+  // alphabetical so the order stays stable.
+  const bookCoverage = new Map<string, number>()
+  for (const r of deduped) for (const id of r.byBook.keys()) {
+    bookCoverage.set(id, (bookCoverage.get(id) ?? 0) + 1)
+  }
+  const bookList = [...books.values()].sort((a, b) => {
+    const ca = bookCoverage.get(a.id) ?? 0
+    const cb = bookCoverage.get(b.id) ?? 0
+    if (ca !== cb) return cb - ca
+    return a.name.localeCompare(b.name)
+  })
   return { kind: 'game', rows: deduped, books: bookList }
 }
 
@@ -420,7 +432,18 @@ async function loadPropOdds(
   const eventOrder = new Map(events.map((e, i) => [e.id, i]))
   dedupedProps.sort((a, b) => (eventOrder.get(a.eventId) ?? 0) - (eventOrder.get(b.eventId) ?? 0))
 
-  const bookList = [...books.values()].sort((a, b) => a.name.localeCompare(b.name))
+  // Sort books by total per-player coverage across the displayed
+  // games (the book that quotes the most player props comes first).
+  const bookCoverage = new Map<string, number>()
+  for (const g of dedupedProps) for (const p of g.players) for (const id of p.byBook.keys()) {
+    bookCoverage.set(id, (bookCoverage.get(id) ?? 0) + 1)
+  }
+  const bookList = [...books.values()].sort((a, b) => {
+    const ca = bookCoverage.get(a.id) ?? 0
+    const cb = bookCoverage.get(b.id) ?? 0
+    if (ca !== cb) return cb - ca
+    return a.name.localeCompare(b.name)
+  })
   return { kind: 'props', rows: dedupedProps, books: bookList }
 }
 

@@ -113,16 +113,27 @@ export function OddsTable({
                   </div>
                 </td>
                 <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-nb-700" style={cellBest}>
-                  <OddsStack top={r.bestHome} bottom={r.bestAway} accent />
+                  <OddsStack top={r.bestHome} bottom={r.bestAway} accentTop accentBottom />
                 </td>
                 <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
                   <OddsStack top={r.avgHome} bottom={r.avgAway} />
                 </td>
                 {books.map(b => {
                   const cell = r.byBook.get(b.id)
+                  // Highlight per-side when this book is tied for the
+                  // best price on that side. r.bestHome/bestAway already
+                  // collapses ties to the same numeric value, so equality
+                  // gives every tied book a green cell — not just one.
+                  const isBestTop    = cell?.homePrice != null && r.bestHome != null && cell.homePrice === r.bestHome
+                  const isBestBottom = cell?.awayPrice != null && r.bestAway != null && cell.awayPrice === r.bestAway
                   return (
                     <td key={b.id} className="px-2 py-3 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
-                      <OddsStack top={cell?.homePrice ?? null} bottom={cell?.awayPrice ?? null} />
+                      <OddsStack
+                        top={cell?.homePrice ?? null}
+                        bottom={cell?.awayPrice ?? null}
+                        accentTop={isBestTop}
+                        accentBottom={isBestBottom}
+                      />
                     </td>
                   )
                 })}
@@ -146,14 +157,15 @@ export function OddsTable({
 }
 
 function OddsStack({
-  top, bottom, accent,
+  top, bottom, accentTop, accentBottom,
 }: {
   top: number | null
   bottom: number | null
-  accent?: boolean
+  accentTop?: boolean
+  accentBottom?: boolean
 }) {
-  const topCls = top == null ? 'text-nb-700' : accent ? 'text-green-400 font-bold' : 'text-white'
-  const botCls = bottom == null ? 'text-nb-700' : accent ? 'text-green-400 font-bold' : 'text-white'
+  const topCls = top == null ? 'text-nb-700' : accentTop ? 'text-green-400 font-bold' : 'text-white'
+  const botCls = bottom == null ? 'text-nb-700' : accentBottom ? 'text-green-400 font-bold' : 'text-white'
   return (
     <div className="flex flex-col items-center gap-0.5 font-mono">
       <span className={`text-xs ${topCls}`}>{top == null ? '—' : formatOdds(top)}</span>
