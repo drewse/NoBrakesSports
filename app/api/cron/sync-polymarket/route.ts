@@ -152,6 +152,32 @@ function isWinMarket(question: string): boolean {
   return /\b(win|wins|beat|beats|defeat|defeats)\b/i.test(question)
 }
 
+/** Returns true if the market question / event title is a futures or
+ *  series-winner market that should NEVER be written as a per-game
+ *  moneyline. This catches things like "NBA Playoffs: Who Will Win
+ *  Series? - 76ers vs. Celtics" (would-be ML at 0.078/0.922 reflects
+ *  *series* odds, not single-game odds) and "Will Bournemouth win the
+ *  Premier League?" (futures price doesn't map to any per-game line).
+ *  We probed Polymarket for NBA / EPL: per-game team-outcome markets
+ *  do exist ("Cavaliers vs. Raptors" with outcomes [Cavaliers,Raptors]
+ *  and same-day endDate), but they share their event title shape with
+ *  the per-series markets, so question-text + event-title screening
+ *  is the right filter level. */
+function isFuturesOrSeriesMarket(question: string, eventTitle: string): boolean {
+  const blob = `${question} ${eventTitle}`.toLowerCase()
+  // Series / futures / award patterns.
+  if (/\b(series|championship|champion|finals?|trophy|cup|mvp|premier\s+league|relegated|relegation|standings|placement|finish\s+in|top\s*-?\s*\d|\w+\s+of\s+the\s+year|rookie|goalscorer|most\s+assists|most\s+clean\s+sheets|most\s+\w+\s+(?:in|by)|next\s+manager|next\s+coach|hire(?:d|s)?|appointed|playoffs?:\s*who\s+will\s+win|first\s+to\s+win|win\s+the\s+\w+\s+(?:season|year|title|league|cup|conference|division|championship|trophy|finals|playoffs?)|odds\s+to\s+win)\b/.test(blob)) return true
+  // Spread / total / partial-game derivatives masquerading as a team
+  // outcome ("Spread: Cavaliers (-3.5)", "1H Moneyline", "1Q Spread:").
+  // Only the full-game ML belongs in current_market_odds with
+  // market_type='moneyline'.
+  if (/\b(spread|handicap|over\s*\/?\s*under|total\s+points?|total\s+games|^o\s*\d|^u\s*\d)\b/.test(blob)) return true
+  if (/\b(1h|2h|first\s+half|second\s+half|halftime|1q|2q|3q|4q|first\s+quarter|second\s+quarter|third\s+quarter|fourth\s+quarter|quarter\b)\b/.test(blob)) return true
+  // "(-3.5)" / "(+12)" pattern is a dead giveaway it's a spread market.
+  if (/\([\-+]\s*\d+(?:\.\d+)?\)/.test(blob)) return true
+  return false
+}
+
 // Detect whether a market question refers to the home or away team.
 // Returns 'home' | 'away' | null if ambiguous.
 function detectSide(
@@ -308,7 +334,8 @@ export async function GET(request: NextRequest) {
         if (
           dbEvent && homeTeam && awayTeam &&
           !insertedEventIds.has(dbEvent.id) &&
-          isWinMarket(market.question)
+          isWinMarket(market.question) &&
+          !isFuturesOrSeriesMarket(market.question, polyEvent.title)
         ) {
           const side = detectSide(market.question, homeTeam, awayTeam)
           if (side) {
@@ -337,6 +364,13 @@ export async function GET(request: NextRequest) {
       // Team-outcome shape — outcomes are ["Rays","Red Sox"], not Yes/No.
       // Requires an event match to resolve home/away.
       if (!dbEvent || !homeTeam || !awayTeam) { skippedNoPrices++; continue }
+      // Series-winner markets ("Who Will Win Series? - X vs. Y") share
+      // the team-outcome shape with per-game ML but the prices reflect
+      // odds across a 7-game series, not a single game. Skip them so
+      // we don't pollute current_market_odds.
+      if (isFuturesOrSeriesMarket(market.question, polyEvent.title)) {
+        skippedNoPrices++; continue
+      }
       const teamPrices = parseTeamOutcomeMoneyline(market, homeTeam, awayTeam)
       if (!teamPrices) { skippedNoPrices++; teamOutcomeFailed++; continue }
       teamOutcomeParsed++
