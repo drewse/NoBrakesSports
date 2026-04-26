@@ -79,12 +79,12 @@ export function PropsTable({
   return (
     <div className="rounded-lg border border-border overflow-hidden bg-nb-950">
       <div className="overflow-x-auto">
-        <table className="text-sm" style={{ minWidth: '100%' }}>
+        <table className="text-sm border-collapse" style={{ minWidth: '100%' }}>
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
               <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Player</th>
               <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40" style={cellBest}>Best Odds</th>
-              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>Avg Odds</th>
+              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-r border-border/40" style={cellAvg}>Avg Odds</th>
               {books.map(b => (
                 <th key={b.id} className="px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92 }}>
                   <div className="flex justify-center">
@@ -116,7 +116,7 @@ export function PropsTable({
             <tr className="bg-nb-950 text-[10px] text-nb-500">
               <td className="sticky z-20 bg-nb-950 px-4 py-2 uppercase tracking-wider" style={{ ...cellGame, left: 0 }}>Over / Under</td>
               <td className="sticky z-20 bg-nb-950 border-l border-border/40" style={cellBest} />
-              <td className="sticky z-20 bg-nb-950 border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg} />
+              <td className="sticky z-20 bg-nb-950 border-l border-r border-border/40" style={cellAvg} />
               <td colSpan={books.length} className="px-3 py-2">
                 {rows.length} game{rows.length === 1 ? '' : 's'} · {books.length} book{books.length === 1 ? '' : 's'}
               </td>
@@ -157,7 +157,7 @@ function GameBlock({
           </div>
         </td>
         <td className="sticky z-20 bg-inherit border-l border-border/40" style={cellBest} />
-        <td className="sticky z-20 bg-inherit border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg} />
+        <td className="sticky z-20 bg-inherit border-l border-r border-border/40" style={cellAvg} />
         <td colSpan={colSpan - 3} className="px-3 py-3">
           <div className="flex items-center justify-center gap-2 text-nb-400 hover:text-white transition-colors">
             <ChevronDown
@@ -191,7 +191,7 @@ function GameBlock({
           <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-border/40" style={cellBest}>
             <OUStack over={p.bestOver} under={p.bestUnder} accent />
           </td>
-          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-border/40 shadow-[2px_0_0_0_rgba(0,0,0,1)]" style={cellAvg}>
+          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-r border-border/40" style={cellAvg}>
             <OUStack over={p.avgOver} under={p.avgUnder} />
           </td>
           {books.map(b => {
