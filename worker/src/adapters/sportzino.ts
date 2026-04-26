@@ -140,12 +140,31 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
 
       const name = String(m.name ?? '').toLowerCase()
 
-      if (/money\s*line|moneyline/.test(name)) {
+      // Only the MAIN full-game moneyline is allowed in the ML bucket.
+      // Reject:
+      //   - any market with a sportsbook value (sbv) → that's a
+      //     handicap, not a pure win-loss line.
+      //   - "moneyline 3-way" (soccer/draw market shape — different
+      //     prob distribution; would mis-fill 2-way ML rows).
+      //   - half / quarter / period / "race to X" / alt / overtime
+      //     etc. — partial-game variants don't belong with full-game
+      //     ML on /odds.
+      const isMainML =
+        /^money\s*line\s*$/i.test(String(m.name ?? '').trim()) &&
+        (m.sbv === undefined || m.sbv === null || m.sbv === 0 || m.sbv === '0') &&
+        !/3-?way|first|race|to\s+\d|alt|alternate|period|half|quarter|extra|overtime|including|with\s+ot|reg(?:ular)?\s+time|win\s+by/i.test(name)
+      if (isMainML) {
         const homeOdd = related.find(o => o.competitorId === homeId)
         const awayOdd = related.find(o => o.competitorId === awayId)
         const hp = homeOdd ? decimalToAmerican(homeOdd.price) : null
         const ap = awayOdd ? decimalToAmerican(awayOdd.price) : null
         if (hp == null && ap == null) continue
+        // Sanity bound. NBA / MLB / NHL ML rarely sits outside this
+        // window pre-game; values outside it are upstream noise from
+        // settled-or-near-settled games or partial-game markets we
+        // didn't recognize via the regex above.
+        const inRange = (v: number | null) => v == null || (Math.abs(v) <= 2500 && Math.abs(v) >= 100)
+        if (!inRange(hp) || !inRange(ap)) continue
         gameMarkets.push({
           marketType: 'moneyline',
           homePrice: hp, awayPrice: ap, drawPrice: null,
