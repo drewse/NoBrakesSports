@@ -309,6 +309,49 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Pre-pass: many EPL/MLS events ship TWO yes/no markets per game
+    // ("Will home win" + "Will away win"). The naive loop wrote whichever
+    // came first and synthesised the other side from `1 - yes_price`,
+    // which is poly's *no* price (lower than the other team's true yes
+    // price by the bid/ask spread). Result: the row biased to whichever
+    // question Polymarket happened to return first.
+    // When both home- and away-side win-markets are present, combine
+    // their yes prices directly so each side reflects its own market's
+    // bid.
+    if (dbEvent && homeTeam && awayTeam && !insertedEventIds.has(dbEvent.id)) {
+      let homeYes: number | null = null
+      let awayYes: number | null = null
+      let homeVolume = 0, awayVolume = 0
+      for (const m of polyEvent.markets) {
+        if (!m.active || m.closed) continue
+        if (!isWinMarket(m.question)) continue
+        if (isFuturesOrSeriesMarket(m.question, polyEvent.title)) continue
+        const prices = parsePolymarketPrices(m)
+        if (!prices) continue
+        const side = detectSide(m.question, homeTeam, awayTeam)
+        const v = parseFloat(m.volume ?? '0')
+        if (side === 'home' && homeYes === null) { homeYes = prices.yes; homeVolume = isNaN(v) ? 0 : v }
+        else if (side === 'away' && awayYes === null) { awayYes = prices.yes; awayVolume = isNaN(v) ? 0 : v }
+      }
+      if (homeYes !== null && awayYes !== null) {
+        marketSnapshots.push({
+          event_id: dbEvent.id,
+          source_id: source.id,
+          market_type: 'moneyline',
+          home_price: probToAmerican(homeYes),
+          away_price: probToAmerican(awayYes),
+          home_implied_prob: Math.round(homeYes * 10000) / 10000,
+          away_implied_prob: Math.round(awayYes * 10000) / 10000,
+          snapshot_time: now,
+        })
+        insertedEventIds.add(dbEvent.id)
+        matchedToEvent++
+        const lg = ((dbEvent as any).leagues?.slug) ?? 'unknown'
+        insertedByLeague[lg] = (insertedByLeague[lg] ?? 0) + 1
+        if (sampleInsertedTitles.length < 10) sampleInsertedTitles.push(`[${lg}] ${dbEvent.title} ← ${polyEvent.title} (paired y/n)`)
+      }
+    }
+
     for (const market of polyEvent.markets) {
       if (!market.active || market.closed) { skippedInactive++; continue }
 

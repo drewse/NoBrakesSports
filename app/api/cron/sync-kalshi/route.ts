@@ -198,13 +198,19 @@ export async function GET(request: NextRequest) {
   const { markets, debug } = fetchResult
 
   // Upcoming events needed for moneyline matching.
-  // Include leagues(slug) so we can auto-create missing events under the
-  // correct league_id.
-  const nowIso = new Date().toISOString()
+  // Time-windowed: without start_time > now-2h the .find() picks
+  // whichever event with a matching team-pair the DB returns first,
+  // which is usually the OLDEST same-matchup row (Game 1 from last
+  // week). Result: today's Game 5 prices land on a stale event_id
+  // and the canonical event shows no Kalshi cell.
+  const sinceCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
+  const untilCutoff = new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString()
   const { data: events } = await db
     .from('events')
     .select('id, title, start_time, status, league_id, leagues(slug)')
     .in('status', ['scheduled', 'live'])
+    .gt('start_time', sinceCutoff)
+    .lt('start_time', untilCutoff)
 
   // League slug → league_id for auto-creation of events Kalshi lists but
   // no sportsbook adapter has posted yet (common: future playoff games).
@@ -286,12 +292,39 @@ export async function GET(request: NextRequest) {
 
     // Find the canonical event. Match on sorted team-pair within the
     // vs-split title, regardless of home/away order in Kalshi's title.
+    // Among multiple matches (e.g. Game 1 + Game 5 of the same series),
+    // prefer the event whose date matches the Kalshi ticker's encoded
+    // game day. Ticker shape: KXNBAGAME-26APR27MINDEN → 2026-04-27.
+    const tickerDateMatch = pair.ticker.match(/^KX[A-Z]+-(\d{2})([A-Z]{3})(\d{2})/)
+    const MONTHS: Record<string, string> = {
+      JAN:'01', FEB:'02', MAR:'03', APR:'04', MAY:'05', JUN:'06',
+      JUL:'07', AUG:'08', SEP:'09', OCT:'10', NOV:'11', DEC:'12',
+    }
+    const tickerDate = tickerDateMatch
+      ? `20${tickerDateMatch[1]}-${MONTHS[tickerDateMatch[2]] ?? '01'}-${tickerDateMatch[3]}`
+      : null
     const pairKey = [awayFull.toLowerCase(), homeFull.toLowerCase()].sort().join('|')
-    let dbEvent: any = (events ?? []).find((e: any) => {
+    const candidates = (events ?? []).filter((e: any) => {
       const parts = (e.title as string).split(/\s+vs\.?\s+/i)
       if (parts.length !== 2) return false
       return [parts[0].trim().toLowerCase(), parts[1].trim().toLowerCase()].sort().join('|') === pairKey
     })
+    let dbEvent: any = null
+    if (candidates.length === 1) {
+      dbEvent = candidates[0]
+    } else if (candidates.length > 1 && tickerDate) {
+      // Pick the candidate whose start_time lands on the ticker's day,
+      // or the soonest after it.
+      dbEvent = candidates
+        .map((c: any) => ({ c, day: String(c.start_time).slice(0, 10) }))
+        .sort((a: any, b: any) => {
+          const aDiff = Math.abs(Date.parse(a.day) - Date.parse(tickerDate!))
+          const bDiff = Math.abs(Date.parse(b.day) - Date.parse(tickerDate!))
+          return aDiff - bDiff
+        })[0]?.c ?? candidates[0]
+    } else {
+      dbEvent = candidates[0]
+    }
 
     // Kalshi-only auto-create DISABLED. Kalshi lists contingent future
     // playoff games (Game 5/6/7) with close_time set weeks out — most
@@ -331,6 +364,12 @@ export async function GET(request: NextRequest) {
     const homePrice = probToAmerican(homeProb)
     const awayPrice = probToAmerican(awayProb)
     if (homePrice == null && awayPrice == null) continue
+    // Skip near-settled / illiquid markets — once the game is decided
+    // Kalshi's bid drifts to 0/1 and we'd write things like h=+3233
+    // /a=-3233 which look like garbage on /odds. Cap at the same
+    // threshold used by other adapters.
+    const inRange = (v: number | null) => v == null || (Math.abs(v) <= 2500 && Math.abs(v) >= 100)
+    if (!inRange(homePrice) || !inRange(awayPrice)) continue
 
     marketSnapshots.push({
       event_id: dbEvent.id,
