@@ -113,22 +113,37 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
 
     const cIds = ev.competitorIds ?? []
     if (cIds.length < 2) continue
-    // competitorIds[0] = away, competitorIds[1] = home
-    // (verified from sample: "NY Yankees @ BOS Red Sox" with
-    //  competitorIds=[50118,50121] → away=Yankees(50118), home=Red Sox(50121))
-    const awayId = cIds[0]
-    const homeId = cIds[1]
-    let awayName = competitorName.get(awayId)
-    let homeName = competitorName.get(homeId)
 
-    // Fallback: parse from event.name ("Away @ Home")
-    if ((!awayName || !homeName) && typeof ev.name === 'string') {
+    // Make event.name authoritative when it has the "Away @ Home"
+    // separator. competitorIds order isn't reliable across sports
+    // (the original verification was on MLB; NBA / NHL flips it),
+    // and a wrong order silently flips the moneyline because the
+    // odds-by-competitorId lookup picks the wrong side. event.name
+    // is the safest anchor.
+    let awayId: number | undefined
+    let homeId: number | undefined
+    let awayName: string | undefined
+    let homeName: string | undefined
+
+    if (typeof ev.name === 'string' && ev.name.indexOf(' @ ') > 0) {
       const at = ev.name.indexOf(' @ ')
-      if (at > 0) {
-        awayName = awayName ?? ev.name.slice(0, at).trim()
-        homeName = homeName ?? ev.name.slice(at + 3).trim()
+      awayName = ev.name.slice(0, at).trim()
+      homeName = ev.name.slice(at + 3).trim()
+      const matchById = (target: string) => {
+        const t = target.toLowerCase()
+        for (const [id, n] of competitorName) {
+          if ((n ?? '').toLowerCase() === t) return id
+        }
+        return undefined
       }
+      awayId = matchById(awayName)
+      homeId = matchById(homeName)
     }
+    // Fallback: original cIds order assumption (away first).
+    if (awayId === undefined) awayId = cIds[0]
+    if (homeId === undefined) homeId = cIds[1]
+    if (awayName === undefined) awayName = competitorName.get(awayId)
+    if (homeName === undefined) homeName = competitorName.get(homeId)
     if (!awayName || !homeName) continue
 
     const gameMarkets: GameMarket[] = []

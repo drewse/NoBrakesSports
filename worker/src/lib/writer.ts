@@ -85,7 +85,25 @@ export async function writeBookResults(
   const lookBack = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()
   const normTeam = (s: string) =>
     s.toLowerCase().replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+/g, ' ').trim()
-  const homeTeamsMatch = (a: string, b: string): boolean => normTeam(a) === normTeam(b)
+  // Accept partial-name matches so adapters that emit just the city
+  // ("Philadelphia") or just the nickname ("76ers") still resolve to
+  // the canonical "Philadelphia 76ers" without triggering a spurious
+  // home/away swap. Returns true when the two normalized names share
+  // every significant word of the shorter side (so "Boston Celtics"
+  // does NOT match "Boston Red Sox" — both have "boston" in common
+  // but neither's full word set is a subset of the other's).
+  const homeTeamsMatch = (a: string, b: string): boolean => {
+    const na = normTeam(a)
+    const nb = normTeam(b)
+    if (!na || !nb) return false
+    if (na === nb) return true
+    const wa = new Set(na.split(/\s+/).filter(w => w.length >= 3))
+    const wb = new Set(nb.split(/\s+/).filter(w => w.length >= 3))
+    if (wa.size === 0 || wb.size === 0) return false
+    let overlap = 0
+    for (const w of wa) if (wb.has(w)) overlap++
+    return overlap === Math.min(wa.size, wb.size)
+  }
 
   const { data: dbEvents } = await db
     .from('events')
