@@ -303,9 +303,15 @@ export async function fetchOddsForSport(sportKey: string): Promise<OddsGame[]> {
   const apiKey = process.env.ODDS_API_KEY
   if (!apiKey) throw new Error('ODDS_API_KEY is not set')
 
+  // 6-region call: us + us2 (US majors + secondaries), eu (Pinnacle + EU
+  // sharps), ca (Canadian books), uk (Sky Bet, Paddy Power, Coral,
+  // Ladbrokes UK, William Hill UK, Matchbook, Betfair UK), au (Sportsbet,
+  // TAB, Neds, Ladbrokes AU, Betfair AU, PointsBet AU). Each region adds
+  // ~1 quota unit per sport call; uk/au together unlock ~30 books we
+  // can't otherwise reach without proxy infra.
   const params = new URLSearchParams({
     apiKey,
-    regions: 'us,us2,eu,ca',
+    regions: 'us,us2,eu,ca,uk,au',
     markets: 'h2h,spreads,totals',
     oddsFormat: 'american',
   })
