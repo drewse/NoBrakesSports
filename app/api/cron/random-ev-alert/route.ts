@@ -233,6 +233,9 @@ export async function GET(req: NextRequest) {
     body: JSON.stringify({
       embeds: [{
         title: `${emoji} +EV: ${pick.evPct.toFixed(2)}% Edge`,
+        description:
+          'Free alerts are capped at **3–8% edge**. ' +
+          '**Upgrade to Pro** to see +EV plays above 8% in real time — https://nobrakesmarket.com/pricing',
         color,
         fields: [
           { name: 'Event', value: pick.eventTitle, inline: false },
@@ -241,7 +244,7 @@ export async function GET(req: NextRequest) {
           { name: 'EV %', value: `**+${pick.evPct.toFixed(2)}%**`, inline: true },
           { name: 'Fair Prob', value: `${(pick.fairProb * 100).toFixed(1)}%`, inline: true },
         ],
-        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${candidates.length} total +EV (3-8%)` },
+        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${candidates.length} total +EV (3-8%) • Pro unlocks 8%+` },
         timestamp: new Date().toISOString(),
       }],
     }),

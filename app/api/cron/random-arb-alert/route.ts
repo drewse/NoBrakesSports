@@ -166,6 +166,9 @@ export async function GET(req: NextRequest) {
     body: JSON.stringify({
       embeds: [{
         title: `${emoji} Arb: ${pick.profitPct.toFixed(2)}% Profit`,
+        description:
+          'Free alerts are capped at **1–5% profit**. ' +
+          '**Upgrade to Pro** to see arbs above 5% in real time — https://nobrakesmarket.com/pricing',
         color,
         fields: [
           { name: 'Event', value: pick.eventTitle, inline: false },
@@ -174,7 +177,7 @@ export async function GET(req: NextRequest) {
           { name: pick.sideB.label, value: `**${formatOdds(pick.sideB.price)}** @ ${pick.sideB.source}`, inline: true },
           { name: 'Profit', value: `**${pick.profitPct.toFixed(2)}%**`, inline: true },
         ],
-        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${arbs.length} total arbs (1-5%)` },
+        footer: { text: `${pick.type === 'prop' ? 'Prop' : 'Game'} • ${pick.league} • ${arbs.length} total arbs (1-5%) • Pro unlocks 5%+` },
         timestamp: new Date().toISOString(),
       }],
     }),
