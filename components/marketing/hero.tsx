@@ -69,10 +69,10 @@ export function Hero() {
               transition={{ duration: 0.55, ease }}
               className="mt-6 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] text-white"
             >
-              Find +EV Bets
+              Make $2000+ a week.
               <br />
               <span className="bg-gradient-to-br from-white via-nb-200 to-nb-500 bg-clip-text text-transparent">
-                Before Anyone Else
+                No luck involved.
               </span>
             </motion.h1>
 
