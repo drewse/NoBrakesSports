@@ -213,7 +213,46 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
     startTime: fixture.startDate ?? '', leagueSlug,
   }
 
-  const optionMarkets = fixture.optionMarkets ?? []
+  // Some fixtures (NBA playoff Game 5s, e.g. fixture 19411459 Tor/Cle on
+  // 2026-04-29) come back with optionMarkets=[] but populate fixture.games[]
+  // in a slightly different shape (results[] instead of options[],
+  // americanOdds direct on result instead of result.price.americanOdds).
+  // Same fields otherwise; we shim into optionMarket shape so the rest of
+  // the parser works unchanged. We only emit the main ML + the most-
+  // balanced Spread + the most-balanced Total — alt lines and team-total
+  // "Points" entries would otherwise be mis-parsed as player props.
+  let optionMarkets = fixture.optionMarkets ?? []
+  if (optionMarkets.length === 0 && Array.isArray(fixture.games) && fixture.games.length > 0) {
+    const toShim = (g: any) => ({
+      status: g.visibility,
+      templateCategory: g.templateCategory,
+      name: g.name,
+      attr: g.attr,
+      isMain: true,
+      options: (g.results ?? []).map((r: any) => ({
+        sourceName: r.sourceName,
+        name: r.name,
+        attr: r.attr,
+        totalsPrefix: r.totalsPrefix,
+        price: { americanOdds: r.americanOdds },
+      })),
+    })
+    const byCat = (cat: string) => fixture.games.filter((g: any) => g.templateCategory?.name?.value === cat)
+    // Smallest g.spread = most balanced odds = main line.
+    const pickMain = (arr: any[]): any | null => {
+      if (arr.length === 0) return null
+      return arr.slice().sort((a, b) => (a.spread ?? Infinity) - (b.spread ?? Infinity))[0]
+    }
+    const shimmed: any[] = []
+    const ml = byCat('Moneyline')[0]
+    if (ml) shimmed.push(toShim(ml))
+    const sp = pickMain(byCat('Spread'))
+    if (sp) shimmed.push(toShim(sp))
+    const tot = pickMain(byCat('Totals'))
+    if (tot) shimmed.push(toShim(tot))
+    optionMarkets = shimmed
+  }
+
   const gameMarkets: EntainGameMarket[] = []
   const props: NormalizedProp[] = []
 
