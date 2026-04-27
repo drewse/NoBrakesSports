@@ -250,3 +250,28 @@
 .live-dot {
   animation: live-dot-pulse-kf 1.6s ease-out infinite;
 }
+
+/* Block-level variants for non-table opportunity cards (arb / EV feeds). */
+@keyframes live-entering-block-kf {
+  0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); background-color: rgba(34, 197, 94, 0.00); }
+  30%  { box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.55), 0 0 12px rgba(34, 197, 94, 0.25); background-color: rgba(34, 197, 94, 0.08); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); background-color: rgba(34, 197, 94, 0.00); }
+}
+.live-entering-block {
+  animation: live-entering-block-kf 900ms ease-out;
+}
+
+@keyframes live-leaving-block-kf {
+  0%   { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); opacity: 1; transform: scale(1); }
+  10%  { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.85), 0 0 14px rgba(239, 68, 68, 0.35); }
+  20%  { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  30%  { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.85), 0 0 14px rgba(239, 68, 68, 0.35); }
+  40%  { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+  50%  { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.85), 0 0 14px rgba(239, 68, 68, 0.35); }
+  60%  { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); opacity: 1; }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); opacity: 0; transform: scale(0.97); }
+}
+.live-leaving-block {
+  animation: live-leaving-block-kf 1500ms ease-out forwards;
+  pointer-events: none;
+}

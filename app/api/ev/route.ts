@@ -1,18 +1,18 @@
-import { redirect } from 'next/navigation'
+/** /api/ev — JSON endpoint backing /top-lines (+EV) live polling. */
+
+import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
-import { ProGate } from '@/components/shared/pro-gate'
+import { loadEv } from '@/lib/ev/loaders'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
-import { loadArbs } from '@/lib/arbitrage/loaders'
-import { ArbLiveWrapper } from '@/components/arbitrage/arb-live-wrapper'
 
-export const metadata = { title: 'Arbitrage' }
+export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-export default async function ArbitragePage() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -27,13 +27,9 @@ export default async function ArbitragePage() {
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
 
-  const initial = await loadArbs(supabase as any, enabledBooks)
+  const league = req.nextUrl.searchParams.get('league') ?? 'all'
+  const market = req.nextUrl.searchParams.get('market') ?? 'all'
 
-  return (
-    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1600px]">
-      <ProGate isPro={isPro} featureName="Arbitrage" blur={false}>
-        <ArbLiveWrapper initial={initial} />
-      </ProGate>
-    </div>
-  )
+  const result = await loadEv(supabase as any, enabledBooks, { league, market }, { isPro })
+  return NextResponse.json(result)
 }

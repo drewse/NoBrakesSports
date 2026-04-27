@@ -10,6 +10,8 @@ import { BookLogo } from '@/components/shared/book-logo'
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type UnifiedEvLine = {
+  /** Stable identity used as React key + diff key for live polling. */
+  id: string
   eventId: string
   eventTitle: string
   eventStart: string
@@ -24,6 +26,8 @@ export type UnifiedEvLine = {
   kellyPct: number
   allSources: { name: string; price: number; evPct: number }[]
   lastUpdated: string
+  /** Live-update animation marker — set by the live wrapper. */
+  _anim?: 'entering' | 'leaving'
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,7 +97,7 @@ export function EvCalculatorClient({
   lines: UnifiedEvLine[]
   totalEvents: number
 }) {
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(lines.length > 0 ? 0 : null)
+  const [selectedId, setSelectedId] = useState<string | null>(lines.length > 0 ? lines[0].id : null)
   const [stake, setStake] = useState(500)
   const [bankroll, setBankroll] = useState(1000)
 
@@ -110,7 +114,7 @@ export function EvCalculatorClient({
     localStorage.setItem(BANKROLL_KEY, String(val))
   }, [])
 
-  const selected = selectedIdx !== null ? lines[selectedIdx] : null
+  const selected = selectedId !== null ? (lines.find(l => l.id === selectedId) ?? null) : null
 
   const latestScan = lines.length > 0
     ? lines.reduce((latest, l) => (l.lastUpdated > latest ? l.lastUpdated : latest), lines[0].lastUpdated)
@@ -466,12 +470,17 @@ export function EvCalculatorClient({
           </Card>
         ) : (
           <div className="space-y-2.5 lg:overflow-y-auto flex-1 lg:max-h-[calc(100vh-14rem)]">
-            {lines.map((line, i) => (
+            {lines.map((line) => {
+              const animCls =
+                line._anim === 'leaving' ? 'live-leaving-block' :
+                line._anim === 'entering' ? 'live-entering-block' : ''
+              const disabled = line._anim === 'leaving'
+              return (
               <button
-                key={`${line.eventId}-${line.marketType}-${line.outcomeLabel}-${i}`}
-                onClick={() => setSelectedIdx(i)}
-                className={`w-full text-left rounded-xl border transition-all ${
-                  selectedIdx === i
+                key={line.id}
+                onClick={() => { if (!disabled) setSelectedId(line.id) }}
+                className={`w-full text-left rounded-xl border transition-all ${animCls} ${
+                  selectedId === line.id
                     ? 'bg-nb-800 border-nb-600 ring-2 ring-nb-500/50'
                     : 'bg-nb-900 border-nb-800 hover:bg-nb-800/60 hover:border-nb-700'
                 }`}
@@ -498,7 +507,8 @@ export function EvCalculatorClient({
                   </div>
                 </div>
               </button>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

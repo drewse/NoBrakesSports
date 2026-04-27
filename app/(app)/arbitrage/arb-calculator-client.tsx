@@ -10,6 +10,8 @@ import { BookLogo } from '@/components/shared/book-logo'
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type UnifiedArb = {
+  /** Stable identity used as React key + diff key for live polling. */
+  id: string
   type: 'game' | 'prop'
   eventTitle: string
   league: string
@@ -20,6 +22,8 @@ export type UnifiedArb = {
   combinedProb: number
   profitPct: number
   lastUpdated: string
+  /** Live-update animation marker — set by the live wrapper. */
+  _anim?: 'entering' | 'leaving'
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,7 +58,9 @@ export function ArbCalculatorClient({
   totalArbs: number
   uniqueBooks: number
 }) {
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null)
+  // Track selection by stable id (not index) so SWR-driven re-renders
+  // don't shift the highlighted opportunity when the list changes.
+  const [selectedId, setSelectedId] = useState<string | null>(null)
   const [totalStake, setTotalStake] = useState(500)
   const [bankroll, setBankroll] = useState(1000)
   const [useKelly, setUseKelly] = useState(false)
@@ -72,17 +78,14 @@ export function ArbCalculatorClient({
     localStorage.setItem(BANKROLL_KEY, String(val))
   }, [])
 
-  useEffect(() => {
-    if (useKelly && bankroll > 0 && selectedIdx !== null) {
-      const arb = arbs[selectedIdx]
-      if (arb) {
-        const kellyFraction = Math.min(arb.profitPct / 100, 0.25)
-        setTotalStake(Math.round(bankroll * kellyFraction * 100) / 100)
-      }
-    }
-  }, [useKelly, bankroll, selectedIdx, arbs])
+  const selected = selectedId !== null ? (arbs.find(a => a.id === selectedId) ?? null) : null
 
-  const selected = selectedIdx !== null ? arbs[selectedIdx] : null
+  useEffect(() => {
+    if (useKelly && bankroll > 0 && selected) {
+      const kellyFraction = Math.min(selected.profitPct / 100, 0.25)
+      setTotalStake(Math.round(bankroll * kellyFraction * 100) / 100)
+    }
+  }, [useKelly, bankroll, selected])
 
   const sides: { label: string; price: number; source: string }[] = selected
     ? [
@@ -343,12 +346,17 @@ export function ArbCalculatorClient({
           </Card>
         ) : (
           <div className="space-y-2.5 lg:overflow-y-auto flex-1 lg:max-h-[calc(100vh-14rem)]">
-            {arbs.map((arb, i) => (
+            {arbs.map((arb) => {
+              const animCls =
+                arb._anim === 'leaving' ? 'live-leaving-block' :
+                arb._anim === 'entering' ? 'live-entering-block' : ''
+              const disabled = arb._anim === 'leaving'
+              return (
               <button
-                key={i}
-                onClick={() => setSelectedIdx(i)}
-                className={`w-full text-left rounded-xl border transition-all ${
-                  selectedIdx === i
+                key={arb.id}
+                onClick={() => { if (!disabled) setSelectedId(arb.id) }}
+                className={`w-full text-left rounded-xl border transition-all ${animCls} ${
+                  selectedId === arb.id
                     ? 'bg-nb-800 border-nb-600 ring-2 ring-nb-500/50'
                     : 'bg-nb-900 border-nb-800 hover:bg-nb-800/60 hover:border-nb-700'
                 }`}
@@ -391,7 +399,8 @@ export function ArbCalculatorClient({
                   </div>
                 </div>
               </button>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
