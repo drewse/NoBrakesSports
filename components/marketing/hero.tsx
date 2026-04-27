@@ -23,7 +23,7 @@ const fadeUp = {
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden lg:min-h-[calc(100vh-72px)] flex items-center">
+    <section className="relative overflow-hidden">
       {/* Background — kept in sync with the rest of the page (grid + radial glow). */}
       <div className="pointer-events-none absolute inset-0 bg-grid opacity-100" />
       <div className="pointer-events-none absolute inset-0 hero-glow" />
@@ -41,7 +41,7 @@ export function Hero() {
         aria-hidden
       />
 
-      <div className="relative mx-auto w-full max-w-[1440px] px-6 sm:px-8 lg:px-12 xl:px-16 pt-6 sm:pt-10 lg:pt-0 pb-8 sm:pb-10 lg:pb-12">
+      <div className="relative mx-auto w-full max-w-[1440px] px-6 sm:px-8 lg:px-12 xl:px-16 pt-4 sm:pt-6 lg:pt-8 pb-4 sm:pb-6 lg:pb-8">
         <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-10 lg:gap-8">
           {/* ── Left: copy (5/12 ≈ 41.6% of the wide grid) ──────────────── */}
           <motion.div
