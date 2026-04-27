@@ -58,13 +58,6 @@ const FEATURES = [
   },
 ]
 
-const STATS = [
-  { value: '15+', label: 'Sportsbooks Tracked' },
-  { value: '500+', label: 'Daily Events' },
-  { value: 'Real-time', label: 'Odds Updates' },
-  { value: '24/7', label: 'Market Coverage' },
-]
-
 const FAQS = [
   {
     q: 'What exactly is No Brakes Sports?',
@@ -111,94 +104,6 @@ export default async function LandingPage() {
       {/* ─── Community proof / reviews carousel ───────────────────────────── */}
       <CommunityProofSection />
 
-      {/* ─── Product Preview ──────────────────────────────────────────────── */}
-      <section className="mx-auto max-w-5xl px-4 sm:px-6 -mt-4 sm:-mt-8 pb-16 sm:pb-24">
-        <ScrollFade>
-          <div className="rounded-2xl border border-nb-700/60 bg-nb-900 overflow-hidden preview-glow">
-            {/* Browser chrome */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-nb-800 bg-nb-950">
-              <div className="flex gap-1.5">
-                <div className="h-2.5 w-2.5 rounded-full bg-nb-700" />
-                <div className="h-2.5 w-2.5 rounded-full bg-nb-700" />
-                <div className="h-2.5 w-2.5 rounded-full bg-nb-700" />
-              </div>
-              <div className="ml-3 flex-1 max-w-xs hidden xs:block">
-                <div className="h-5 rounded-md bg-nb-800 flex items-center px-3">
-                  <span className="text-[10px] text-nb-500 font-mono truncate">nobrakes.sports/dashboard</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Dashboard content */}
-            <div className="p-4 sm:p-6">
-              {/* Stat cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-5">
-                {[
-                  { label: 'Active Events', value: '247', change: '+12' },
-                  { label: '+EV Opportunities', value: '18', change: '+3' },
-                  { label: 'Arb Detected', value: '4', change: 'Live' },
-                  { label: 'Biggest Edge', value: '4.2%', change: 'NBA' },
-                ].map((stat) => (
-                  <div key={stat.label} className="rounded-lg border border-nb-800 bg-nb-850 p-3 sm:p-4">
-                    <p className="text-[9px] sm:text-[10px] text-nb-500 uppercase tracking-wider mb-1.5 truncate">{stat.label}</p>
-                    <div className="flex items-end justify-between gap-1">
-                      <span className="text-lg sm:text-xl font-bold text-white font-mono">{stat.value}</span>
-                      <span className="text-[9px] sm:text-[10px] text-green-400 font-medium">{stat.change}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Table preview — horizontally scrolls on small screens */}
-              <div className="rounded-lg border border-nb-800 overflow-hidden">
-                <div className="overflow-x-auto">
-                  <div className="min-w-[560px]">
-                    <div className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800 bg-nb-900/80">
-                      {['Event', 'League', 'Best Line', 'Book', 'Edge', 'Status'].map((h) => (
-                        <div key={h} className="text-[10px] text-nb-500 uppercase tracking-wider font-medium">{h}</div>
-                      ))}
-                    </div>
-                    {[
-                      { event: 'Lakers vs Celtics', league: 'NBA', line: '-110', book: 'DraftKings', edge: '+3.2%', status: 'live' },
-                      { event: 'Yankees vs Red Sox', league: 'MLB', line: '+145', book: 'FanDuel', edge: '+2.8%', status: 'live' },
-                      { event: 'Chiefs vs Bills', league: 'NFL', line: '-105', book: 'BetMGM', edge: '+1.9%', status: 'pre' },
-                      { event: 'Oilers vs Leafs', league: 'NHL', line: '+130', book: 'bet365', edge: '+1.5%', status: 'pre' },
-                      { event: 'Arsenal vs Liverpool', league: 'EPL', line: '-120', book: 'Pinnacle', edge: '+1.2%', status: 'pre' },
-                    ].map((row, i) => (
-                      <div key={i} className="grid grid-cols-6 gap-4 px-4 py-2.5 border-b border-nb-800/50 last:border-b-0">
-                        <span className="text-xs text-nb-200 truncate">{row.event}</span>
-                        <span className="text-[11px] text-nb-500 font-mono">{row.league}</span>
-                        <span className="text-xs text-white font-mono font-semibold">{row.line}</span>
-                        <span className="text-[11px] text-nb-400">{row.book}</span>
-                        <span className="text-xs text-green-400 font-mono font-medium">{row.edge}</span>
-                        <span className={`text-[10px] font-medium ${row.status === 'live' ? 'text-green-400' : 'text-nb-500'}`}>
-                          {row.status === 'live' ? 'LIVE' : 'Upcoming'}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </ScrollFade>
-      </section>
-
-      {/* ─── Stats bar ────────────────────────────────────────────────────── */}
-      <section className="border-y border-nb-800/60">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-nb-800/60">
-            {STATS.map((stat, i) => (
-              <ScrollFade key={stat.label} delay={i * 80}>
-                <div className="px-3 sm:px-6 py-6 sm:py-10 text-center">
-                  <p className="text-2xl sm:text-3xl font-bold text-white font-mono mb-1">{stat.value}</p>
-                  <p className="text-[11px] sm:text-xs text-nb-500 tracking-wide">{stat.label}</p>
-                </div>
-              </ScrollFade>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* ─── Features ─────────────────────────────────────────────────────── */}
       <section id="features" className="mx-auto max-w-5xl px-4 sm:px-6 py-16 sm:py-28">
