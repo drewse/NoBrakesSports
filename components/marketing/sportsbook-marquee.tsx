@@ -59,7 +59,7 @@ export function SportsbookMarquee() {
         aria-hidden
       />
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-12 sm:pt-16 pb-14 sm:pb-20">
+      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-4 sm:pt-6 pb-12 sm:pb-16">
         <h2 className="text-center text-2xl sm:text-3xl font-bold tracking-tight text-white/80">
           Supports 50+ North American Sportsbooks
         </h2>

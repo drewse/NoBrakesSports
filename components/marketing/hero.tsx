@@ -39,7 +39,7 @@ export function Hero() {
         aria-hidden
       />
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-6 sm:pt-10 lg:pt-12 pb-16 sm:pb-24 lg:pb-28">
+      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-6 sm:pt-10 lg:pt-12 pb-6 sm:pb-8 lg:pb-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-12 lg:gap-10">
           {/* ── Left: copy ─────────────────────────────────────────────── */}
           <motion.div
