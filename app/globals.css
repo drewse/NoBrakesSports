@@ -208,15 +208,23 @@
 }
 
 /* ── Live-update animations (odds / arb / EV pages) ───────────────────────── */
-@keyframes live-flicker-kf {
-  0%   { background-color: rgba(250, 204, 21, 0.00); }
-  20%  { background-color: rgba(250, 204, 21, 0.22); }
-  60%  { background-color: rgba(250, 204, 21, 0.10); }
-  100% { background-color: rgba(250, 204, 21, 0.00); }
+/*
+ * Per-side price-move flash on the odds table. We animate the price line
+ * itself (not the cell background) so the home/away legs flash
+ * independently and the user can tell which side moved at a glance.
+ *   - up   = price improved for the bettor → green
+ *   - down = price worsened for the bettor → red
+ */
+@keyframes live-flash-up-kf {
+  0%   { color: rgb(74, 222, 128); text-shadow: 0 0 8px rgba(74, 222, 128, 0.6); }
+  100% { /* end state restored by base class via animation-fill-mode default */ }
 }
-.live-flicker {
-  animation: live-flicker-kf 280ms ease-out;
+@keyframes live-flash-down-kf {
+  0%   { color: rgb(248, 113, 113); text-shadow: 0 0 8px rgba(248, 113, 113, 0.6); }
+  100% { }
 }
+.live-flash-up   { animation: live-flash-up-kf   900ms ease-out; }
+.live-flash-down { animation: live-flash-down-kf 900ms ease-out; }
 
 @keyframes live-entering-kf {
   0%   { background-color: rgba(34, 197, 94, 0.00); box-shadow: inset 0 0 0 0 rgba(34, 197, 94, 0); }

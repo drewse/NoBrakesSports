@@ -19,7 +19,7 @@ type Payload = GamePayload | PropsPayload | null
 const POLL_MS = 10_000
 const LEAVE_MS = 1500
 const ENTER_MS = 900
-const FLICKER_MS = 280
+const FLICKER_MS = 900
 const DIFF_DEBOUNCE_MS = 200
 
 const fetcher = async (url: string) => {

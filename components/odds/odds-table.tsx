@@ -29,7 +29,8 @@ export interface OddsRow {
   avgAway: number | null
   /** Live-update annotations (added by odds-client). */
   _anim?: 'entering' | 'leaving'
-  _flickerCells?: Set<string>
+  /** bookId → per-side price-move direction. up = better, down = worse. */
+  _flickerCells?: Map<string, { top?: 'up' | 'down'; bottom?: 'up' | 'down' }>
 }
 
 export interface BookColumn {
@@ -124,11 +125,11 @@ export function OddsTable({
                     const cell = r.byBook[b.id]
                     const isBestTop    = cell?.homePrice != null && r.bestHome != null && cell.homePrice === r.bestHome
                     const isBestBottom = cell?.awayPrice != null && r.bestAway != null && cell.awayPrice === r.bestAway
-                    const flicker = r._flickerCells?.has(b.id)
+                    const move = r._flickerCells?.get(b.id)
                     return (
                       <td
                         key={b.id}
-                        className={`px-2 py-3 text-center align-middle border-l border-border/40 ${flicker ? 'live-flicker' : ''}`}
+                        className="px-2 py-3 text-center align-middle border-l border-border/40"
                         style={{ minWidth: 92 }}
                       >
                         <OddsStack
@@ -136,6 +137,8 @@ export function OddsTable({
                           bottom={cell?.awayPrice ?? null}
                           accentTop={isBestTop}
                           accentBottom={isBestBottom}
+                          flickerTop={move?.top}
+                          flickerBottom={move?.bottom}
                         />
                       </td>
                     )
@@ -161,19 +164,23 @@ export function OddsTable({
 }
 
 function OddsStack({
-  top, bottom, accentTop, accentBottom,
+  top, bottom, accentTop, accentBottom, flickerTop, flickerBottom,
 }: {
   top: number | null
   bottom: number | null
   accentTop?: boolean
   accentBottom?: boolean
+  flickerTop?: 'up' | 'down'
+  flickerBottom?: 'up' | 'down'
 }) {
   const topCls = top == null ? 'text-nb-700' : accentTop ? 'text-green-400 font-bold' : 'text-white'
   const botCls = bottom == null ? 'text-nb-700' : accentBottom ? 'text-green-400 font-bold' : 'text-white'
+  const topFlick = flickerTop === 'up' ? 'live-flash-up' : flickerTop === 'down' ? 'live-flash-down' : ''
+  const botFlick = flickerBottom === 'up' ? 'live-flash-up' : flickerBottom === 'down' ? 'live-flash-down' : ''
   return (
     <div className="flex flex-col items-center gap-0.5 font-mono">
-      <span className={`text-xs ${topCls}`}>{top == null ? '—' : formatOdds(top)}</span>
-      <span className={`text-xs ${botCls}`}>{bottom == null ? '—' : formatOdds(bottom)}</span>
+      <span className={`text-xs ${topCls} ${topFlick}`}>{top == null ? '—' : formatOdds(top)}</span>
+      <span className={`text-xs ${botCls} ${botFlick}`}>{bottom == null ? '—' : formatOdds(bottom)}</span>
     </div>
   )
 }

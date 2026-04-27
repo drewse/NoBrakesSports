@@ -25,8 +25,8 @@ export interface PlayerPropRow {
   bestUnderBook: string | null
   avgOver: number | null
   avgUnder: number | null
-  /** Live-update annotations — set of book ids whose cells should flicker. */
-  _flickerCells?: Set<string>
+  /** Live-update annotations — bookId → per-side O/U price-move direction. */
+  _flickerCells?: Map<string, { top?: 'up' | 'down'; bottom?: 'up' | 'down' }>
 }
 
 export interface PropsGameRow {
@@ -205,11 +205,11 @@ function GameBlock({
             const cell = p.byBook[b.id]
             const isBestOver  = cell?.overPrice  != null && p.bestOver  != null && cell.overPrice  === p.bestOver
             const isBestUnder = cell?.underPrice != null && p.bestUnder != null && cell.underPrice === p.bestUnder
-            const flicker = p._flickerCells?.has(b.id)
+            const move = p._flickerCells?.get(b.id)
             return (
               <td
                 key={b.id}
-                className={`px-2 py-2.5 text-center align-middle border-l border-border/40 ${flicker ? 'live-flicker' : ''}`}
+                className="px-2 py-2.5 text-center align-middle border-l border-border/40"
                 style={{ minWidth: 92 }}
               >
                 <OUStack
@@ -217,6 +217,8 @@ function GameBlock({
                   under={cell?.underPrice ?? null}
                   accentOver={isBestOver}
                   accentUnder={isBestUnder}
+                  flickerOver={move?.top}
+                  flickerUnder={move?.bottom}
                 />
               </td>
             )
@@ -236,19 +238,23 @@ function GameBlock({
 }
 
 function OUStack({
-  over, under, accentOver, accentUnder,
+  over, under, accentOver, accentUnder, flickerOver, flickerUnder,
 }: {
   over: number | null
   under: number | null
   accentOver?: boolean
   accentUnder?: boolean
+  flickerOver?: 'up' | 'down'
+  flickerUnder?: 'up' | 'down'
 }) {
   const overCls = over == null ? 'text-nb-700' : accentOver ? 'text-green-400 font-bold' : 'text-white'
   const underCls = under == null ? 'text-nb-700' : accentUnder ? 'text-green-400 font-bold' : 'text-white'
+  const overFlick = flickerOver === 'up' ? 'live-flash-up' : flickerOver === 'down' ? 'live-flash-down' : ''
+  const underFlick = flickerUnder === 'up' ? 'live-flash-up' : flickerUnder === 'down' ? 'live-flash-down' : ''
   return (
     <div className="flex flex-col items-center gap-0.5 font-mono">
-      <span className={`text-xs ${overCls}`}>{over == null ? '—' : formatOdds(over)}</span>
-      <span className={`text-xs ${underCls}`}>{under == null ? '—' : formatOdds(under)}</span>
+      <span className={`text-xs ${overCls} ${overFlick}`}>{over == null ? '—' : formatOdds(over)}</span>
+      <span className={`text-xs ${underCls} ${underFlick}`}>{under == null ? '—' : formatOdds(under)}</span>
     </div>
   )
 }

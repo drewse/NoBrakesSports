@@ -5,11 +5,13 @@
 import type { OddsRow } from '@/components/odds/odds-table'
 import type { PropsGameRow, PlayerPropRow } from '@/components/odds/props-table'
 
+export type SideMove = 'up' | 'down'
+
 export interface RowDiff<R> {
   added: R[]
   removedIds: string[]
-  /** rowId → set of cell keys (e.g. book ids) that changed value */
-  changed: Map<string, Set<string>>
+  /** rowId → bookId → { top?: 'up'|'down'; bottom?: 'up'|'down' } */
+  changed: Map<string, Map<string, { top?: SideMove; bottom?: SideMove }>>
 }
 
 export function diffGameRows(prev: OddsRow[], next: OddsRow[]): RowDiff<OddsRow> {
@@ -22,11 +24,15 @@ export function diffGameRows(prev: OddsRow[], next: OddsRow[]): RowDiff<OddsRow>
   const removedIds: string[] = []
   for (const r of prev) if (!nextById.has(r.eventId)) removedIds.push(r.eventId)
 
-  const changed = new Map<string, Set<string>>()
+  // For each cell whose price moved, record direction PER SIDE (top/bottom)
+  // independently — the home leg can improve while the away leg gets worse.
+  // Interpretation: in American odds, a more positive number is a better
+  // payout for the bettor, so price↑ = "better" (green), price↓ = "worse" (red).
+  const changed = new Map<string, Map<string, { top?: SideMove; bottom?: SideMove }>>()
   for (const r of next) {
     const old = prevById.get(r.eventId)
     if (!old) continue
-    const cells = new Set<string>()
+    const perBook = new Map<string, { top?: SideMove; bottom?: SideMove }>()
     const allBookIds = new Set<string>([
       ...Object.keys(old.byBook),
       ...Object.keys(r.byBook),
@@ -34,12 +40,20 @@ export function diffGameRows(prev: OddsRow[], next: OddsRow[]): RowDiff<OddsRow>
     for (const bid of allBookIds) {
       const a = old.byBook[bid]
       const b = r.byBook[bid]
-      if ((a?.homePrice ?? null) !== (b?.homePrice ?? null) ||
-          (a?.awayPrice ?? null) !== (b?.awayPrice ?? null)) {
-        cells.add(bid)
+      const oldTop = a?.homePrice ?? null
+      const newTop = b?.homePrice ?? null
+      const oldBot = a?.awayPrice ?? null
+      const newBot = b?.awayPrice ?? null
+      const moves: { top?: SideMove; bottom?: SideMove } = {}
+      if (oldTop != null && newTop != null && oldTop !== newTop) {
+        moves.top = newTop > oldTop ? 'up' : 'down'
       }
+      if (oldBot != null && newBot != null && oldBot !== newBot) {
+        moves.bottom = newBot > oldBot ? 'up' : 'down'
+      }
+      if (moves.top || moves.bottom) perBook.set(bid, moves)
     }
-    if (cells.size > 0) changed.set(r.eventId, cells)
+    if (perBook.size > 0) changed.set(r.eventId, perBook)
   }
 
   return { added, removedIds, changed }
@@ -57,8 +71,8 @@ export function isGameDiffEmpty(d: RowDiff<OddsRow>): boolean {
 export interface PropsDiff {
   addedGames: PropsGameRow[]
   removedGameIds: string[]
-  /** eventId → Set of bookIds whose cells changed (any player). */
-  changed: Map<string, Map<string, Set<string>>>  // eventId → playerName → bookIds
+  /** eventId → playerName → bookId → per-side moves */
+  changed: Map<string, Map<string, Map<string, { top?: SideMove; bottom?: SideMove }>>>
 }
 
 function playerKey(eventId: string, name: string) { return `${eventId}::${name}` }
@@ -70,12 +84,12 @@ export function diffPropsRows(prev: PropsGameRow[], next: PropsGameRow[]): Props
   const addedGames = next.filter(g => !prevByGame.has(g.eventId))
   const removedGameIds = prev.filter(g => !nextByGame.has(g.eventId)).map(g => g.eventId)
 
-  const changed = new Map<string, Map<string, Set<string>>>()
+  const changed = new Map<string, Map<string, Map<string, { top?: SideMove; bottom?: SideMove }>>>()
   for (const g of next) {
     const old = prevByGame.get(g.eventId)
     if (!old) continue
     const oldByPlayer = new Map(old.players.map(p => [p.playerName, p]))
-    const perPlayer = new Map<string, Set<string>>()
+    const perPlayer = new Map<string, Map<string, { top?: SideMove; bottom?: SideMove }>>()
     for (const p of g.players) {
       const op = oldByPlayer.get(p.playerName)
       if (!op) continue
@@ -83,17 +97,24 @@ export function diffPropsRows(prev: PropsGameRow[], next: PropsGameRow[]): Props
         ...Object.keys(op.byBook),
         ...Object.keys(p.byBook),
       ])
-      const cells = new Set<string>()
+      const perBook = new Map<string, { top?: SideMove; bottom?: SideMove }>()
       for (const bid of allBookIds) {
         const a = op.byBook[bid]
         const b = p.byBook[bid]
-        if ((a?.overPrice ?? null) !== (b?.overPrice ?? null) ||
-            (a?.underPrice ?? null) !== (b?.underPrice ?? null) ||
-            (a?.line ?? null) !== (b?.line ?? null)) {
-          cells.add(bid)
+        const oldOver  = a?.overPrice ?? null
+        const newOver  = b?.overPrice ?? null
+        const oldUnder = a?.underPrice ?? null
+        const newUnder = b?.underPrice ?? null
+        const moves: { top?: SideMove; bottom?: SideMove } = {}
+        if (oldOver != null && newOver != null && oldOver !== newOver) {
+          moves.top = newOver > oldOver ? 'up' : 'down'
         }
+        if (oldUnder != null && newUnder != null && oldUnder !== newUnder) {
+          moves.bottom = newUnder > oldUnder ? 'up' : 'down'
+        }
+        if (moves.top || moves.bottom) perBook.set(bid, moves)
       }
-      if (cells.size > 0) perPlayer.set(p.playerName, cells)
+      if (perBook.size > 0) perPlayer.set(p.playerName, perBook)
     }
     if (perPlayer.size > 0) changed.set(g.eventId, perPlayer)
   }
