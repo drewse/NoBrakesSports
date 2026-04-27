@@ -165,26 +165,34 @@ export const ballybetAdapter: BookAdapter = {
       }
 
       // 3) Normalize.
+      // Period / team-specific criteria we must NEVER pick as the main
+      // game-line offer. Kambi's Match / Handicap / Over-Under types
+      // each contain dozens of variants per event — quarter/half MLs,
+      // first-to-N-points props, team-specific totals — and the main
+      // full-game line is just one of them. Picking blindly from the
+      // category produces wrong odds (e.g. a 1Q ML with -110/-110 in
+      // place of the real game ML at -425/+320).
+      const isPartialOrTeamScoped = (cLabel: string): boolean => {
+        const l = cLabel.toLowerCase()
+        if (/\b(quarter|1h|2h|half|halftime|first\s+to|result\s+at\s+end|draw\s+no\s+bet|by\s+[a-z])/i.test(l)) return true
+        return false
+      }
+
       for (const [eventId, meta] of eventsById) {
         if (!meta.homeName || !meta.awayName) continue
         const offers = offersByEvent.get(eventId) ?? []
         const gameMarkets: GameMarket[] = []
 
-        // Kambi returns many betoffers per event. Some have `main: true`
-        // (regular-season fixtures), others (notably playoff fixtures
-        // with "Including Overtime" criteria) leave it unset on every
-        // candidate. When `main` is missing we pick the most-balanced
-        // offer — the line whose two American odds are closest to even
-        // money is by definition the main line; alts are skewed toward
-        // a heavier favorite. Falling back to arr[0] silently picks
-        // whatever Kambi happened to list first, which is not always
-        // the real main line.
-        const pickMain = (arr: KBetOffer[]): KBetOffer | undefined => {
+        // Pick the most-balanced offer (smallest |homeProb + awayProb - 1|
+        // + |homeProb - awayProb|). Kambi often leaves `main: true` unset
+        // on every candidate (notably for "Including Overtime" playoff
+        // fixtures), so flagged-first / arr[0] both pick wrong lines.
+        // Used for Spread + Total only — NOT for ML, since the real game
+        // ML is by design lopsided when there's a heavy favorite.
+        const pickBalanced = (arr: KBetOffer[]): KBetOffer | undefined => {
           if (arr.length === 0) return undefined
           const flagged = arr.find(o => o.main)
           if (flagged) return flagged
-          // Score: smaller = more balanced. We use abs(home% + away% - 1)
-          // when both prices are present, otherwise fall back to first.
           let best = arr[0]
           let bestScore = Infinity
           for (const o of arr) {
@@ -200,14 +208,30 @@ export const ballybetAdapter: BookAdapter = {
           return best
         }
 
+        // Pick the first offer whose criterion is a full-game line — used
+        // for ML where there's only one true game ML per event.
+        const pickFirstFullGame = (arr: KBetOffer[]): KBetOffer | undefined => {
+          const flagged = arr.find(o => o.main)
+          if (flagged) return flagged
+          return arr[0]
+        }
+
+        // Moneyline — restrict to canonical full-game ML criteria. Reject
+        // period and team-scoped variants explicitly.
         const mlCandidates = offers.filter(o => {
-          const bName = (o.betOfferType?.englishName ?? '').toLowerCase()
+          if (o.betOfferType?.englishName !== 'Match') return false
           const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
-          if (bName === 'match' || bName === 'money line' || bName === 'moneyline' || bName === 'winner') return true
-          if (cLabel === 'full time' || cLabel.includes('moneyline') || cLabel.includes('money line')) return true
-          return false
+          if (isPartialOrTeamScoped(cLabel)) return false
+          // Accept canonical full-game variants:
+          //   "Full Time" (regular), "Moneyline" / "Money Line",
+          //   "Moneyline - Including Overtime" (NBA playoff Game 5 shape),
+          //   "Match Winner" (soccer)
+          return cLabel === 'full time'
+              || cLabel === 'match winner'
+              || cLabel.startsWith('moneyline')
+              || cLabel.startsWith('money line')
         })
-        const ml = pickMain(mlCandidates)
+        const ml = pickFirstFullGame(mlCandidates)
         if (ml) {
           const home = ml.outcomes?.find(o => o.type === 'OT_ONE')
           const away = ml.outcomes?.find(o => o.type === 'OT_TWO')
@@ -220,10 +244,18 @@ export const ballybetAdapter: BookAdapter = {
           })
         }
 
-        const spreadCandidates = offers.filter(o =>
-          o.betOfferType?.englishName === 'Handicap'
-          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('handicap'))
-        const spread = pickMain(spreadCandidates)
+        // Spread — restrict to full-game point-spread criteria, then
+        // pick the most-balanced (true main line, not an alt).
+        const spreadCandidates = offers.filter(o => {
+          if (o.betOfferType?.englishName !== 'Handicap') return false
+          const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
+          if (isPartialOrTeamScoped(cLabel)) return false
+          return cLabel === 'handicap'
+              || cLabel.startsWith('point spread')
+              || cLabel.startsWith('run line')
+              || cLabel.startsWith('puck line')
+        })
+        const spread = pickBalanced(spreadCandidates)
         if (spread) {
           const home = spread.outcomes?.find(o => o.type === 'OT_ONE')
           const away = spread.outcomes?.find(o => o.type === 'OT_TWO')
@@ -237,10 +269,18 @@ export const ballybetAdapter: BookAdapter = {
           })
         }
 
-        const totalCandidates = offers.filter(o =>
-          o.betOfferType?.englishName === 'Over/Under'
-          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('total'))
-        const total = pickMain(totalCandidates)
+        // Total — restrict to full-game totals criteria; reject team
+        // totals + period variants.
+        const totalCandidates = offers.filter(o => {
+          if (o.betOfferType?.englishName !== 'Over/Under') return false
+          const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
+          if (isPartialOrTeamScoped(cLabel)) return false
+          return cLabel === 'total'
+              || cLabel.startsWith('total points')
+              || cLabel.startsWith('total runs')
+              || cLabel.startsWith('total goals')
+        })
+        const total = pickBalanced(totalCandidates)
         if (total) {
           const over = total.outcomes?.find(o => o.type === 'OT_OVER')
           const under = total.outcomes?.find(o => o.type === 'OT_UNDER')

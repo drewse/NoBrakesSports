@@ -168,21 +168,27 @@ export const prolineAdapter: BookAdapter = {
       }
 
       // 3) Normalize to game markets.
+      // Period / team-specific criteria we must NEVER pick as the main
+      // game-line offer. Kambi's Match / Handicap / Over-Under types
+      // each contain dozens of variants per event — quarter/half MLs,
+      // first-to-N-points props, team-specific totals — and the main
+      // full-game line is just one of them.
+      const isPartialOrTeamScoped = (cLabel: string): boolean => {
+        const l = cLabel.toLowerCase()
+        if (/\b(quarter|1h|2h|half|halftime|first\s+to|result\s+at\s+end|draw\s+no\s+bet|by\s+[a-z])/i.test(l)) return true
+        return false
+      }
+
       for (const [eventId, meta] of eventsById) {
         if (!meta.homeName || !meta.awayName) continue
         const offers = offersByEvent.get(eventId) ?? []
         const gameMarkets: GameMarket[] = []
 
-        // Kambi returns many betoffers per event. Some have `main: true`
-        // (regular-season fixtures), others (notably playoff fixtures
-        // with "Including Overtime" criteria) leave it unset on every
-        // candidate. When `main` is missing we pick the most-balanced
-        // offer — the line whose two American odds are closest to even
-        // money is by definition the main line; alts are skewed toward
-        // a heavier favorite. Falling back to arr[0] silently picks
-        // whatever Kambi happened to list first, which is not always
-        // the real main line.
-        const pickMain = (arr: KBetOffer[]): KBetOffer | undefined => {
+        // Pick the most-balanced offer (smallest |homeProb + awayProb - 1|
+        // + |homeProb - awayProb|). Used for Spread + Total only — NOT
+        // for ML, since the real game ML is by design lopsided when
+        // there's a heavy favorite.
+        const pickBalanced = (arr: KBetOffer[]): KBetOffer | undefined => {
           if (arr.length === 0) return undefined
           const flagged = arr.find(o => o.main)
           if (flagged) return flagged
@@ -201,14 +207,22 @@ export const prolineAdapter: BookAdapter = {
           return best
         }
 
+        const pickFirstFullGame = (arr: KBetOffer[]): KBetOffer | undefined => {
+          const flagged = arr.find(o => o.main)
+          if (flagged) return flagged
+          return arr[0]
+        }
+
         const mlCandidates = offers.filter(o => {
-          const bName = (o.betOfferType?.englishName ?? '').toLowerCase()
+          if (o.betOfferType?.englishName !== 'Match') return false
           const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
-          if (bName === 'match' || bName === 'money line' || bName === 'moneyline' || bName === 'winner') return true
-          if (cLabel === 'full time' || cLabel.includes('moneyline') || cLabel.includes('money line')) return true
-          return false
+          if (isPartialOrTeamScoped(cLabel)) return false
+          return cLabel === 'full time'
+              || cLabel === 'match winner'
+              || cLabel.startsWith('moneyline')
+              || cLabel.startsWith('money line')
         })
-        const ml = pickMain(mlCandidates)
+        const ml = pickFirstFullGame(mlCandidates)
         if (ml) {
           const home = ml.outcomes?.find(o => o.type === 'OT_ONE')
           const away = ml.outcomes?.find(o => o.type === 'OT_TWO')
@@ -221,10 +235,16 @@ export const prolineAdapter: BookAdapter = {
           })
         }
 
-        const spreadCandidates = offers.filter(o =>
-          o.betOfferType?.englishName === 'Handicap'
-          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('handicap'))
-        const spread = pickMain(spreadCandidates)
+        const spreadCandidates = offers.filter(o => {
+          if (o.betOfferType?.englishName !== 'Handicap') return false
+          const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
+          if (isPartialOrTeamScoped(cLabel)) return false
+          return cLabel === 'handicap'
+              || cLabel.startsWith('point spread')
+              || cLabel.startsWith('run line')
+              || cLabel.startsWith('puck line')
+        })
+        const spread = pickBalanced(spreadCandidates)
         if (spread) {
           const home = spread.outcomes?.find(o => o.type === 'OT_ONE')
           const away = spread.outcomes?.find(o => o.type === 'OT_TWO')
@@ -238,10 +258,16 @@ export const prolineAdapter: BookAdapter = {
           })
         }
 
-        const totalCandidates = offers.filter(o =>
-          o.betOfferType?.englishName === 'Over/Under'
-          || (o.criterion?.englishLabel ?? '').toLowerCase().includes('total'))
-        const total = pickMain(totalCandidates)
+        const totalCandidates = offers.filter(o => {
+          if (o.betOfferType?.englishName !== 'Over/Under') return false
+          const cLabel = (o.criterion?.englishLabel ?? '').toLowerCase()
+          if (isPartialOrTeamScoped(cLabel)) return false
+          return cLabel === 'total'
+              || cLabel.startsWith('total points')
+              || cLabel.startsWith('total runs')
+              || cLabel.startsWith('total goals')
+        })
+        const total = pickBalanced(totalCandidates)
         if (total) {
           const over = total.outcomes?.find(o => o.type === 'OT_OVER')
           const under = total.outcomes?.find(o => o.type === 'OT_UNDER')
