@@ -36,7 +36,7 @@ export default async function AppLayout({
     supabase
       .from('market_sources')
       .select('name, slug')
-      .in('source_type', ['sportsbook', 'prediction_market'])
+      .in('source_type', ['sportsbook', 'prediction_market', 'dfs'])
       .eq('is_active', true)
       .order('display_order', { ascending: true }),
     supabase

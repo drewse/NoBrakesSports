@@ -10,6 +10,7 @@ import {
   CANADA_BOOK_SLUGS_FALLBACK,
   PREDICTION_MARKET_SLUGS,
   OFFSHORE_BOOK_SLUGS,
+  DFS_BOOK_SLUGS,
 } from '@/lib/book-filter'
 
 interface Source {
@@ -23,7 +24,7 @@ interface BooksViewProps {
   canadianSlugs?: string[]
 }
 
-type Section = 'sportsbooks' | 'prediction' | 'offshore'
+type Section = 'sportsbooks' | 'prediction' | 'dfs' | 'offshore'
 type Region = 'canada' | 'usa'
 
 // Display names for prediction-market and offshore slugs that may not be
@@ -49,6 +50,14 @@ const OFFSHORE_DISPLAY: Record<string, string> = {
   'betonline':             'BetOnline',
 }
 
+// DFS / pick-em fallback names so the section renders even before each
+// pipeline is wired into market_sources.
+const DFS_DISPLAY: Record<string, string> = {
+  'prizepicks': 'PrizePicks',
+  'sleeper':    'Sleeper Picks',
+  'underdog':   'Underdog',
+}
+
 const REGION_LABEL: Record<Region, string> = { canada: 'CA', usa: 'USA' }
 const REGION_CLASSES: Record<Region, string> = {
   canada: 'bg-red-900/50 text-red-300',
@@ -62,10 +71,11 @@ const SECTION_META: Record<Section, {
 }> = {
   sportsbooks: { title: 'Sportsbooks',        subtitle: 'Licensed operators — Canada & USA',        accent: 'bg-white text-nb-950' },
   prediction:  { title: 'Prediction Markets', subtitle: 'Event-contract & peer-to-peer exchanges',  accent: 'bg-violet-600 text-white' },
+  dfs:         { title: 'DFS / Pick-Em',      subtitle: 'Daily-fantasy player-prop platforms',      accent: 'bg-emerald-600 text-white' },
   offshore:    { title: 'Offshore Books',     subtitle: 'Curaçao / Panama-licensed, US-facing',     accent: 'bg-amber-600 text-white' },
 }
 
-const SECTION_ORDER: Section[] = ['sportsbooks', 'prediction', 'offshore']
+const SECTION_ORDER: Section[] = ['sportsbooks', 'prediction', 'dfs', 'offshore']
 
 export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewProps) {
   const router = useRouter()
@@ -77,6 +87,7 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
   function sectionOf(slug: string): Section | null {
     if (OFFSHORE_BOOK_SLUGS.has(slug)) return 'offshore'
     if (PREDICTION_MARKET_SLUGS.has(slug)) return 'prediction'
+    if (DFS_BOOK_SLUGS.has(slug)) return 'dfs'
     if (canadianSet.has(slug) || USA_BOOK_SLUGS.has(slug)) return 'sportsbooks'
     return null
   }
@@ -96,6 +107,9 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
     for (const [slug, name] of Object.entries(PREDICTION_MARKET_DISPLAY)) {
       if (!byslug.has(slug)) byslug.set(slug, { slug, name })
     }
+    for (const [slug, name] of Object.entries(DFS_DISPLAY)) {
+      if (!byslug.has(slug)) byslug.set(slug, { slug, name })
+    }
     for (const [slug, name] of Object.entries(OFFSHORE_DISPLAY)) {
       if (!byslug.has(slug)) byslug.set(slug, { slug, name })
     }
@@ -110,7 +124,7 @@ export function BooksView({ sources, initialEnabled, canadianSlugs }: BooksViewP
 
   const grouped = useMemo(() => {
     const out: Record<Section, Source[]> = {
-      sportsbooks: [], prediction: [], offshore: [],
+      sportsbooks: [], prediction: [], dfs: [], offshore: [],
     }
     for (const s of scopedSources) {
       const sec = sectionOf(s.slug)

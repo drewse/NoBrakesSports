@@ -37,6 +37,13 @@ export const OFFSHORE_BOOK_SLUGS = new Set([
   'bovada', 'betus', 'betanysports', 'lowvig', 'mybookie', 'betonline',
 ])
 
+// Daily-fantasy / pick-em platforms (over-under contracts on player props,
+// not full game lines). Surfaced in their own /books section so they're
+// not visually mixed with traditional sportsbooks.
+export const DFS_BOOK_SLUGS = new Set([
+  'sleeper', 'prizepicks', 'underdog',
+])
+
 /**
  * Parse the nb_books cookie value into a Set of enabled slugs.
  * Returns null if all books should be shown (cookie absent or "all").
