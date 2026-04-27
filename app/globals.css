@@ -283,6 +283,20 @@
   animation-play-state: paused;
 }
 
+/* Slower variant for the reviews carousel — cards are larger and need
+ * more read time per pass. Shares the same -50% translate trick. */
+@keyframes marquee-reviews-kf {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.marquee-reviews-track {
+  animation: marquee-reviews-kf 100s linear infinite;
+  will-change: transform;
+}
+.group:hover .marquee-reviews-track {
+  animation-play-state: paused;
+}
+
 /* Block-level variants for non-table opportunity cards (arb / EV feeds). */
 @keyframes live-entering-block-kf {
   0%   { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); background-color: rgba(34, 197, 94, 0.00); }
