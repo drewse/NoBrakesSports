@@ -60,6 +60,7 @@ const BOOK_CONFIG: Record<string, BookConfig> = {
   betus:               { abbrev: 'US',  bg: 'bg-[#1e90ff]',      text: 'text-white',        hasLogo: true },
   bookmaker:           { abbrev: 'BM',  bg: 'bg-black',          text: 'text-[#f5c518]',    hasLogo: true },
   bovada:              { abbrev: 'BV',  bg: 'bg-white',          text: 'text-[#d32f2f]',    hasLogo: true },
+  bodog:               { abbrev: 'BD',  bg: 'bg-[#d32f2f]',      text: 'text-white',        hasLogo: true },
   circa:               { abbrev: 'CS',  bg: 'bg-[#1a1a1a]',      text: 'text-white',        hasLogo: true, logoExt: 'jpg' },
   hardrockbet:         { abbrev: 'HR',  bg: 'bg-[#c026d3]',      text: 'text-white',        hasLogo: true },
   lowvig:              { abbrev: 'LV',  bg: 'bg-[#0a1f4d]',      text: 'text-white',        hasLogo: true, logoExt: 'jpg' },

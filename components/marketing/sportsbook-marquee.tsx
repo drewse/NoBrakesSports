@@ -41,11 +41,11 @@ const BOOKS: BookItem[] = [
   { name: 'BetVictor',          slug: 'betvictor' },
   { name: 'Betano',             slug: 'betano' },
   { name: 'PROLINE+',           slug: 'proline' },
-  { name: 'PlayNow' },
+  { name: 'LeoVegas',           slug: 'leovegas' },
   { name: 'Loto-Québec',        slug: 'miseojeu' },
   { name: 'Bet99',              slug: 'bet99' },
   { name: 'PowerPlay',          slug: 'powerplay' },
-  { name: 'Bodog' },
+  { name: 'Bodog',              slug: 'bodog' },
 ]
 
 export function SportsbookMarquee() {
