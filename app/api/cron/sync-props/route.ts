@@ -981,39 +981,54 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // 8. Update snapshot_time for unchanged rows (they were still fetched)
+  // 8. Update snapshot_time for unchanged rows (they were still fetched).
   // CRITICAL: scope update to EXACTLY the (event, source, category, player, line)
-  // tuples that were refetched. Old code updated ALL rows matching (event, source)
-  // which kept stale/orphaned rows (e.g., 1st-quarter markets rejected by parser)
-  // alive indefinitely — their snapshot_time got refreshed even though they were
-  // no longer in the adapter's output.
+  // tuples that were refetched. The previous version filtered by
+  // (event, source, category, player) only — without line_value — which
+  // refreshed snapshot_time for every line of that player including
+  // ORPHANED ones from old scrapes (e.g., LeoVegas Edgecombe Pts 15.5
+  // that no longer exists in the live Kambi feed but still has rows
+  // from days ago). Those orphan rows then look fresh and bleed into
+  // /arbitrage and /top-lines as ghost prices.
+  //
+  // Group by (event, source, category, player) and update with a
+  // line_value IN (lines that were actually re-fetched this cycle).
   if (unchanged.length > 0) {
-    // Group by (event, source, category) — narrow scope with .in() on players
-    const groups = new Map<string, Set<string>>()
-    const rowMap = new Map<string, Array<{ player: string; line: number | null }>>()
+    const linesByPlayer = new Map<string, Set<number | null>>()
     for (const r of unchanged) {
-      const key = `${r.event_id}|${r.source_id}|${r.prop_category}`
-      if (!rowMap.has(key)) rowMap.set(key, [])
-      rowMap.get(key)!.push({ player: r.player_name, line: r.line_value })
-      if (!groups.has(key)) groups.set(key, new Set())
-      groups.get(key)!.add(r.player_name)
+      const key = `${r.event_id}|${r.source_id}|${r.prop_category}|${r.player_name}`
+      if (!linesByPlayer.has(key)) linesByPlayer.set(key, new Set())
+      linesByPlayer.get(key)!.add(r.line_value)
     }
 
-    for (const [key, players] of groups) {
-      const [eid, sid, category] = key.split('|')
-      const playerList = [...players]
-      // Update in chunks of 100 players to avoid URL length limits
-      for (let i = 0; i < playerList.length; i += 100) {
-        const chunk = playerList.slice(i, i + 100)
+    for (const [key, lines] of linesByPlayer) {
+      const [eid, sid, category, player] = key.split('|')
+      // Split null vs numeric line_values — PostgREST .in() doesn't accept null.
+      const numericLines = [...lines].filter(l => l != null) as number[]
+      const hasNullLine = lines.has(null)
+
+      if (numericLines.length > 0) {
         await db
           .from('prop_odds')
           .update({ snapshot_time: now })
           .eq('event_id', eid)
           .eq('source_id', sid)
           .eq('prop_category', category)
-          .in('player_name', chunk)
+          .eq('player_name', player)
+          .in('line_value', numericLines)
+      }
+      if (hasNullLine) {
+        await db
+          .from('prop_odds')
+          .update({ snapshot_time: now })
+          .eq('event_id', eid)
+          .eq('source_id', sid)
+          .eq('prop_category', category)
+          .eq('player_name', player)
+          .is('line_value', null)
       }
     }
+
   }
 
   // 9. Write changed rows to prop_snapshots (history log)
