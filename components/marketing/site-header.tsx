@@ -17,7 +17,7 @@ export function SiteHeader() {
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="fixed top-0 z-50 w-full border-b border-white/10 bg-black/60 backdrop-blur-xl"
     >
-      <div className="mx-auto flex h-[72px] max-w-6xl items-center justify-between px-4 sm:px-6">
+      <div className="mx-auto flex h-[72px] w-full max-w-[1440px] items-center justify-between px-6 sm:px-8 lg:px-12 xl:px-16">
         {/* Logo */}
         <Link href="/" className="group flex items-center gap-2.5 min-w-0">
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white shadow-[0_0_24px_rgba(255,255,255,0.18)] transition-transform group-hover:scale-105">

@@ -23,30 +23,32 @@ const fadeUp = {
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden">
+    <section className="relative overflow-hidden lg:min-h-[calc(100vh-72px)] flex items-center">
       {/* Background — kept in sync with the rest of the page (grid + radial glow). */}
       <div className="pointer-events-none absolute inset-0 bg-grid opacity-100" />
       <div className="pointer-events-none absolute inset-0 hero-glow" />
 
-      {/* Radial accent lighting — green and purple */}
+      {/* Wide radial accent lighting — green left, purple right.
+       *  Sized for 1440px+ viewports; clipped by section overflow-hidden
+       *  on smaller screens. */}
       <div
-        className="pointer-events-none absolute -top-32 left-1/2 h-[640px] w-[1100px] -translate-x-1/2 rounded-full opacity-60 blur-[140px]"
+        className="pointer-events-none absolute -top-32 left-1/2 h-[760px] w-[1500px] -translate-x-1/2 rounded-full opacity-60 blur-[160px]"
         style={{
           background:
-            'radial-gradient(closest-side, rgba(34,197,94,0.18), transparent 70%), ' +
-            'radial-gradient(closest-side at 70% 50%, rgba(168,85,247,0.18), transparent 70%)',
+            'radial-gradient(closest-side at 28% 50%, rgba(34,197,94,0.20), transparent 70%), ' +
+            'radial-gradient(closest-side at 72% 55%, rgba(168,85,247,0.22), transparent 70%)',
         }}
         aria-hidden
       />
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-6 sm:pt-10 lg:pt-12 pb-6 sm:pb-8 lg:pb-10">
-        <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-12 lg:gap-10">
-          {/* ── Left: copy ─────────────────────────────────────────────── */}
+      <div className="relative mx-auto w-full max-w-[1440px] px-6 sm:px-8 lg:px-12 xl:px-16 pt-6 sm:pt-10 lg:pt-0 pb-8 sm:pb-10 lg:pb-12">
+        <div className="grid grid-cols-1 lg:grid-cols-12 items-center gap-10 lg:gap-8">
+          {/* ── Left: copy (5/12 ≈ 41.6% of the wide grid) ──────────────── */}
           <motion.div
             initial="hidden"
             animate="show"
             transition={{ staggerChildren: 0.08, delayChildren: 0.05 }}
-            className="lg:col-span-6 text-center lg:text-left"
+            className="lg:col-span-5 text-center lg:text-left"
           >
             {/* Eyebrow pill */}
             <motion.div
@@ -63,11 +65,12 @@ export function Hero() {
               </span>
             </motion.div>
 
-            {/* Headline */}
+            {/* Headline — capped at 620px so it never crowds the mockup.
+             *  Mobile 4xl → tablet 5xl → desktop 6xl → 1440+ 7xl. */}
             <motion.h1
               variants={fadeUp}
               transition={{ duration: 0.55, ease }}
-              className="mt-6 text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] text-white"
+              className="mt-6 max-w-[620px] mx-auto lg:mx-0 text-4xl sm:text-5xl lg:text-6xl xl:text-7xl font-bold tracking-tight leading-[1.05] text-white"
             >
               Make $2000+ a week.
               <br />
@@ -80,7 +83,7 @@ export function Hero() {
             <motion.p
               variants={fadeUp}
               transition={{ duration: 0.55, ease }}
-              className="mt-5 sm:mt-6 max-w-xl text-base sm:text-lg text-nb-300 leading-relaxed mx-auto lg:mx-0"
+              className="mt-5 sm:mt-6 max-w-[560px] text-base sm:text-lg text-nb-300 leading-relaxed mx-auto lg:mx-0"
             >
               Compare live odds across sportsbooks, spot profitable lines,
               and track market movement in one fast dashboard.
@@ -140,8 +143,8 @@ export function Hero() {
             </motion.ul>
           </motion.div>
 
-          {/* ── Right: 3D-styled product mockup ─────────────────────────── */}
-          <div className="lg:col-span-6 relative">
+          {/* ── Right: 3D-styled product mockup (7/12 ≈ 58.3%) ──────────── */}
+          <div className="lg:col-span-7 relative w-full">
             <ProductMockup />
           </div>
         </div>
@@ -160,11 +163,11 @@ function ProductMockup() {
       initial={{ opacity: 0, y: 32 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.7, ease, delay: 0.2 }}
-      className="relative mx-auto w-full max-w-[640px] [perspective:1200px]"
+      className="relative mx-auto lg:ml-auto lg:mr-0 w-full max-w-[600px] sm:max-w-[680px] lg:max-w-[780px] xl:max-w-[860px] [perspective:1200px]"
     >
-      {/* Radial color glow behind the mockup */}
+      {/* Radial color glow behind the mockup — wider on desktop */}
       <div
-        className="pointer-events-none absolute -inset-12 rounded-[40px] blur-3xl opacity-70"
+        className="pointer-events-none absolute -inset-x-16 -inset-y-12 rounded-[44px] blur-3xl opacity-70"
         style={{
           background:
             'radial-gradient(closest-side at 30% 50%, rgba(34,197,94,0.25), transparent 70%), ' +
@@ -173,13 +176,13 @@ function ProductMockup() {
         aria-hidden
       />
 
-      {/* The frame floats slowly. Transform stack: perspective is on the
-       *  parent; the frame itself rotates and idle-floats in y. */}
+      {/* The frame floats slowly. Mobile drops the 3D rotation so the
+       *  text remains visually flat & easy to read on small screens. */}
       <motion.div
         animate={{ y: [0, -10, 0] }}
         transition={{ duration: 7, ease: 'easeInOut', repeat: Infinity }}
-        className="relative will-change-transform"
-        style={{ transform: 'rotateX(8deg) rotateY(-12deg)', transformStyle: 'preserve-3d' }}
+        className="relative will-change-transform mockup-tilt"
+        style={{ transformStyle: 'preserve-3d' }}
       >
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-nb-900/90 shadow-[0_40px_120px_-20px_rgba(0,0,0,0.7),0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-xl">
           {/* Browser chrome */}
@@ -234,9 +237,10 @@ function ProductMockup() {
         </div>
       </motion.div>
 
-      {/* Floating chips */}
+      {/* Floating chips — pushed wider on desktop, hidden on mobile to
+       *  avoid clutter on narrow screens. */}
       <FloatChip
-        className="left-[-6%] top-[18%] hidden sm:flex"
+        className="left-[-4%] sm:left-[-10%] lg:left-[-14%] top-[16%] hidden sm:flex"
         floatDuration={5.5}
         delay={0.6}
       >
@@ -250,7 +254,7 @@ function ProductMockup() {
       </FloatChip>
 
       <FloatChip
-        className="right-[-4%] top-[8%] hidden sm:flex"
+        className="right-[-4%] sm:right-[-8%] lg:right-[-10%] top-[4%] hidden sm:flex"
         floatDuration={6.5}
         delay={0.85}
       >
@@ -264,7 +268,7 @@ function ProductMockup() {
       </FloatChip>
 
       <FloatChip
-        className="right-[6%] bottom-[-6%]"
+        className="right-[2%] lg:right-[-4%] bottom-[-6%] hidden xs:flex"
         floatDuration={6}
         delay={1.05}
       >

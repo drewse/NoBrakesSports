@@ -59,27 +59,29 @@ export function SportsbookMarquee() {
         aria-hidden
       />
 
-      <div className="relative mx-auto w-full max-w-6xl px-4 sm:px-6 pt-4 sm:pt-6 pb-12 sm:pb-16">
+      <div className="relative mx-auto w-full max-w-[1440px] px-6 sm:px-8 lg:px-12 xl:px-16 pt-4 sm:pt-6">
         <h2 className="text-center text-2xl sm:text-3xl font-bold tracking-tight text-white/80">
           Supports 50+ North American Sportsbooks
         </h2>
+      </div>
 
-        {/* Marquee — gradient mask handles the left/right fade. */}
-        <div
-          className="group relative mt-10 sm:mt-12"
-          style={{
-            WebkitMaskImage:
-              'linear-gradient(to right, transparent 0, black 80px, black calc(100% - 80px), transparent 100%)',
-            maskImage:
-              'linear-gradient(to right, transparent 0, black 80px, black calc(100% - 80px), transparent 100%)',
-          }}
-        >
-          <div className="marquee-track flex w-max items-center gap-12 sm:gap-14">
-            {/* Track A */}
-            <MarqueeRow books={BOOKS} />
-            {/* Track B — duplicate, aria-hidden so SR doesn't read twice */}
-            <MarqueeRow books={BOOKS} ariaHidden />
-          </div>
+      {/* Marquee track — full-viewport-width, gradient mask handles the
+       *  left/right fade. Lives outside the max-w container so it spans
+       *  the entire screen on every breakpoint. */}
+      <div
+        className="group relative mt-10 sm:mt-12 pb-12 sm:pb-16 w-full overflow-hidden"
+        style={{
+          WebkitMaskImage:
+            'linear-gradient(to right, transparent 0, black 80px, black calc(100% - 80px), transparent 100%)',
+          maskImage:
+            'linear-gradient(to right, transparent 0, black 80px, black calc(100% - 80px), transparent 100%)',
+        }}
+      >
+        <div className="marquee-track flex w-max items-center gap-12 sm:gap-14">
+          {/* Track A */}
+          <MarqueeRow books={BOOKS} />
+          {/* Track B — duplicate, aria-hidden so SR doesn't read twice */}
+          <MarqueeRow books={BOOKS} ariaHidden />
         </div>
       </div>
     </section>
