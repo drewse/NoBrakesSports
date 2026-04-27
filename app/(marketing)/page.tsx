@@ -7,6 +7,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ScrollFade } from '@/components/marketing/scroll-fade'
 import { Hero } from '@/components/marketing/hero'
+import { SportsbookMarquee } from '@/components/marketing/sportsbook-marquee'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,9 @@ export default function LandingPage() {
     <>
       {/* ─── Hero ─────────────────────────────────────────────────────────── */}
       <Hero />
+
+      {/* ─── Sportsbook marquee ───────────────────────────────────────────── */}
+      <SportsbookMarquee />
 
       {/* ─── Product Preview ──────────────────────────────────────────────── */}
       <section className="mx-auto max-w-5xl px-4 sm:px-6 -mt-4 sm:-mt-8 pb-16 sm:pb-24">
