@@ -220,24 +220,36 @@ export async function GET(req: NextRequest) {
   for (const l of leaguesRaw ?? []) leagueIdBySlug.set(l.slug, l.id)
 
   // Build lookup from existing events using ORDER-INDEPENDENT keys.
-  // Key format: "league:date:sortedTeamA:sortedTeamB" — same key regardless
-  // of which team is listed first in the title.
+  // Key format: "league:bucket:sortedTeamA:sortedTeamB" — same key
+  // regardless of which team is listed first in the title.
+  //
+  // The `bucket` is an ET-anchored 24h slot, NOT the raw UTC date.
+  // Why: a single ET evening (e.g. NBA games at 7:10pm and 9:40pm ET on
+  // Apr 28) straddles UTC midnight (one game lands on Apr 28 UTC, the
+  // other on Apr 29 UTC). With UTC-only keys, BetMGM's POR/SAS at
+  // 04-28T23:10Z and our DB's 04-29T01:40Z hash to different keys and
+  // the BetMGM write either misses the canonical event or creates a
+  // duplicate.
   const eventByKey = new Map<string, string>()
-
-  function makeMatchKey(leagueSlug: string, date: string, teamA: string, teamB: string): string {
-    const a = normalizeTeamForMatch(teamA)
-    const b = normalizeTeamForMatch(teamB)
-    // Sort alphabetically so order doesn't matter
-    const sorted = [a, b].sort()
-    return `${leagueSlug}:${date}:${sorted[0]}:${sorted[1]}`
+  const ET_OFFSET_MS = 5 * 3600 * 1000
+  function dayBucket(startTime: string): string {
+    const ts = new Date(startTime).getTime()
+    if (!isFinite(ts)) return (startTime || '').slice(0, 10)
+    return String(Math.floor((ts - ET_OFFSET_MS) / 86_400_000))
   }
 
-  // Also index by team nickname (last word) for fuzzy matching
-  function makeNicknameKey(leagueSlug: string, date: string, teamA: string, teamB: string): string {
+  function makeMatchKey(leagueSlug: string, startTime: string, teamA: string, teamB: string): string {
+    const a = normalizeTeamForMatch(teamA)
+    const b = normalizeTeamForMatch(teamB)
+    const sorted = [a, b].sort()
+    return `${leagueSlug}:${dayBucket(startTime)}:${sorted[0]}:${sorted[1]}`
+  }
+
+  function makeNicknameKey(leagueSlug: string, startTime: string, teamA: string, teamB: string): string {
     const nickA = normalizeTeamForMatch(teamA).split(' ').pop() ?? ''
     const nickB = normalizeTeamForMatch(teamB).split(' ').pop() ?? ''
     const sorted = [nickA, nickB].sort()
-    return `nick:${leagueSlug}:${date}:${sorted[0]}:${sorted[1]}`
+    return `nick:${leagueSlug}:${dayBucket(startTime)}:${sorted[0]}:${sorted[1]}`
   }
 
   // Track each event's canonical "home" side (parts[0] of title). Every
@@ -249,13 +261,12 @@ export async function GET(req: NextRequest) {
 
   for (const ev of (dbEvents ?? []) as any[]) {
     const leagueSlug = ev.league?.slug ?? ''
-    const date = new Date(ev.start_time).toISOString().slice(0, 10)
     const parts = ev.title.split(/\s+(?:vs\.?|@)\s+/i)
     if (parts.length === 2) {
       const teamA = parts[0].trim()
       const teamB = parts[1].trim()
-      eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), ev.id)
-      eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), ev.id)
+      eventByKey.set(makeMatchKey(leagueSlug, ev.start_time, teamA, teamB), ev.id)
+      eventByKey.set(makeNicknameKey(leagueSlug, ev.start_time, teamA, teamB), ev.id)
       eventHomeSide.set(ev.id, teamA)
     }
   }
@@ -294,17 +305,15 @@ export async function GET(req: NextRequest) {
 
   /** Find existing event ID for a game */
   function findEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string): string | undefined {
-    const date = new Date(startTime).toISOString().slice(0, 10)
-    return eventByKey.get(makeMatchKey(leagueSlug, date, teamA, teamB))
-      ?? eventByKey.get(makeNicknameKey(leagueSlug, date, teamA, teamB))
+    return eventByKey.get(makeMatchKey(leagueSlug, startTime, teamA, teamB))
+      ?? eventByKey.get(makeNicknameKey(leagueSlug, startTime, teamA, teamB))
   }
 
   /** Register a new event in the lookup. The `homeName` (physical home team)
    *  is stored as the canonical home anchor so later writers swap if needed. */
   function registerEvent(leagueSlug: string, startTime: string, teamA: string, teamB: string, eventId: string, homeName?: string) {
-    const date = new Date(startTime).toISOString().slice(0, 10)
-    eventByKey.set(makeMatchKey(leagueSlug, date, teamA, teamB), eventId)
-    eventByKey.set(makeNicknameKey(leagueSlug, date, teamA, teamB), eventId)
+    eventByKey.set(makeMatchKey(leagueSlug, startTime, teamA, teamB), eventId)
+    eventByKey.set(makeNicknameKey(leagueSlug, startTime, teamA, teamB), eventId)
     if (homeName) eventHomeSide.set(eventId, homeName)
   }
 

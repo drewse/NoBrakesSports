@@ -28,7 +28,11 @@
  * 1st half / quarter / inning period markets.
  */
 
-import { pipeFetch } from '../proxy-fetch'
+// Bovada serves /services/sports/event/coupon/events publicly to any
+// IP class — direct fetch from Vercel returns 200 JSON with the full
+// per-game payload. pipeFetch (PacketStream CA) is unnecessary here
+// and a stale PROXY_URL silently failed every cycle, leaving 0 Bovada
+// rows in the DB.
 
 const BASE = 'https://www.bovada.lv/services/sports/event/coupon/events/A/description'
 
@@ -107,12 +111,13 @@ async function fetchLeague(
   const url = `${BASE}/${league.path}?preMatchOnly=true&marketFilterId=def`
   let resp: Response
   try {
-    resp = await pipeFetch(url, {
+    resp = await fetch(url, {
       headers: {
         'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36',
+        'Referer': 'https://www.bovada.lv/',
       },
-      signal,
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
     })
   } catch (err: any) {
     console.warn(`[Bovada] fetch error`, { league: league.leagueSlug, message: err?.message ?? String(err) })

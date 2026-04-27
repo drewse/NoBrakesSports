@@ -70,6 +70,18 @@ export async function GET(request: NextRequest) {
     .gt('start_time', nowIso)
     .limit(5000)
 
+  // ET-anchored 24h day bucket. NBA / MLB / NHL late-night games
+  // straddle UTC midnight (BetMGM lists POR/SAS at 04-28T23:10Z; our
+  // canonical event lives at 04-29T01:40Z). With a UTC-date key those
+  // collide on different buckets and Bovada's write either misses or
+  // creates a duplicate.
+  const ET_OFFSET_MS = 5 * 3600 * 1000
+  function dayBucket(startTime: string): string {
+    const ts = new Date(startTime).getTime()
+    if (!isFinite(ts)) return (startTime || '').slice(0, 10)
+    return String(Math.floor((ts - ET_OFFSET_MS) / 86_400_000))
+  }
+
   function pairKey(a: string, b: string) {
     return [a.toLowerCase().trim(), b.toLowerCase().trim()].sort().join('|')
   }
@@ -83,8 +95,7 @@ export async function GET(request: NextRequest) {
     if (!slug || !title) continue
     const parts = title.split(/\s+vs\.?\s+/i)
     if (parts.length !== 2) continue
-    const day = String(e.start_time).slice(0, 10)
-    eventByKey.set(`${slug}|${pairKey(parts[0], parts[1])}|${day}`, e.id as string)
+    eventByKey.set(`${slug}|${pairKey(parts[0], parts[1])}|${dayBucket(e.start_time)}`, e.id as string)
   }
 
   const now = new Date().toISOString()
@@ -95,8 +106,7 @@ export async function GET(request: NextRequest) {
   const byLeague: Record<string, number> = {}
 
   for (const r of results) {
-    const day = r.event.startTime.slice(0, 10)
-    const eid = eventByKey.get(`${r.event.leagueSlug}|${pairKey(r.event.homeTeam, r.event.awayTeam)}|${day}`)
+    const eid = eventByKey.get(`${r.event.leagueSlug}|${pairKey(r.event.homeTeam, r.event.awayTeam)}|${dayBucket(r.event.startTime)}`)
     if (!eid) { unmatched++; continue }
     matched++
     byLeague[r.event.leagueSlug] = (byLeague[r.event.leagueSlug] ?? 0) + 1
