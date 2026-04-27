@@ -173,13 +173,33 @@ export const prolineAdapter: BookAdapter = {
         const offers = offersByEvent.get(eventId) ?? []
         const gameMarkets: GameMarket[] = []
 
-        // Kambi returns many betoffers per event — one main line and a
-        // stack of alt lines for spread/total. Always prefer `main:true`
-        // so we don't accidentally store an alt's price against what
-        // looks like the primary line (bug that produced Over 217.5
-        // @ +235 when the real main line was -110).
-        const pickMain = <T extends { main?: boolean }>(arr: T[]): T | undefined =>
-          arr.find(o => o.main) ?? arr[0]
+        // Kambi returns many betoffers per event. Some have `main: true`
+        // (regular-season fixtures), others (notably playoff fixtures
+        // with "Including Overtime" criteria) leave it unset on every
+        // candidate. When `main` is missing we pick the most-balanced
+        // offer — the line whose two American odds are closest to even
+        // money is by definition the main line; alts are skewed toward
+        // a heavier favorite. Falling back to arr[0] silently picks
+        // whatever Kambi happened to list first, which is not always
+        // the real main line.
+        const pickMain = (arr: KBetOffer[]): KBetOffer | undefined => {
+          if (arr.length === 0) return undefined
+          const flagged = arr.find(o => o.main)
+          if (flagged) return flagged
+          let best = arr[0]
+          let bestScore = Infinity
+          for (const o of arr) {
+            const outs = o.outcomes ?? []
+            const a = kambiToAmerican(outs[0])
+            const b = kambiToAmerican(outs[1])
+            if (a == null || b == null) continue
+            const ap = a > 0 ? 100 / (a + 100) : -a / (-a + 100)
+            const bp = b > 0 ? 100 / (b + 100) : -b / (-b + 100)
+            const score = Math.abs(ap + bp - 1) + Math.abs(ap - bp)
+            if (score < bestScore) { best = o; bestScore = score }
+          }
+          return best
+        }
 
         const mlCandidates = offers.filter(o => {
           const bName = (o.betOfferType?.englishName ?? '').toLowerCase()
@@ -235,7 +255,15 @@ export const prolineAdapter: BookAdapter = {
           })
         }
 
-        if (gameMarkets.length === 0) continue
+        if (gameMarkets.length === 0) {
+          if (offers.length > 0) {
+            log.warn('proline event has offers but 0 markets', {
+              eventId, name: meta.name,
+              offerTypes: [...new Set(offers.map(o => o.betOfferType?.englishName ?? '?'))],
+            })
+          }
+          continue
+        }
         scraped.push({
           event: {
             externalId: String(eventId),
