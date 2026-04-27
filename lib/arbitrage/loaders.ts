@@ -243,9 +243,22 @@ export async function loadArbs(
       if (enabledBooks && !enabledBooks.has(slug)) return false
       return true
     })
-    const propGroups = new Map<string, any[]>()
+    // Dedupe by (event, category, player, line, source) keeping the most-
+    // recent snapshot — same fix as the +EV loader. Without this the
+    // bestOverBySource / bestUnderBySource maps just collapse the noise
+    // away, but it's still wasted work and the upstream group loses
+    // determinism if a book has stale rows.
+    const latestPropBySrc = new Map<string, any>()
     for (const p of filteredProps) {
       if (!(p as any).event || !isUpcomingEvent((p as any).event?.start_time)) continue
+      const k = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}|${p.source_id}`
+      const existing = latestPropBySrc.get(k)
+      if (!existing || p.snapshot_time > existing.snapshot_time) {
+        latestPropBySrc.set(k, p)
+      }
+    }
+    const propGroups = new Map<string, any[]>()
+    for (const p of latestPropBySrc.values()) {
       const key = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}`
       if (!propGroups.has(key)) propGroups.set(key, [])
       propGroups.get(key)!.push(p)
