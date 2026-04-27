@@ -61,6 +61,23 @@ export async function loadArbs(
   supabase: SupabaseClient,
   enabledBooks: Set<string> | null,
 ): Promise<ArbsResult> {
+  // Pre-filter to upcoming event IDs at the SQL layer. Without this we
+  // were fetching every ML row + every prop row from the last 5 minutes
+  // across ALL events (incl. settled/finished ones) and dropping them
+  // post-fetch via isUpcomingEvent. Pages took 10s+ to load because of
+  // the wasted volume — this brings them in line with /odds.
+  const nowIso = new Date().toISOString()
+  const { data: upcomingEvents } = await supabase
+    .from('events')
+    .select('id')
+    .gt('start_time', nowIso)
+    .order('start_time', { ascending: true })
+    .limit(500)
+  const upcomingIds = (upcomingEvents ?? []).map(e => e.id as string)
+  if (upcomingIds.length === 0) {
+    return { arbs: [], totalArbs: 0, uniqueBooks: 0 }
+  }
+
   const staleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
   const snapshotsPromise = supabase
     .from('current_market_odds')
@@ -69,6 +86,7 @@ export async function loadArbs(
       event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug, sport:sports(slug))),
       source:market_sources(id, name, slug)
     `)
+    .in('event_id', upcomingIds)
     .eq('market_type', 'moneyline')
     .gt('snapshot_time', staleCutoff)
     .limit(5000)
@@ -78,6 +96,7 @@ export async function loadArbs(
     const { count } = await supabase
       .from('prop_odds')
       .select('id', { count: 'exact', head: true })
+      .in('event_id', upcomingIds)
       .gt('snapshot_time', propStaleCutoff)
       .or('over_price.not.is.null,under_price.not.is.null')
     const total = count ?? 0
@@ -93,6 +112,7 @@ export async function loadArbs(
             event:events(id, title, start_time, league:leagues(abbreviation)),
             source:market_sources(id, name, slug)
           `)
+          .in('event_id', upcomingIds)
           .gt('snapshot_time', propStaleCutoff)
           .or('over_price.not.is.null,under_price.not.is.null')
           .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),

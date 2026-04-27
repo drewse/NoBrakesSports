@@ -144,6 +144,23 @@ export async function loadEv(
   filters: EvFilters = {},
   options: { isPro: boolean } = { isPro: true },
 ): Promise<EvResult> {
+  // Pre-filter to upcoming event IDs at the SQL layer — same fix as
+  // /arbitrage. Was fetching 10k+ CMO rows + 30k+ prop rows across all
+  // events (including settled ones), then dropping non-upcoming via
+  // isUpcomingEvent. With this in() filter, page loads drop from
+  // ~10s to ~1s (in line with /odds).
+  const nowIso = new Date().toISOString()
+  const { data: upcomingEvents } = await supabase
+    .from('events')
+    .select('id')
+    .gt('start_time', nowIso)
+    .order('start_time', { ascending: true })
+    .limit(500)
+  const upcomingIds = (upcomingEvents ?? []).map(e => e.id as string)
+  if (upcomingIds.length === 0) {
+    return { lines: [], leagues: [], totalEvents: 0 }
+  }
+
   const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const snapshotsPromise = supabase
     .from('current_market_odds')
@@ -154,6 +171,7 @@ export async function loadEv(
       event:events(id, title, start_time, league:leagues(name, abbreviation, slug)),
       source:market_sources(id, name, slug)
     `)
+    .in('event_id', upcomingIds)
     .gt('snapshot_time', cutoff)
     .in('market_type', ['moneyline', 'spread', 'total'])
     .limit(10000)
@@ -163,6 +181,7 @@ export async function loadEv(
     const { count } = await supabase
       .from('prop_odds')
       .select('id', { count: 'exact', head: true })
+      .in('event_id', upcomingIds)
       .gt('snapshot_time', propCutoff)
       .or('over_price.not.is.null,under_price.not.is.null')
     const total = count ?? 0
@@ -178,6 +197,7 @@ export async function loadEv(
             event:events(id, title, start_time, league:leagues(abbreviation)),
             source:market_sources(id, name, slug)
           `)
+          .in('event_id', upcomingIds)
           .gt('snapshot_time', propCutoff)
           .or('over_price.not.is.null,under_price.not.is.null')
           .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
