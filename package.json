@@ -55,6 +55,7 @@
     "recharts": "^2.13.3",
     "resend": "^4.0.0",
     "stripe": "^17.3.0",
+    "swr": "^2.4.1",
     "tailwind-merge": "^2.5.4",
     "tailwindcss-animate": "^1.0.7",
     "undici": "^7.24.7",

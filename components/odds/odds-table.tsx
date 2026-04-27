@@ -19,7 +19,7 @@ export interface OddsRow {
   startTime: string
   leagueAbbrev: string
   /** Per-source odds keyed by source_id. */
-  byBook: Map<string, OddsCell>
+  byBook: Record<string, OddsCell>
   /** Pre-computed best and average across books. */
   bestHome: number | null
   bestAway: number | null
@@ -27,6 +27,9 @@ export interface OddsRow {
   bestAwayBook: string | null
   avgHome: number | null
   avgAway: number | null
+  /** Live-update annotations (added by odds-client). */
+  _anim?: 'entering' | 'leaving'
+  _flickerCells?: Set<string>
 }
 
 export interface BookColumn {
@@ -38,8 +41,7 @@ export interface BookColumn {
 /**
  * OddsJam-style comparison table. Rows are games, columns are books.
  * Left-frozen section: matchup, start time, best odds, average odds.
- * Right scrollable: a cell per book with home/away (or over/under)
- * stacked.
+ * Right scrollable: a cell per book with home/away (or over/under) stacked.
  */
 export function OddsTable({
   selection,
@@ -67,10 +69,6 @@ export function OddsTable({
     )
   }
 
-  // Frozen-group widths. Used as inline style + matching `left:` offsets
-  // so the first three columns render at EXACTLY these pixel widths
-  // regardless of table content. Tailwind `w-[260px]` is just a hint;
-  // a `w-full` table will reflow it and break the sticky offsets.
   const W_GAME = 260
   const W_BEST = 110
   const W_AVG = 110
@@ -97,48 +95,54 @@ export function OddsTable({
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr
-                key={r.eventId}
-                className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'}`}
-              >
-                <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
-                  <div className="space-y-0.5">
-                    <div className="text-xs font-medium text-white truncate">{r.homeTeam}</div>
-                    <div className="text-xs font-medium text-white truncate">{r.awayTeam}</div>
-                    <div className="flex items-center gap-1 pt-1 text-[10px] text-nb-500">
-                      <Clock className="h-2.5 w-2.5" />
-                      {formatStart(r.startTime)}
+            {rows.map((r, idx) => {
+              const animCls =
+                r._anim === 'leaving' ? 'live-leaving' :
+                r._anim === 'entering' ? 'live-entering' : ''
+              return (
+                <tr
+                  key={r.eventId}
+                  className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'} ${animCls}`}
+                >
+                  <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
+                    <div className="space-y-0.5">
+                      <div className="text-xs font-medium text-white truncate">{r.homeTeam}</div>
+                      <div className="text-xs font-medium text-white truncate">{r.awayTeam}</div>
+                      <div className="flex items-center gap-1 pt-1 text-[10px] text-nb-500">
+                        <Clock className="h-2.5 w-2.5" />
+                        {formatStart(r.startTime)}
+                      </div>
                     </div>
-                  </div>
-                </td>
-                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-nb-700" style={cellBest}>
-                  <OddsStack top={r.bestHome} bottom={r.bestAway} accentTop accentBottom />
-                </td>
-                <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
-                  <OddsStack top={r.avgHome} bottom={r.avgAway} />
-                </td>
-                {books.map(b => {
-                  const cell = r.byBook.get(b.id)
-                  // Highlight per-side when this book is tied for the
-                  // best price on that side. r.bestHome/bestAway already
-                  // collapses ties to the same numeric value, so equality
-                  // gives every tied book a green cell — not just one.
-                  const isBestTop    = cell?.homePrice != null && r.bestHome != null && cell.homePrice === r.bestHome
-                  const isBestBottom = cell?.awayPrice != null && r.bestAway != null && cell.awayPrice === r.bestAway
-                  return (
-                    <td key={b.id} className="px-2 py-3 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
-                      <OddsStack
-                        top={cell?.homePrice ?? null}
-                        bottom={cell?.awayPrice ?? null}
-                        accentTop={isBestTop}
-                        accentBottom={isBestBottom}
-                      />
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+                  </td>
+                  <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-nb-700" style={cellBest}>
+                    <OddsStack top={r.bestHome} bottom={r.bestAway} accentTop accentBottom />
+                  </td>
+                  <td className="sticky z-20 bg-inherit px-3 py-3 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
+                    <OddsStack top={r.avgHome} bottom={r.avgAway} />
+                  </td>
+                  {books.map(b => {
+                    const cell = r.byBook[b.id]
+                    const isBestTop    = cell?.homePrice != null && r.bestHome != null && cell.homePrice === r.bestHome
+                    const isBestBottom = cell?.awayPrice != null && r.bestAway != null && cell.awayPrice === r.bestAway
+                    const flicker = r._flickerCells?.has(b.id)
+                    return (
+                      <td
+                        key={b.id}
+                        className={`px-2 py-3 text-center align-middle border-l border-border/40 ${flicker ? 'live-flicker' : ''}`}
+                        style={{ minWidth: 92 }}
+                      >
+                        <OddsStack
+                          top={cell?.homePrice ?? null}
+                          bottom={cell?.awayPrice ?? null}
+                          accentTop={isBestTop}
+                          accentBottom={isBestBottom}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
           </tbody>
           <tfoot>
             <tr className="bg-nb-950 text-[10px] text-nb-500">
@@ -178,7 +182,6 @@ function formatStart(iso: string): string {
   if (!iso) return ''
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
-  // e.g. "Today 7:10 PM" / "Apr 25 3:35 PM"
   const now = new Date()
   const sameDay = d.toDateString() === now.toDateString()
   const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })

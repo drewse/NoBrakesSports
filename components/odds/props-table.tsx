@@ -18,13 +18,15 @@ export interface PlayerPropRow {
   /** Consensus line — most-quoted across books (ties: smallest). */
   consensusLine: number | null
   /** Per-source quotes, keyed by source_id. */
-  byBook: Map<string, PlayerLineCell>
+  byBook: Record<string, PlayerLineCell>
   bestOver: number | null
   bestUnder: number | null
   bestOverBook: string | null
   bestUnderBook: string | null
   avgOver: number | null
   avgUnder: number | null
+  /** Live-update annotations — set of book ids whose cells should flicker. */
+  _flickerCells?: Set<string>
 }
 
 export interface PropsGameRow {
@@ -34,6 +36,8 @@ export interface PropsGameRow {
   awayTeam: string
   startTime: string
   players: PlayerPropRow[]
+  /** Live-update animation state for the whole game block. */
+  _anim?: 'entering' | 'leaving'
 }
 
 export function PropsTable({
@@ -140,11 +144,14 @@ function GameBlock({
   cellBest: React.CSSProperties
   cellAvg:  React.CSSProperties
 }) {
+  const animCls =
+    game._anim === 'leaving' ? 'live-leaving' :
+    game._anim === 'entering' ? 'live-entering' : ''
   return (
     <>
       <tr
         onClick={onToggle}
-        className="border-b border-border/40 bg-nb-900 hover:bg-nb-800 cursor-pointer"
+        className={`border-b border-border/40 bg-nb-900 hover:bg-nb-800 cursor-pointer ${animCls}`}
       >
         <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
           <div className="space-y-0.5">
@@ -195,11 +202,16 @@ function GameBlock({
             <OUStack over={p.avgOver} under={p.avgUnder} />
           </td>
           {books.map(b => {
-            const cell = p.byBook.get(b.id)
+            const cell = p.byBook[b.id]
             const isBestOver  = cell?.overPrice  != null && p.bestOver  != null && cell.overPrice  === p.bestOver
             const isBestUnder = cell?.underPrice != null && p.bestUnder != null && cell.underPrice === p.bestUnder
+            const flicker = p._flickerCells?.has(b.id)
             return (
-              <td key={b.id} className="px-2 py-2.5 text-center align-middle border-l border-border/40" style={{ minWidth: 92 }}>
+              <td
+                key={b.id}
+                className={`px-2 py-2.5 text-center align-middle border-l border-border/40 ${flicker ? 'live-flicker' : ''}`}
+                style={{ minWidth: 92 }}
+              >
                 <OUStack
                   over={cell?.overPrice ?? null}
                   under={cell?.underPrice ?? null}
