@@ -292,10 +292,16 @@ export async function GET(request: NextRequest) {
 
     // Find the canonical event. Match on sorted team-pair within the
     // vs-split title, regardless of home/away order in Kalshi's title.
-    // Among multiple matches (e.g. Game 1 + Game 5 of the same series),
-    // prefer the event whose date matches the Kalshi ticker's encoded
-    // game day. Ticker shape: KXNBAGAME-26APR27MINDEN → 2026-04-27.
-    const tickerDateMatch = pair.ticker.match(/^KX[A-Z]+-(\d{2})([A-Z]{3})(\d{2})/)
+    // Ticker shapes:
+    //   NBA  KXNBAGAME-26APR27MINDEN              ← date only
+    //   MLB  KXMLBGAME-26APR291510MIALAD-LAD      ← date + HHMM (ET)
+    // For tickers that include the start time we use full datetime
+    // matching with a 4-hour tolerance — the previous date-only match
+    // collapsed multiple same-day Kalshi games (Apr 29 day game +
+    // Apr 28 night game both on UTC 2026-04-29) onto the same
+    // canonical event, attaching the wrong probabilities.
+    const tickerWithTime  = pair.ticker.match(/^KX[A-Z]+-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})/)
+    const tickerDateMatch = tickerWithTime ?? pair.ticker.match(/^KX[A-Z]+-(\d{2})([A-Z]{3})(\d{2})/)
     const MONTHS: Record<string, string> = {
       JAN:'01', FEB:'02', MAR:'03', APR:'04', MAY:'05', JUN:'06',
       JUL:'07', AUG:'08', SEP:'09', OCT:'10', NOV:'11', DEC:'12',
@@ -303,6 +309,13 @@ export async function GET(request: NextRequest) {
     const tickerDate = tickerDateMatch
       ? `20${tickerDateMatch[1]}-${MONTHS[tickerDateMatch[2]] ?? '01'}-${tickerDateMatch[3]}`
       : null
+    // ET = UTC-4 during DST (covers all MLB regular-season tickers).
+    // Outside DST (Nov-Mar) ET = UTC-5; the 4-hour match tolerance below
+    // absorbs the +/- 1 hour offset shift either way.
+    const tickerStartMs = tickerWithTime
+      ? Date.parse(`${tickerDate}T${tickerWithTime[4]}:${tickerWithTime[5]}:00-04:00`)
+      : null
+
     const pairKey = [awayFull.toLowerCase(), homeFull.toLowerCase()].sort().join('|')
     const candidates = (events ?? []).filter((e: any) => {
       const parts = (e.title as string).split(/\s+vs\.?\s+/i)
@@ -312,9 +325,18 @@ export async function GET(request: NextRequest) {
     let dbEvent: any = null
     if (candidates.length === 1) {
       dbEvent = candidates[0]
+    } else if (candidates.length > 1 && tickerStartMs != null && isFinite(tickerStartMs)) {
+      // Pick the candidate whose start_time is within 4 hours of the
+      // ticker's encoded start time. Reject the whole match if no
+      // candidate clears the threshold so a future-day Kalshi game
+      // doesn't bleed onto the wrong canonical event.
+      const ranked = candidates
+        .map((c: any) => ({ c, diffMs: Math.abs(Date.parse(c.start_time) - tickerStartMs!) }))
+        .sort((a: any, b: any) => a.diffMs - b.diffMs)
+      const best = ranked[0]
+      if (best && best.diffMs <= 4 * 60 * 60 * 1000) dbEvent = best.c
     } else if (candidates.length > 1 && tickerDate) {
-      // Pick the candidate whose start_time lands on the ticker's day,
-      // or the soonest after it.
+      // Date-only ticker (NBA): same-day match, no time threshold.
       dbEvent = candidates
         .map((c: any) => ({ c, day: String(c.start_time).slice(0, 10) }))
         .sort((a: any, b: any) => {
