@@ -29,16 +29,15 @@ export default async function AppLayout({
       .select('*')
       .eq('id', user.id)
       .single(),
-    // Only count sources currently producing data. Includes prediction_market
-    // type (Kalshi/Polymarket) alongside sportsbook so those surface with
-    // their real DB names; the /books selector buckets them into the
-    // Prediction Markets section client-side via slug classification.
+    // Every active sportsbook / prediction-market source. The previous
+    // health_status='healthy' gate hid 25+ books whose cron writers
+    // never bump that field off the default 'unknown'. is_active alone
+    // is the right semantic for "should appear in the selector".
     supabase
       .from('market_sources')
       .select('name, slug')
       .in('source_type', ['sportsbook', 'prediction_market'])
       .eq('is_active', true)
-      .eq('health_status', 'healthy')
       .order('display_order', { ascending: true }),
     supabase
       .from('data_pipelines')

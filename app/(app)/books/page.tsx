@@ -13,16 +13,17 @@ export default async function BooksPage() {
 
   const cookieStore = await cookies()
   const [{ data: sourcesRaw }, { data: pipelinesRaw }] = await Promise.all([
-    // Match the topbar count: only sources currently producing data.
-    // Filtering by health_status='healthy' hides the ~70 planned/blocked/
-    // dead seed rows that would otherwise bloat the selector. Includes
-    // prediction_market type so Kalshi/Polymarket surface with real names.
+    // Show every active sportsbook / prediction-market source. is_active
+    // already filters dead/planned seed rows; health_status was previously
+    // also gated to 'healthy' but most cron writers never bump that field
+    // off the default 'unknown', so books like Betano / Proline / theScore /
+    // partypoker / BetMGM ON / Bet99 were silently hidden even though they
+    // were producing data.
     supabase
       .from('market_sources')
       .select('name, slug')
       .in('source_type', ['sportsbook', 'prediction_market'])
       .eq('is_active', true)
-      .eq('health_status', 'healthy')
       .order('display_order', { ascending: true }),
     supabase
       .from('data_pipelines')
