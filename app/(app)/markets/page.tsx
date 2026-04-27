@@ -20,9 +20,11 @@ export default async function MarketsPage({
   const params = await searchParams
   const { data: profile } = await supabase
     .from('profiles')
-    .select('subscription_tier, subscription_status')
+    .select('subscription_tier, subscription_status, is_admin')
     .eq('id', user.id)
     .single()
+  // Internal-only: redirect non-admins away from /markets.
+  if (!profile?.is_admin) redirect('/dashboard')
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
   const { data: leaguesRaw } = await supabase
