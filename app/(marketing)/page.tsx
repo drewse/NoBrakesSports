@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollFade } from '@/components/marketing/scroll-fade'
+import { Hero } from '@/components/marketing/hero'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -80,55 +81,7 @@ export default function LandingPage() {
   return (
     <>
       {/* ─── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden min-h-[80vh] sm:min-h-[92vh] flex items-center">
-        <div className="absolute inset-0 bg-grid opacity-100 pointer-events-none" />
-        <div className="absolute inset-0 hero-glow pointer-events-none" />
-
-        <div className="relative mx-auto w-full max-w-4xl px-4 sm:px-6 py-20 sm:py-32 text-center">
-          {/* Eyebrow */}
-          <ScrollFade>
-            <div className="inline-flex items-center gap-2 rounded-full border border-nb-700 bg-nb-900/80 px-3 py-1.5 mb-6 sm:mb-8">
-              <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-              <span className="text-[11px] sm:text-xs font-medium text-nb-300 tracking-wide">Live odds from 15+ sportsbooks</span>
-            </div>
-          </ScrollFade>
-
-          {/* Headline */}
-          <ScrollFade delay={100}>
-            <h1 className="text-4xl xs:text-5xl sm:text-6xl lg:text-7xl font-bold text-white tracking-tight leading-[1.05] mb-4 sm:mb-6">
-              Find +EV Bets
-              <br />
-              <span className="text-nb-400">Before Anyone Else</span>
-            </h1>
-          </ScrollFade>
-
-          {/* Subheadline */}
-          <ScrollFade delay={200}>
-            <p className="text-base sm:text-xl text-nb-400 max-w-xl mx-auto leading-relaxed mb-8 sm:mb-10">
-              Compare real-time odds across every major sportsbook.
-              Surface +EV lines, spot arbitrage, and track line movements — all in one fast dashboard.
-            </p>
-          </ScrollFade>
-
-          {/* Single primary CTA */}
-          <ScrollFade delay={300}>
-            <div className="flex flex-col items-center gap-4 mb-6">
-              <Button asChild size="xl" className="shadow-lg shadow-white/5">
-                <Link href="/signup">
-                  Start for free
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-              <p className="text-xs text-nb-500">No credit card required</p>
-            </div>
-          </ScrollFade>
-        </div>
-
-        {/* Scroll hint */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 text-nb-600">
-          <ChevronDown className="h-4 w-4 animate-bounce" />
-        </div>
-      </section>
+      <Hero />
 
       {/* ─── Product Preview ──────────────────────────────────────────────── */}
       <section className="mx-auto max-w-5xl px-4 sm:px-6 -mt-4 sm:-mt-8 pb-16 sm:pb-24">

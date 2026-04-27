@@ -1,6 +1,6 @@
 import Link from 'next/link'
-import { Zap } from 'lucide-react'
-import { Button } from '@/components/ui/button'
+import { Zap } from 'lucide-react'  // used in footer logo
+import { SiteHeader } from '@/components/marketing/site-header'
 
 export default function MarketingLayout({
   children,
@@ -9,37 +9,10 @@ export default function MarketingLayout({
 }) {
   return (
     <div className="min-h-screen bg-nb-950 text-white">
-      {/* Navbar — minimal: logo, pricing, login, CTA */}
-      <nav className="fixed top-0 z-50 w-full border-b border-nb-800/40 bg-nb-950/80 backdrop-blur-lg">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 flex h-14 items-center justify-between gap-2">
-          {/* Logo */}
-          <Link href="/" className="flex items-center gap-2 group min-w-0">
-            <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white group-hover:scale-105 transition-transform shrink-0">
-              <Zap className="h-4 w-4 text-nb-950 fill-nb-950" />
-            </div>
-            <span className="text-sm font-bold tracking-tight text-white whitespace-nowrap">
-              NO BRAKES
-              <span className="ml-1 hidden xs:inline text-[10px] font-medium text-nb-500 tracking-widest">SPORTS</span>
-            </span>
-          </Link>
+      <SiteHeader />
 
-          {/* Right side */}
-          <div className="flex items-center gap-2 sm:gap-4 shrink-0">
-            <Link href="/pricing" className="hidden sm:block text-sm text-nb-400 hover:text-white transition-colors">
-              Pricing
-            </Link>
-            <Button asChild variant="ghost" size="sm" className="hidden xs:inline-flex">
-              <Link href="/login">Log in</Link>
-            </Button>
-            <Button asChild size="sm">
-              <Link href="/signup">Get started</Link>
-            </Button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Content */}
-      <div className="pt-14">
+      {/* Content — pad-top matches the new 72px header */}
+      <div className="pt-[72px]">
         {children}
       </div>
 
