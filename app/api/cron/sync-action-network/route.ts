@@ -82,6 +82,11 @@ function pairKey(a: string, b: string) {
 interface AnTeam { id: number; full_name: string }
 interface AnOdds {
   book_id: number
+  /** Period scope. AN ships one row per (book × period): 'game' is the
+   *  full-game line; 'firsthalf' / '...quarter' / '...half' are partial
+   *  scopes whose ML / spread / total prices reflect a single segment
+   *  and must NEVER be written as the full-game market. */
+  type?: string
   ml_home: number | null
   ml_away: number | null
   spread_home: number | null
@@ -232,6 +237,14 @@ export async function GET(request: NextRequest) {
       const odds = Array.isArray(g.odds) ? g.odds : (g.odds ? Object.values(g.odds) : [])
       for (const o of odds as AnOdds[]) {
         if (SKIP_BOOK_IDS.has(o.book_id)) continue
+        // Critical: skip period-scoped entries. AN duplicates each book
+        // across game / firsthalf / secondhalf / firstquarter ... etc.
+        // Without this filter the last (fourthquarter) row clobbered the
+        // game row on upsert, producing wrong ML/Spread/Total prices for
+        // every AN-fed book (bet365, Caesars, Hard Rock, Fanatics,
+        // theScore). Allow undefined `type` for legacy payloads that
+        // don't ship the field at all.
+        if (o.type != null && o.type !== 'game') continue
         const meta = BOOK_MAP[o.book_id]
         if (!meta) {
           skippedBookIds.set(o.book_id, (skippedBookIds.get(o.book_id) ?? 0) + 1)
