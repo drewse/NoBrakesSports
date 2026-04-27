@@ -8,6 +8,13 @@ import { Button } from '@/components/ui/button'
 import { ScrollFade } from '@/components/marketing/scroll-fade'
 import { Hero } from '@/components/marketing/hero'
 import { SportsbookMarquee } from '@/components/marketing/sportsbook-marquee'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { loadArbs } from '@/lib/arbitrage/loaders'
+
+// Refresh the landing page (incl. the live arb count in the hero pill)
+// every 60 seconds. Marketing visitors don't need real-time, but the
+// count should feel alive across visits.
+export const revalidate = 60
 
 // ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -78,11 +85,24 @@ const FAQS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function LandingPage() {
+async function getLiveArbCount(): Promise<number | null> {
+  // Best-effort: run the same arb loader the /arbitrage page uses.
+  // Failures are silent — Hero falls back to a generic label.
+  try {
+    const db = createAdminClient()
+    const result = await loadArbs(db as any, null)
+    return result.totalArbs
+  } catch {
+    return null
+  }
+}
+
+export default async function LandingPage() {
+  const arbCount = await getLiveArbCount()
   return (
     <>
       {/* ─── Hero ─────────────────────────────────────────────────────────── */}
-      <Hero />
+      <Hero arbCount={arbCount} />
 
       {/* ─── Sportsbook marquee ───────────────────────────────────────────── */}
       <SportsbookMarquee />

@@ -21,7 +21,19 @@ const fadeUp = {
   show:   { opacity: 1, y: 0 },
 }
 
-export function Hero() {
+/** Round a live count down to a clean marketing-friendly tier. */
+function formatArbBadge(count: number | null | undefined): string {
+  if (count == null || !isFinite(count) || count <= 0) {
+    return 'Live arbitrage opportunities right now'
+  }
+  // Tier the number to round-down floors so the badge feels stable
+  // across small fluctuations: 5/10/25/50/100/250/500/1000.
+  const tiers = [1000, 500, 250, 100, 50, 25, 10, 5]
+  const tier = tiers.find(t => count >= t) ?? 1
+  return `${tier}+ live arbitrage opportunities right now`
+}
+
+export function Hero({ arbCount }: { arbCount?: number | null } = {}) {
   return (
     <section className="relative overflow-hidden">
       {/* Background — kept in sync with the rest of the page (grid + radial glow). */}
@@ -61,7 +73,7 @@ export function Hero() {
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-green-400" />
               </span>
               <span className="text-[11px] sm:text-xs font-medium text-nb-200 tracking-wide">
-                Live odds from 15+ sportsbooks
+                {formatArbBadge(arbCount)}
               </span>
             </motion.div>
 
