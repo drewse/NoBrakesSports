@@ -21,7 +21,6 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
-  { label: 'Overview',      href: '/dashboard',   icon: LayoutDashboard },
   { label: 'Odds',          href: '/odds',         icon: LineChart },
   { label: 'Top EV Lines',  href: '/top-lines',    icon: Star,           isPro: true },
   { label: 'Arbitrage',     href: '/arbitrage',    icon: Percent,        isPro: true },
@@ -119,6 +118,11 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
               </div>
               <NavLink
                 item={{ label: 'Admin', href: '/admin', icon: Shield }}
+                pathname={pathname}
+                isPro={false}
+              />
+              <NavLink
+                item={{ label: 'Overview', href: '/dashboard', icon: LayoutDashboard }}
                 pathname={pathname}
                 isPro={false}
               />

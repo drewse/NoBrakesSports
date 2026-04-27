@@ -24,7 +24,7 @@ export default async function MarketsPage({
     .eq('id', user.id)
     .single()
   // Internal-only: redirect non-admins away from /markets.
-  if (!profile?.is_admin) redirect('/dashboard')
+  if (!profile?.is_admin) redirect('/odds')
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
   const { data: leaguesRaw } = await supabase

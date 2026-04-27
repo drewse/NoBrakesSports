@@ -169,7 +169,7 @@ export default async function AdaptersPage() {
 
   const { data: profile } = await supabase
     .from('profiles').select('is_admin').eq('id', user.id).single()
-  if (!profile?.is_admin) redirect('/dashboard')
+  if (!profile?.is_admin) redirect('/odds')
 
   const totals = COLUMNS.reduce((sum, c) => sum + c.entries.length, 0)
 

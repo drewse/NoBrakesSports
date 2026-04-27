@@ -31,10 +31,11 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Auth routes — redirect if already logged in
+  // Auth routes — redirect if already logged in. Lands on /odds since
+  // /dashboard is now admin-only.
   const authRoutes = ['/login', '/signup', '/forgot-password']
   if (user && authRoutes.some((r) => pathname.startsWith(r))) {
-    return NextResponse.redirect(new URL('/dashboard', request.url))
+    return NextResponse.redirect(new URL('/odds', request.url))
   }
 
   // Protected app routes

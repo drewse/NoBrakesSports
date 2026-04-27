@@ -13,7 +13,7 @@ export default async function DataHealthPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('is_admin').eq('id', user.id).single()
-  if (!profile?.is_admin) redirect('/dashboard')
+  if (!profile?.is_admin) redirect('/odds')
 
   const [{ data: sources }, { data: recentSnaps }] = await Promise.all([
     supabase.from('market_sources').select('*').order('display_order'),

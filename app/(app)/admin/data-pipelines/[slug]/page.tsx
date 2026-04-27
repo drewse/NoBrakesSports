@@ -95,7 +95,7 @@ export default async function PipelineDetailPage({
     .eq('id', user.id)
     .single()
 
-  if (!profile?.is_admin) redirect('/dashboard')
+  if (!profile?.is_admin) redirect('/odds')
 
   // Fetch pipeline + source in parallel
   const [{ data: pipeline }, { data: source }] = await Promise.all([

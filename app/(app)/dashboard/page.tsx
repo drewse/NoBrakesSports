@@ -16,6 +16,8 @@ export default async function DashboardPage() {
   if (!user) redirect('/login')
 
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+  // Internal-only: redirect non-admins away from /dashboard.
+  if (!profile?.is_admin) redirect('/odds')
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
   // Fetch overview data

@@ -24,7 +24,7 @@ export default async function DataPipelinesPage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile?.is_admin) redirect('/dashboard')
+  if (!profile?.is_admin) redirect('/odds')
 
   // ── Data ─────────────────────────────────────────────────────────────────
   const [pipelinesRes, recentRunsRes, sourcesRes] = await Promise.all([
