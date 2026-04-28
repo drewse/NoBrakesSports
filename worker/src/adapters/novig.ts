@@ -109,7 +109,13 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'earned_runs') return 'player_earned_runs'
   if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
   if (t === 'pitcher_strikeouts' || t === 'pitcher_outs' || /player_strikeouts/.test(t)) {
-    return t === 'pitcher_outs' ? 'player_pitcher_outs' : 'player_strikeouts_p'
+    // Canonical category is 'pitcher_outs' (no player_ prefix) — every
+    // other book writes it that way and the seed list / UI use it. The
+    // prefixed 'player_pitcher_outs' value here was an oversight that
+    // silently filed Novig's outs lines under a category nobody else
+    // shared, so cross-book arbs (e.g. Davis Martin Outs 17.5 vs
+    // Proline / Caesars) never paired.
+    return t === 'pitcher_outs' ? 'pitcher_outs' : 'player_strikeouts_p'
   }
   if (t === 'total_bases' || t === 'player_total_bases') return 'player_total_bases'
   if (t === 'stolen_bases' || t === 'player_stolen_bases') return 'player_stolen_bases'

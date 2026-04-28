@@ -253,6 +253,14 @@ export function mapPinnacleCategory(description: string): { category: string; pl
 export function normalizePlayerName(name: string): string {
   return name
     .trim()
+    // Strip diacritics so "Nikola Vučević" / "Luka Dončić" / "Nikola
+    // Jokić" match their ASCII counterparts from books that strip
+    // accents (Betway, BetMGM, etc.). NFD splits each accented char
+    // into base + combining mark; the regex then drops the marks.
+    // Without this, every Eastern European star's prop arb fails to
+    // pair across books because the player_name keys disagree.
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
     // Remove periods from initials: "C.J." → "CJ"
     .replace(/\.(?=[A-Z])/g, '')
     // Remove trailing periods
