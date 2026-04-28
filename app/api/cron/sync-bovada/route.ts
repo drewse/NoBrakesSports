@@ -101,8 +101,10 @@ export async function GET(request: NextRequest) {
   const now = new Date().toISOString()
   const marketSnapshots: any[] = []
   const currentOddsByKey = new Map<string, any>()
+  const propRows = new Map<string, any>()
   let matched = 0
   let unmatched = 0
+  let propsBuilt = 0
   const byLeague: Record<string, number> = {}
 
   for (const r of results) {
@@ -110,6 +112,25 @@ export async function GET(request: NextRequest) {
     if (!eid) { unmatched++; continue }
     matched++
     byLeague[r.event.leagueSlug] = (byLeague[r.event.leagueSlug] ?? 0) + 1
+
+    // Player prop rows — one per (event, source, category, player, line).
+    for (const p of (r.props ?? [])) {
+      const overProb = p.overPrice != null ? round4(americanToImpliedProb(p.overPrice)) : null
+      const underProb = p.underPrice != null ? round4(americanToImpliedProb(p.underPrice)) : null
+      const key = `${eid}|${p.propCategory}|${p.playerName}|${p.lineValue ?? 0}`
+      propRows.set(key, {
+        event_id: eid, source_id: sourceId,
+        prop_category: p.propCategory,
+        player_name: p.playerName,
+        line_value: p.lineValue,
+        over_price: p.overPrice,
+        under_price: p.underPrice,
+        over_implied_prob: overProb,
+        under_implied_prob: underProb,
+        snapshot_time: now,
+      })
+      propsBuilt++
+    }
 
     for (const gm of r.gameMarkets) {
       const oddsHash = [gm.homePrice, gm.awayPrice, null, gm.spreadValue, gm.totalValue, gm.overPrice, gm.underPrice]
@@ -163,6 +184,19 @@ export async function GET(request: NextRequest) {
     else currentOddsUpserted += Math.min(200, currentOddsRows.length - i)
   }
 
+  // Player prop upserts. Same conflict key as sync-props uses.
+  const propRowsArr = [...propRows.values()]
+  let propsUpserted = 0
+  for (let i = 0; i < propRowsArr.length; i += 200) {
+    const { error } = await db
+      .from('prop_odds')
+      .upsert(propRowsArr.slice(i, i + 200), {
+        onConflict: 'event_id,source_id,prop_category,player_name,line_value',
+      })
+    if (error) errors.push(`prop batch ${Math.floor(i / 200)}: ${error.message}`)
+    else propsUpserted += Math.min(200, propRowsArr.length - i)
+  }
+
   await db.from('market_sources').update({ health_status: 'healthy', last_health_check: now }).eq('id', sourceId)
 
   return NextResponse.json({
@@ -172,6 +206,7 @@ export async function GET(request: NextRequest) {
     marketsBuilt: marketSnapshots.length,
     marketSnapshotsInserted: marketInserted,
     currentOddsUpserted,
+    propsBuilt, propsUpserted,
     byLeague,
     errors: errors.length ? errors : undefined,
   })
