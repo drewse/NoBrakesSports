@@ -281,13 +281,19 @@ export async function scrapePinnacleProps(
                 const prices = market.prices ?? []
 
                 // Build a participantId → role map from the special
-                // matchup's participants.
+                // matchup's participants. Permissive prefix-match, not
+                // strict equality — Pinnacle ships participant names as
+                // "Over 12.5" / "Under 12.5" / "Over (3.5)" on player
+                // totals, not bare "Over"/"Under". Strict equality dropped
+                // every player rebound/point/SOG prop where the line was
+                // baked into the participant name.
                 const roleById = new Map<number, 'over' | 'under' | 'yes' | 'no'>()
                 for (const p of pm.participants ?? []) {
                   if (p?.id == null) continue
                   const n = (p.name ?? '').toLowerCase().trim()
-                  if (n === 'over') roleById.set(p.id, 'over')
-                  else if (n === 'under') roleById.set(p.id, 'under')
+                  // Match leading word so "Over 12.5", "Over (3.5)", "Under 4.5" all resolve.
+                  if (/^over\b/.test(n)) roleById.set(p.id, 'over')
+                  else if (/^under\b/.test(n)) roleById.set(p.id, 'under')
                   else if (n === 'yes') roleById.set(p.id, 'yes')
                   else if (n === 'no') roleById.set(p.id, 'no')
                 }

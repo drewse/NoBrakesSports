@@ -415,15 +415,18 @@ function buildGameMarket(ev: NovigEvent, market: NovigMarket): GameMarket | null
   //   TOTAL_1H          — first-half total
   //   FIRST_INNING_TOTAL — first-inning total (baseball)
   if (t === 'OVERUNDER' || t === 'TOTAL' || t === 'TOTALS' || t === 'OVER_UNDER' ||
-      t === 'RUNS' || t === 'TOTAL_HOME_RUNS' ||
+      t === 'RUNS' ||
       t === 'TOTAL_1H' || t === 'FIRST_INNING_TOTAL') {
     const { over, under } = splitOverUnder(market.outcomes)
     if (!over && !under) return null
     const op = pickPrice(over ? market.ladders[over.outcomeId] : undefined)
     const up = pickPrice(under ? market.ladders[under.outcomeId] : undefined)
     if (op == null && up == null) return null
-    // Alt-period variants get their own market_type; RUNS / TOTAL_HOME_RUNS
-    // are just baseball game totals → 'total'.
+    // Alt-period variants get their own market_type. RUNS is the
+    // baseball equivalent of TOTAL → 'total'. TOTAL_HOME_RUNS used to
+    // be collapsed here too, which silently overwrote the real game
+    // total when both shared the same line and produced "Total 2.5"
+    // arbs the UI mislabeled as runs. Routed below as its own type.
     const mt = t === 'TOTAL_1H' ? 'total_h1'
       : t === 'FIRST_INNING_TOTAL' ? 'total_i1'
       : 'total'
