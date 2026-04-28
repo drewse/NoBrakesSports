@@ -37,6 +37,19 @@ const FRESHNESS_MS = 5 * 60 * 1000
 const PROP_PAGE = 1000
 const TOP_N = 50
 
+// Maximum arb profit we'll surface. Real cross-book arbs cluster in the
+// 0.5-5% band; anything above ~15% is almost always a data-quality issue
+// on one side — stale odds, an alt-line collapsed onto the main line, or
+// a book's line meaning a different scope (1st-period instead of full
+// game, etc.). OddsJam / AVO cap at similar thresholds because >15% arbs
+// don't actually clear when you try to place both bets.
+//
+// Recent observed phantoms killed by this cap:
+//  - Cavs/Raptors ML +22% (Kalshi bid/ask)
+//  - Robertson SOG 4.5 +41% (Rivers Over +128 vs Pinnacle Under +273)
+//  - Edgecombe/Merrill 3PM 1.5 from Pinnacle fallback
+const MAX_ARB_PROFIT_PCT = 15
+
 function formatPropCat(cat: string): string {
   const labels: Record<string, string> = {
     player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
@@ -254,6 +267,7 @@ export async function loadArbs(
         const combinedProb = calcCombinedProb(shape, homeProb, drawProb, awayProb)
         const profitPct = (1 / combinedProb - 1) * 100
         if (profitPct <= 0) continue
+        if (profitPct > MAX_ARB_PROFIT_PCT) continue
 
         const pairKey = `${(homeSnap as any).source_id}|${(awaySnap as any).source_id}`
         if (pairSeen.has(pairKey)) continue
@@ -362,6 +376,7 @@ export async function loadArbs(
           if (!isFinite(overProb) || !isFinite(underProb) || combinedProb <= 0) continue
           const profitPct = (1 / combinedProb - 1) * 100
           if (!isFinite(profitPct) || profitPct <= 0) continue
+          if (profitPct > MAX_ARB_PROFIT_PCT) continue
 
           const pairKey = `${overRow.source_id}|${underRow.source_id}`
           if (pairSeen.has(pairKey)) continue
