@@ -349,16 +349,36 @@ export async function loadArbs(
     }
   }
 
+  // Pull a short display name out of "City Mascot" team strings —
+  // "Chicago White Sox" → "White Sox", "Los Angeles Lakers" → "Lakers".
+  // Two-word mascots get preserved; everything else uses the last word.
+  const shortTeam = (full: string): string => {
+    const parts = full.trim().split(/\s+/)
+    if (parts.length <= 1) return full
+    const lastTwo = parts.slice(-2).join(' ')
+    if (/^(white sox|red sox|blue jays|trail blazers|maple leafs|golden knights|golden state|red wings|blue jackets)$/i.test(lastTwo)) {
+      return lastTwo
+    }
+    return parts[parts.length - 1]
+  }
+
   const allArbs: UnifiedArb[] = []
   for (const arb of gameArbs) {
+    // Parse team names from the event title's "Home vs Away" convention,
+    // then label sides as "<Team> ML" so the bet card reads as the
+    // actual side of the line instead of the generic "Home" / "Away".
+    const titleParts = arb.eventTitle.split(/\s+vs\.?\s+/i)
+    const homeTeam = (titleParts[0] ?? 'Home').trim()
+    const awayTeam = (titleParts[1] ?? 'Away').trim()
+    const suffix = arb.shape === '3way' ? '' : ' ML'
     allArbs.push({
       id: `game::${arb.eventId}::${arb.shape}::${arb.bestHomeSource}::${arb.bestAwaySource}`,
       type: 'game',
       eventTitle: arb.eventTitle,
       league: arb.league,
       description: arb.shape === '3way' ? 'Moneyline 3W' : 'Moneyline',
-      bestSideA: { label: 'Home', price: arb.bestHomePrice, source: arb.bestHomeSource },
-      bestSideB: { label: 'Away', price: arb.bestAwayPrice, source: arb.bestAwaySource },
+      bestSideA: { label: `${shortTeam(homeTeam)}${suffix}`, price: arb.bestHomePrice, source: arb.bestHomeSource },
+      bestSideB: { label: `${shortTeam(awayTeam)}${suffix}`, price: arb.bestAwayPrice, source: arb.bestAwaySource },
       bestDraw: arb.bestDrawPrice != null
         ? { price: arb.bestDrawPrice, source: arb.bestDrawSource ?? '—' }
         : null,
@@ -368,14 +388,17 @@ export async function loadArbs(
     })
   }
   for (const arb of propArbs) {
+    // Player-prop side labels include the line value so each card shows
+    // exactly which side of the line the bet covers, e.g. "Over 4.5".
+    const lineSuffix = arb.lineValue != null ? ` ${arb.lineValue}` : ''
     allArbs.push({
       id: `prop::${arb.eventId}::${arb.propCategory}::${arb.playerName}::${arb.lineValue}::${arb.bestOverSource}::${arb.bestUnderSource}`,
       type: 'prop',
       eventTitle: arb.eventTitle,
       league: arb.league,
       description: `${arb.playerName} ${formatPropCat(arb.propCategory)}${arb.lineValue != null ? ` ${arb.lineValue}` : ''}`,
-      bestSideA: { label: 'Over', price: arb.bestOverPrice, source: arb.bestOverSource },
-      bestSideB: { label: 'Under', price: arb.bestUnderPrice, source: arb.bestUnderSource },
+      bestSideA: { label: `Over${lineSuffix}`, price: arb.bestOverPrice, source: arb.bestOverSource },
+      bestSideB: { label: `Under${lineSuffix}`, price: arb.bestUnderPrice, source: arb.bestUnderSource },
       bestDraw: null,
       combinedProb: arb.combinedProb,
       profitPct: arb.profitPct,
