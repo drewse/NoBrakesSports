@@ -200,6 +200,21 @@ async function fetchEventProps(eventId: string): Promise<NormalizedProp[]> {
     }
   }
 
+  // Visibility: per-event line counts per (player, category) so we can see
+  // alt-line coverage in sync-props logs. Helps diagnose missing arbs like
+  // Cunningham Threes 2.5 (3+ threshold market) without DB inspection.
+  const linesByPlayer = new Map<string, number[]>()
+  for (const p of allProps) {
+    if (p.lineValue == null) continue
+    const k = `${p.playerName}|${p.propCategory}`
+    if (!linesByPlayer.has(k)) linesByPlayer.set(k, [])
+    linesByPlayer.get(k)!.push(p.lineValue)
+  }
+  const multiLine = [...linesByPlayer.entries()].filter(([, v]) => v.length >= 2)
+  if (multiLine.length > 0) {
+    console.log(`[FanDuel:${eventId}] ${allProps.length} props, ${multiLine.length} players with 2+ lines (sample: ${multiLine.slice(0, 3).map(([k, v]) => `${k.split('|')[0]} ${k.split('|')[1]} [${v.sort((a, b) => a - b).join(',')}]`).join(' | ')})`)
+  }
+
   return allProps
 }
 
