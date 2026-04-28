@@ -9,6 +9,7 @@ import { ScrollFade } from '@/components/marketing/scroll-fade'
 import { Hero } from '@/components/marketing/hero'
 import { SportsbookMarquee } from '@/components/marketing/sportsbook-marquee'
 import { CommunityProofSection } from '@/components/marketing/community-proof-section'
+import { PricingSection } from '@/components/marketing/pricing-section'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadArbs } from '@/lib/arbitrage/loaders'
 
@@ -168,67 +169,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ─── Pricing ──────────────────────────────────────────────────────── */}
-      <section id="pricing" className="border-y border-nb-800/60 bg-nb-900/40">
-        <div className="mx-auto max-w-5xl px-4 sm:px-6 py-16 sm:py-28">
-          <ScrollFade>
-            <div className="text-center mb-10 sm:mb-14">
-              <h2 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-3 sm:mb-4 tracking-tight">
-                Simple, transparent pricing
-              </h2>
-              <p className="text-sm sm:text-base text-nb-400 max-w-md mx-auto">
-                Start free. Upgrade when you want real-time data and the full toolkit.
-              </p>
-            </div>
-          </ScrollFade>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-5 max-w-2xl mx-auto">
-            {/* Free */}
-            <ScrollFade delay={0}>
-              <div className="card-lift rounded-xl border border-nb-800 bg-nb-950 p-7 h-full flex flex-col">
-                <p className="text-xs text-nb-500 uppercase tracking-wider font-semibold mb-3">Free</p>
-                <p className="text-4xl font-bold text-white mb-1">$0</p>
-                <p className="text-xs text-nb-500 mb-6">Forever free</p>
-                <ul className="space-y-2.5 mb-8 flex-1">
-                  {['Delayed odds overview', 'Basic market comparison', '3 watchlist slots', 'Core features'].map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm text-nb-400">
-                      <Zap className="h-3.5 w-3.5 text-nb-600 shrink-0 mt-0.5" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button asChild variant="outline" className="w-full">
-                  <Link href="/signup">Get started</Link>
-                </Button>
-              </div>
-            </ScrollFade>
-
-            {/* Pro */}
-            <ScrollFade delay={100}>
-              <div className="card-lift rounded-xl border border-white/20 bg-nb-950 p-7 h-full flex flex-col relative">
-                <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  <span className="bg-white text-nb-950 text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full">
-                    Most Popular
-                  </span>
-                </div>
-                <p className="text-xs text-nb-500 uppercase tracking-wider font-semibold mb-3">Pro</p>
-                <p className="text-4xl font-bold text-white mb-1">$50</p>
-                <p className="text-xs text-nb-500 mb-6">per month</p>
-                <ul className="space-y-2.5 mb-8 flex-1">
-                  {['Real-time odds from 15+ books', '+EV line detection', 'Arbitrage scanner', 'Unlimited alerts & watchlists', 'Full historical data', 'Priority support'].map((f) => (
-                    <li key={f} className="flex items-start gap-2 text-sm text-nb-300">
-                      <Zap className="h-3.5 w-3.5 text-white shrink-0 mt-0.5" />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                <Button asChild className="w-full">
-                  <Link href="/signup">Start Pro</Link>
-                </Button>
-              </div>
-            </ScrollFade>
-          </div>
-        </div>
-      </section>
+      <PricingSection />
 
       {/* ─── FAQ ───────────────────────────────────────────────────────────── */}
       <section id="faq" className="mx-auto max-w-2xl px-4 sm:px-6 py-16 sm:py-28">
