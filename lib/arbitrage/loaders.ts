@@ -33,7 +33,15 @@ export interface ArbsResult {
   uniqueBooks: number
 }
 
-const FRESHNESS_MS = 5 * 60 * 1000
+// 15 min, not 5. sync-props + sync-odds run on a 5-min cron, so a 5-min
+// cutoff means *every* row from the previous cycle drops out exactly when
+// the next cycle is mid-flight — arbs flicker in and out depending on
+// where in the cron interval the page loads. 15 min = ~3 cycles, comfortably
+// excludes books that have actually missed a sync without strangling fresh
+// pairings (e.g., Betway+FanDuel rows captured at minute 0 are still
+// "live" at minute 6, but the old 5-min cutoff was filtering them out and
+// hiding real arbs that AVO/OddsJam were surfacing).
+const FRESHNESS_MS = 15 * 60 * 1000
 const PROP_PAGE = 1000
 const TOP_N = 50
 
