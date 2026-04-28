@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown } from 'lucide-react'
 
 /**
@@ -46,13 +47,39 @@ function formatLine(n: number): string {
 export function LineSelector({ lines, selected, autoLine, onChange, compact = false }: Props) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
   const listId = useId()
 
-  // Click-away to close.
+  // Portal coords: the menu mounts on document.body to escape the table's
+  // overflow:auto clipping. Recalculate on open + on scroll/resize so it
+  // tracks the button while the user scrolls the page or table.
+  const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
+  useLayoutEffect(() => {
+    if (!open) { setCoords(null); return }
+    const update = () => {
+      const r = buttonRef.current?.getBoundingClientRect()
+      if (!r) return
+      setCoords({ top: r.bottom + 4, left: r.left })
+    }
+    update()
+    window.addEventListener('scroll', update, true) // capture: catch nested scrollers
+    window.addEventListener('resize', update)
+    return () => {
+      window.removeEventListener('scroll', update, true)
+      window.removeEventListener('resize', update)
+    }
+  }, [open])
+
+  // Click-away to close. Check both the button wrapper AND the portaled
+  // menu so clicks inside the menu don't trip the close.
   useEffect(() => {
     if (!open) return
     function onDoc(e: MouseEvent) {
-      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (wrapRef.current?.contains(t)) return
+      if (menuRef.current?.contains(t)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
@@ -95,6 +122,7 @@ export function LineSelector({ lines, selected, autoLine, onChange, compact = fa
   return (
     <div ref={wrapRef} className="relative inline-block">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         aria-haspopup="listbox"
@@ -106,11 +134,13 @@ export function LineSelector({ lines, selected, autoLine, onChange, compact = fa
         <ChevronDown className={`h-3 w-3 text-nb-500 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
 
-      {open && (
+      {open && coords && createPortal(
         <div
+          ref={menuRef}
           id={listId}
           role="listbox"
-          className="absolute left-0 top-full mt-1 z-30 min-w-[120px] max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-nb-950/95 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
+          style={{ position: 'fixed', top: coords.top, left: coords.left }}
+          className="z-[100] min-w-[120px] max-h-64 overflow-y-auto rounded-lg border border-white/10 bg-nb-950/95 backdrop-blur-xl shadow-[0_10px_40px_rgba(0,0,0,0.6)]"
         >
           <ul className="py-1">
             {items.length === 1 && (
@@ -147,7 +177,8 @@ export function LineSelector({ lines, selected, autoLine, onChange, compact = fa
               )
             })}
           </ul>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
