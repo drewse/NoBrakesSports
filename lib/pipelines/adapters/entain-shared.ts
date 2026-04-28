@@ -325,6 +325,26 @@ function parseFixture(data: any, leagueSlug: string): EntainResult | null {
     // ── Player props ──
     if (options.length === 2 && market.attr != null) {
       const marketName = market.name?.value ?? ''
+
+      // Reject team totals + period-scoped team markets that the catName
+      // fallback below would otherwise stuff into prop_odds as fake
+      // "players". Examples seen in the wild (BetMGM/bwin/partypoker):
+      //   "Oklahoma City Thunder: 1st Half Points"
+      //   "Phoenix Suns: 1st Quarter Points"
+      //   "Oklahoma City Thunder: Total Points"
+      //   "Toronto Raptors: Total points"
+      // Real player props on Entain are either "Player - Stat" (dashMatch)
+      // or "Player (TEAM): Stat" (colonMatch with parenthesized team
+      // abbreviation). Anything else carrying a colon-team-prefix +
+      // period/total stat is a team-scoped market we don't ingest.
+      const teamColonMatch = marketName.match(/^[^()]+:\s*(.+)$/)
+      if (teamColonMatch) {
+        const statPortion = teamColonMatch[1].toLowerCase()
+        const isPeriod = /\b(1st|2nd|3rd|4th|first|second|third|fourth)\s+(half|quarter)\b/.test(statPortion)
+        const isPlainTotal = /^total\s+(points?|runs?|goals?|rebounds?|assists?)\s*$/.test(statPortion)
+        if (isPeriod || isPlainTotal) continue
+      }
+
       const parsed = parsePlayerName(marketName)
 
       // Detect combo stat from the market name itself. Entain sometimes
