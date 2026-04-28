@@ -169,13 +169,52 @@ export async function loadArbs(
 
     // Filter 1X2-as-2way snapshots that produce phantom arbs
     const MIN_TWO_WAY_TOTAL = 0.85
-    const validSnaps = shape === '2way'
+    let validSnaps = shape === '2way'
       ? snaps.filter((s: any) => {
           if (s.home_price == null || s.away_price == null) return true
           const total = americanToImpliedProb(s.home_price) + americanToImpliedProb(s.away_price)
           return total >= MIN_TWO_WAY_TOTAL
         })
       : snaps
+
+    // Direction-disagreement filter. The same MLB game can land in our
+    // DB with home/away semantically inverted on a minority of books
+    // (canonical event title pinpoints one team as home, but a source's
+    // adapter writes the other team's price into home_price). Symptom:
+    // most books have home as the dog (home_price > away_price implied)
+    // while a few have home as the favorite. Pairing across this divide
+    // produces phantom arbs (e.g., bestHome from a "Sox dog" book vs
+    // bestAway from a "Sox favorite" book — those are the SAME team's
+    // price quoted twice).
+    //
+    // Detect majority orientation and drop the minority. We only enforce
+    // this for 2-way markets where both sides exist; 3-way (soccer)
+    // skips this since draw odds shift the relative magnitudes.
+    if (shape === '2way') {
+      let homeAsFav = 0, homeAsDog = 0
+      for (const s of validSnaps as any[]) {
+        if (s.home_price == null || s.away_price == null) continue
+        const hp = americanToImpliedProb(s.home_price)
+        const ap = americanToImpliedProb(s.away_price)
+        if (hp > ap) homeAsFav++
+        else if (ap > hp) homeAsDog++
+      }
+      // Only filter when there's a clear majority (≥3 books) AND the
+      // minority is a small group; otherwise leave snaps untouched so
+      // we don't kill thin-coverage events.
+      if (homeAsFav + homeAsDog >= 4 && Math.abs(homeAsFav - homeAsDog) >= 2) {
+        const consensusHomeIsFav = homeAsFav > homeAsDog
+        validSnaps = validSnaps.filter((s: any) => {
+          if (s.home_price == null || s.away_price == null) return true
+          const hp = americanToImpliedProb(s.home_price)
+          const ap = americanToImpliedProb(s.away_price)
+          if (hp === ap) return true   // pick'em — orientation indeterminate
+          const homeIsFav = hp > ap
+          return homeIsFav === consensusHomeIsFav
+        })
+        if (validSnaps.length === 0) continue
+      }
+    }
 
     const withHome = validSnaps.filter((s: any) => s.home_price != null)
     const withAway = validSnaps.filter((s: any) => s.away_price != null)

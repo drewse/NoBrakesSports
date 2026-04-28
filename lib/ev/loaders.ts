@@ -242,12 +242,40 @@ export async function loadEv(
   type WorkingLine = Omit<UnifiedEvLine, 'id'> & { outcomeSide: 'home' | 'away' | 'draw' | 'over'; shape: MarketShape }
   const evLines: WorkingLine[] = []
 
-  for (const snaps of groupMap.values()) {
-    const event = (snaps[0] as any).event
+  for (const groupSnaps of groupMap.values()) {
+    const event = (groupSnaps[0] as any).event
     const leagueAbbrev: string = event?.league?.abbreviation ?? ''
     const leagueSlug: string = event?.league?.slug ?? ABBREV_TO_SLUG[leagueAbbrev] ?? ''
-    const marketType = snaps[0].market_type as string
+    const marketType = groupSnaps[0].market_type as string
     const shape = getMarketShape(leagueSlug || null, null, marketType)
+
+    // Direction-disagreement filter (moneyline / spread only). Same fix
+    // as /arbitrage: a minority of books may have home/away semantically
+    // inverted vs the canonical event, producing phantom +EV when their
+    // home_price is paired against the consensus's away_price. Drop the
+    // minority orientation before computing fair probs + EV.
+    let snaps = groupSnaps
+    if (shape === '2way' && (marketType === 'moneyline' || marketType === 'spread')) {
+      let homeAsFav = 0, homeAsDog = 0
+      for (const s of groupSnaps as any[]) {
+        if (s.home_price == null || s.away_price == null) continue
+        const hp = americanToImpliedProb(s.home_price)
+        const ap = americanToImpliedProb(s.away_price)
+        if (hp > ap) homeAsFav++
+        else if (ap > hp) homeAsDog++
+      }
+      if (homeAsFav + homeAsDog >= 4 && Math.abs(homeAsFav - homeAsDog) >= 2) {
+        const consensusHomeIsFav = homeAsFav > homeAsDog
+        snaps = groupSnaps.filter((s: any) => {
+          if (s.home_price == null || s.away_price == null) return true
+          const hp = americanToImpliedProb(s.home_price)
+          const ap = americanToImpliedProb(s.away_price)
+          if (hp === ap) return true
+          return (hp > ap) === consensusHomeIsFav
+        })
+        if (snaps.length === 0) continue
+      }
+    }
 
     const fair = computeFairProbs(
       snaps.map(s => ({
