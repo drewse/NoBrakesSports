@@ -258,8 +258,16 @@ export async function loadArbs(
 
   const propOddsRaw: any[] = await propBatchPromises
   if (propOddsRaw && propOddsRaw.length > 0) {
+    // DFS / pick-em platforms (Sleeper, PrizePicks, Underdog) are not
+    // real two-sided money lines — their "odds" are projection leans
+    // for pick-count parlay payouts, not standalone bets. Pairing them
+    // against a real sportsbook's under produces phantom arbs (e.g.
+    // Sleeper SOG 4.5 over +114 vs PointsBet under +275 looking like
+    // a 36% arb). Exclude them from arb candidate pools entirely.
+    const DFS_SLUGS = new Set(['sleeper', 'prizepicks', 'underdog'])
     const filteredProps = propOddsRaw.filter((p: any) => {
       const slug = p.source?.slug ?? ''
+      if (DFS_SLUGS.has(slug)) return false
       if (enabledBooks && !enabledBooks.has(slug)) return false
       return true
     })

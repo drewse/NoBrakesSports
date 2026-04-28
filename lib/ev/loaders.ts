@@ -323,10 +323,16 @@ export async function loadEv(
   }
 
   // Prop +EV
+  // Exclude DFS / pick-em sources (Sleeper / PrizePicks / Underdog) for
+  // the same reason as /arbitrage: their "odds" are projection leans
+  // for pick-count parlay payouts, not real two-sided money lines.
+  // Including them produces phantom EV against real sportsbooks.
+  const DFS_SLUGS = new Set(['sleeper', 'prizepicks', 'underdog'])
   const propOddsRaw: any[] = await propBatchPromises
   if (propOddsRaw && propOddsRaw.length > 0) {
     const filteredProps = propOddsRaw.filter((p: any) => {
       const slug = p.source?.slug ?? ''
+      if (DFS_SLUGS.has(slug)) return false
       if (enabledBooks && !enabledBooks.has(slug)) return false
       if (!p.event || !isUpcomingEvent(p.event.start_time)) return false
       return true
