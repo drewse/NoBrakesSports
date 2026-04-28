@@ -101,12 +101,29 @@ export async function fetchKalshiMarkets(): Promise<KalshiFetchResult> {
   }
 }
 
-// Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer
-export function kalshiPriceToProb(market: KalshiMarket, side: 'yes' | 'no'): number {
+// Kalshi prices: prefer dollar string field (0.0–1.0), fall back to cents integer.
+//
+// `priceType`:
+//   'bid' — what someone will PAY you to take the contract (sell side).
+//           Sums to <1.0 across paired YES/NO; using bid for both sides of a
+//           game (e.g. Cavs-YES bid + Raptors-YES bid) understates each prob
+//           and fabricates positive arb against other books. Only useful for
+//           prediction-market displays where we just want a rough fair-value.
+//   'ask' — what YOU pay to BUY the contract. This is the betting price and
+//           the right input for moneyline conversion: implied prob across a
+//           paired YES/YES sums to >1.0 (the vig), matching how sportsbooks
+//           quote odds.
+export function kalshiPriceToProb(
+  market: KalshiMarket,
+  side: 'yes' | 'no',
+  priceType: 'bid' | 'ask' = 'bid',
+): number {
   if (side === 'yes') {
+    if (priceType === 'ask') return (market.yes_ask ?? 0) / 100
     if (market.yes_bid_dollars != null) return parseFloat(market.yes_bid_dollars)
     return (market.yes_bid ?? 0) / 100
   }
+  if (priceType === 'ask') return (market.no_ask ?? 0) / 100
   if (market.no_bid_dollars != null) return parseFloat(market.no_bid_dollars)
   return (market.no_bid ?? 0) / 100
 }

@@ -381,8 +381,13 @@ export async function GET(request: NextRequest) {
 
     const homeMarket = aIsDbHome ? pair.a : pair.b
     const awayMarket = aIsDbHome ? pair.b : pair.a
-    const homeProb = kalshiPriceToProb(homeMarket, 'yes')
-    const awayProb = kalshiPriceToProb(awayMarket, 'yes')
+    // ASK side, not BID. Bid is the sell-side price; using bid for both
+    // YES contracts in the pair gives an implied-prob sum < 1.0 and
+    // fabricates ~20% arbitrage against any other book. Ask is what
+    // someone actually pays to bet, sums to >1.0 (the vig), matches
+    // how sportsbooks quote moneylines.
+    const homeProb = kalshiPriceToProb(homeMarket, 'yes', 'ask')
+    const awayProb = kalshiPriceToProb(awayMarket, 'yes', 'ask')
     const homePrice = probToAmerican(homeProb)
     const awayPrice = probToAmerican(awayProb)
     if (homePrice == null && awayPrice == null) continue
