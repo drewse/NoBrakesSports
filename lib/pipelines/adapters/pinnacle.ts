@@ -178,7 +178,11 @@ interface PinnPrice {
 interface PinnMarket {
   type: 'moneyline' | 'spread' | 'total'
   matchupId: number
-  key: string        // "{line}@{matchupId}"
+  /** Format: `s;<period>;<type>[;<line>;<side>]`. Period 0 = full
+   *  game (full 90 min for soccer / full-9 for MLB), period 1+ are
+   *  halves / first-N-innings / quarters. Filter on `s;0;` to keep only
+   *  full-game lines on the main markets. */
+  key: string
   prices: PinnPrice[]
 }
 
@@ -202,6 +206,15 @@ function extractMarkets(
 
   for (const m of raw) {
     if (m.matchupId !== matchupId) continue
+    // Pinnacle market keys are `s;<period>;<type>...`. Period 0 = full
+    // game / full match (90 min for soccer, full-9 for MLB, etc.); period
+    // 1+ = halves / first-N-innings / quarters. We want only full-game
+    // lines on the main moneyline / spread / total — emitting the period-1
+    // ML alongside period-0 caused duplicate conflict-key writes that
+    // collapsed onto the wrong (partial-game) row at the writer dedup,
+    // showing Roma at +140 instead of -149, Juventus at -159 instead of
+    // -443, etc. Skip anything that isn't period 0.
+    if (m.key && !m.key.startsWith('s;0;')) continue
     const prices = m.prices ?? []
 
     if (m.type === 'moneyline') {
