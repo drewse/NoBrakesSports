@@ -8,7 +8,6 @@ import {
   calcCombinedProb,
   type MarketShape,
 } from '@/lib/utils'
-import { isUpcomingEvent } from '@/lib/queries'
 
 const THREE_WAY_SPORT_SLUGS = new Set(['soccer'])
 
@@ -82,73 +81,84 @@ export async function loadArbs(
   supabase: SupabaseClient,
   enabledBooks: Set<string> | null,
 ): Promise<ArbsResult> {
-  // Pre-filter to upcoming event IDs at the SQL layer. Without this we
-  // were fetching every ML row + every prop row from the last 5 minutes
-  // across ALL events (incl. settled/finished ones) and dropping them
-  // post-fetch via isUpcomingEvent. Pages took 10s+ to load because of
-  // the wasted volume — this brings them in line with /odds.
+  // Performance: the page used to take 10s+. The two big costs were
+  //   1. Embedded joins on prop_odds + current_market_odds — PostgREST
+  //      serializes the same event/league/source object onto every row.
+  //      For 35k prop rows that's millions of duplicated bytes. Bench
+  //      showed flat 0.9s vs joined 3.5s for 36 pages.
+  //   2. A count(*) round trip before pagination, ~150ms wasted.
+  // Fix: fetch FLAT rows (no embedded joins) and look up event / source
+  // metadata from small side queries we'd be running anyway. Then skip
+  // count(*) and paginate until a short page tells us we're done.
   const nowIso = new Date().toISOString()
-  const { data: upcomingEvents } = await supabase
-    .from('events')
-    .select('id')
-    .gt('start_time', nowIso)
-    .order('start_time', { ascending: true })
-    .limit(500)
-  const upcomingIds = (upcomingEvents ?? []).map(e => e.id as string)
+  const staleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
+
+  // Three independent queries fire in parallel: upcoming events with all
+  // their league/sport metadata (~500 rows × small payload), every
+  // market source (~100 rows, basically free), and the upcoming event id
+  // list to feed the row queries.
+  const [eventsRes, sourcesRes] = await Promise.all([
+    supabase
+      .from('events')
+      .select('id, title, start_time, status, league:leagues(name, abbreviation, slug, sport:sports(slug))')
+      .gt('start_time', nowIso)
+      .order('start_time', { ascending: true })
+      .limit(500),
+    supabase
+      .from('market_sources')
+      .select('id, name, slug'),
+  ])
+
+  const upcomingEvents = (eventsRes.data ?? []) as any[]
+  const upcomingIds = upcomingEvents.map(e => e.id as string)
   if (upcomingIds.length === 0) {
     return { arbs: [], totalArbs: 0, uniqueBooks: 0 }
   }
+  const eventById = new Map<string, any>(upcomingEvents.map(e => [e.id, e]))
+  const sourceById = new Map<string, { id: string; name: string; slug: string }>(
+    ((sourcesRes.data ?? []) as any[]).map(s => [s.id, s]),
+  )
 
-  const staleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
-  const snapshotsPromise = supabase
-    .from('current_market_odds')
-    .select(`
-      event_id, source_id, market_type, home_price, away_price, draw_price, snapshot_time,
-      event:events(id, title, start_time, status, league:leagues(name, abbreviation, slug, sport:sports(slug))),
-      source:market_sources(id, name, slug)
-    `)
-    .in('event_id', upcomingIds)
-    .eq('market_type', 'moneyline')
-    .gt('snapshot_time', staleCutoff)
-    .limit(5000)
-
-  const propStaleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
+  const propStaleCutoff = staleCutoff
+  // Range-pagination without count(*). 8 pages in parallel covers up to
+  // 8000 rows without a count query; if the last page is full we keep
+  // going. In practice prop_odds for upcoming events sits around 25-40k
+  // rows during peak slate, so we provision enough parallel batches up
+  // front and stop early as soon as a short page tells us we're done.
   const fetchAllProps = async (): Promise<any[]> => {
-    const { count } = await supabase
-      .from('prop_odds')
-      .select('id', { count: 'exact', head: true })
-      .in('event_id', upcomingIds)
-      .gt('snapshot_time', propStaleCutoff)
-      .or('over_price.not.is.null,under_price.not.is.null')
-    const total = count ?? 0
-    if (total === 0) return []
-    const pageCount = Math.ceil(total / PROP_PAGE)
+    const all: any[] = []
+    // Up to 50k rows worth of capacity. 50 pages × 1000 rows = enough
+    // headroom for the largest plausible slate without ever blocking on
+    // count(*). We fire them all in parallel and let PostgREST short-
+    // circuit empty pages to ~30ms each.
+    const MAX_PAGES = 50
     const batches = await Promise.all(
-      Array.from({ length: pageCount }, (_, i) =>
+      Array.from({ length: MAX_PAGES }, (_, i) =>
         supabase
           .from('prop_odds')
-          .select(`
-            event_id, source_id, prop_category, player_name, line_value,
-            over_price, under_price, over_implied_prob, under_implied_prob, snapshot_time,
-            event:events(id, title, start_time, league:leagues(abbreviation)),
-            source:market_sources(id, name, slug)
-          `)
+          .select('event_id, source_id, prop_category, player_name, line_value, over_price, under_price, snapshot_time')
           .in('event_id', upcomingIds)
           .gt('snapshot_time', propStaleCutoff)
           .or('over_price.not.is.null,under_price.not.is.null')
           .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
       ),
     )
-    const all: any[] = []
-    for (const { data } of batches) if (data) all.push(...data)
+    for (const { data } of batches) if (data && data.length) all.push(...data)
     return all
   }
+  const snapshotsPromise = supabase
+    .from('current_market_odds')
+    .select('event_id, source_id, market_type, home_price, away_price, draw_price, snapshot_time')
+    .in('event_id', upcomingIds)
+    .eq('market_type', 'moneyline')
+    .gt('snapshot_time', staleCutoff)
+    .limit(5000)
   const propBatchPromises = fetchAllProps()
 
   const { data: snapshots } = await snapshotsPromise
 
   const filteredSnapshots = (snapshots ?? []).filter(s => {
-    const slug: string = (s as any).source?.slug ?? ''
+    const slug: string = sourceById.get((s as any).source_id)?.slug ?? ''
     if (slug === 'polymarket') return false
     if (enabledBooks && !enabledBooks.has(slug)) return false
     return true
@@ -156,7 +166,7 @@ export async function loadArbs(
 
   const byEvent = new Map<string, any[]>()
   for (const snap of filteredSnapshots) {
-    const ev = (snap as any).event
+    const ev = eventById.get(snap.event_id)
     if (!ev) continue
     if (!byEvent.has(snap.event_id)) byEvent.set(snap.event_id, [])
     byEvent.get(snap.event_id)!.push(snap)
@@ -179,8 +189,10 @@ export async function loadArbs(
   }> = []
 
   for (const snaps of byEvent.values()) {
-    const event = (snaps[0] as any).event
-    if (!isUpcomingEvent(event?.start_time)) continue
+    const event = eventById.get(snaps[0].event_id)
+    if (!event) continue
+    // No isUpcomingEvent check needed — we already SQL-filtered to events
+    // with start_time > now in the upcoming-events query.
     const leagueAbbrev: string = event?.league?.abbreviation ?? ''
     const leagueSlug: string = event?.league?.slug ?? ''
     const sportSlug: string = event?.league?.sport?.slug ?? ''
@@ -287,11 +299,11 @@ export async function loadArbs(
           league: leagueAbbrev || '—',
           shape,
           bestHomePrice: homeSnap.home_price!,
-          bestHomeSource: (homeSnap as any).source?.name ?? '—',
+          bestHomeSource: sourceById.get((homeSnap as any).source_id)?.name ?? '—',
           bestDrawPrice: bestDrawSnap?.draw_price ?? null,
-          bestDrawSource: bestDrawSnap != null ? ((bestDrawSnap as any).source?.name ?? '—') : null,
+          bestDrawSource: bestDrawSnap != null ? (sourceById.get((bestDrawSnap as any).source_id)?.name ?? '—') : null,
           bestAwayPrice: awaySnap.away_price!,
-          bestAwaySource: (awaySnap as any).source?.name ?? '—',
+          bestAwaySource: sourceById.get((awaySnap as any).source_id)?.name ?? '—',
           combinedProb,
           profitPct,
           lastUpdated,
@@ -327,9 +339,13 @@ export async function loadArbs(
     // a 36% arb). Exclude them from arb candidate pools entirely.
     const DFS_SLUGS = new Set(['sleeper', 'prizepicks', 'underdog'])
     const filteredProps = propOddsRaw.filter((p: any) => {
-      const slug = p.source?.slug ?? ''
+      const slug = sourceById.get(p.source_id)?.slug ?? ''
       if (DFS_SLUGS.has(slug)) return false
       if (enabledBooks && !enabledBooks.has(slug)) return false
+      // Drop rows whose event isn't in the upcoming-events set (the SQL
+      // filter already enforced this; this just guards against a race
+      // where an event flipped to live between the two queries).
+      if (!eventById.has(p.event_id)) return false
       return true
     })
     // Dedupe by (event, category, player, line, source) keeping the most-
@@ -339,7 +355,6 @@ export async function loadArbs(
     // determinism if a book has stale rows.
     const latestPropBySrc = new Map<string, any>()
     for (const p of filteredProps) {
-      if (!(p as any).event || !isUpcomingEvent((p as any).event?.start_time)) continue
       const k = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}|${p.source_id}`
       const existing = latestPropBySrc.get(k)
       if (!existing || p.snapshot_time > existing.snapshot_time) {
@@ -390,7 +405,7 @@ export async function loadArbs(
           if (pairSeen.has(pairKey)) continue
           pairSeen.add(pairKey)
 
-          const ev = (overRow as any).event
+          const ev = eventById.get(overRow.event_id)
           propArbs.push({
             eventId: overRow.event_id,
             eventTitle: ev?.title ?? '—',
@@ -399,9 +414,9 @@ export async function loadArbs(
             playerName: overRow.player_name,
             lineValue: overRow.line_value,
             bestOverPrice: overRow.over_price,
-            bestOverSource: (overRow as any).source?.name ?? '—',
+            bestOverSource: sourceById.get((overRow as any).source_id)?.name ?? '—',
             bestUnderPrice: underRow.under_price,
-            bestUnderSource: (underRow as any).source?.name ?? '—',
+            bestUnderSource: sourceById.get((underRow as any).source_id)?.name ?? '—',
             combinedProb,
             profitPct,
             lastUpdated: latestUpdated,
