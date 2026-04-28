@@ -120,20 +120,26 @@ export async function loadArbs(
   )
 
   const propStaleCutoff = staleCutoff
-  // Range-pagination without count(*). 8 pages in parallel covers up to
-  // 8000 rows without a count query; if the last page is full we keep
-  // going. In practice prop_odds for upcoming events sits around 25-40k
-  // rows during peak slate, so we provision enough parallel batches up
-  // front and stop early as soon as a short page tells us we're done.
+  // Pagination strategy: count(*) first to size the parallel page array
+  // exactly. Tried fanning out 50 unconditional parallel pages without
+  // count to skip the round trip, but each page sends an 18KB URL
+  // (500-uuid IN clause) and 50 of those at once tripped PostgREST /
+  // network — every batch came back with `fetch failed`, killing the
+  // whole loader. count(*) is ~150ms on this table; cheap insurance.
+  // The big perf win was dropping embedded joins (3.5s → 0.9s on 36
+  // pages); pagination shape is secondary.
   const fetchAllProps = async (): Promise<any[]> => {
-    const all: any[] = []
-    // Up to 50k rows worth of capacity. 50 pages × 1000 rows = enough
-    // headroom for the largest plausible slate without ever blocking on
-    // count(*). We fire them all in parallel and let PostgREST short-
-    // circuit empty pages to ~30ms each.
-    const MAX_PAGES = 50
+    const { count } = await supabase
+      .from('prop_odds')
+      .select('id', { count: 'exact', head: true })
+      .in('event_id', upcomingIds)
+      .gt('snapshot_time', propStaleCutoff)
+      .or('over_price.not.is.null,under_price.not.is.null')
+    const total = count ?? 0
+    if (total === 0) return []
+    const pageCount = Math.ceil(total / PROP_PAGE)
     const batches = await Promise.all(
-      Array.from({ length: MAX_PAGES }, (_, i) =>
+      Array.from({ length: pageCount }, (_, i) =>
         supabase
           .from('prop_odds')
           .select('event_id, source_id, prop_category, player_name, line_value, over_price, under_price, snapshot_time')
@@ -143,7 +149,8 @@ export async function loadArbs(
           .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
       ),
     )
-    for (const { data } of batches) if (data && data.length) all.push(...data)
+    const all: any[] = []
+    for (const { data } of batches) if (data) all.push(...data)
     return all
   }
   const snapshotsPromise = supabase
