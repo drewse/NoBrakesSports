@@ -1,9 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useMemo, useState } from 'react'
 import { ChevronDown, Clock } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 import { formatOdds } from '@/lib/utils'
+import { LineSelector, type LineOption } from './line-selector'
 import type { BookColumn } from './odds-table'
 
 export interface PlayerLineCell {
@@ -15,9 +16,11 @@ export interface PlayerLineCell {
 
 export interface PlayerPropRow {
   playerName: string
-  /** Consensus line — most-quoted across books (ties: smallest). */
+  /** Consensus line — most-quoted across books (ties: smallest).
+   *  Used as the "Auto" selection. */
   consensusLine: number | null
-  /** Per-source quotes, keyed by source_id. */
+  /** Per-source quotes for the CONSENSUS line (back-compat — what
+   *  callers without alt-line awareness see). */
   byBook: Record<string, PlayerLineCell>
   bestOver: number | null
   bestUnder: number | null
@@ -25,8 +28,32 @@ export interface PlayerPropRow {
   bestUnderBook: string | null
   avgOver: number | null
   avgUnder: number | null
+  /** Per-line precomputed snapshots, keyed by line as a string ("21.5").
+   *  Each entry is the same per-book/best/avg shape the row carries for
+   *  the consensus line — switching the line selector swaps which entry
+   *  the row renders without a network roundtrip. */
+  linesByValue?: Record<string, PlayerLineSummary>
+  /** Sorted ascending list of lines we have data for. */
+  availableLines?: number[]
   /** Live-update annotations — bookId → per-side O/U price-move direction. */
   _flickerCells?: Map<string, { top?: 'up' | 'down'; bottom?: 'up' | 'down' }>
+}
+
+/**
+ * One row's worth of per-book quotes + best/avg/coverage for a single
+ * line value. The loader emits one of these per (player, line). The
+ * client picks one to render based on the line-selector state.
+ */
+export interface PlayerLineSummary {
+  byBook: Record<string, PlayerLineCell>
+  bestOver: number | null
+  bestUnder: number | null
+  bestOverBook: string | null
+  bestUnderBook: string | null
+  avgOver: number | null
+  avgUnder: number | null
+  /** How many books quote this line — drives the "thin coverage" badge. */
+  bookCount: number
 }
 
 export interface PropsGameRow {
@@ -181,49 +208,14 @@ function GameBlock({
       </tr>
 
       {isOpen && game.players.map(p => (
-        <tr
+        <PlayerRow
           key={`${game.eventId}:${p.playerName}`}
-          className="border-b border-border/30 bg-nb-950 hover:bg-nb-900"
-        >
-          <td className="sticky z-20 bg-inherit px-4 py-2.5 align-middle" style={{ ...cellGame, left: 0 }}>
-            <div className="space-y-0.5">
-              <div className="text-xs font-medium text-white truncate">{p.playerName}</div>
-              {p.consensusLine != null && (
-                <div className="text-[10px] text-nb-500 font-mono">
-                  O/U {p.consensusLine}
-                </div>
-              )}
-            </div>
-          </td>
-          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-nb-700" style={cellBest}>
-            <OUStack over={p.bestOver} under={p.bestUnder} accentOver accentUnder />
-          </td>
-          <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
-            <OUStack over={p.avgOver} under={p.avgUnder} />
-          </td>
-          {books.map(b => {
-            const cell = p.byBook[b.id]
-            const isBestOver  = cell?.overPrice  != null && p.bestOver  != null && cell.overPrice  === p.bestOver
-            const isBestUnder = cell?.underPrice != null && p.bestUnder != null && cell.underPrice === p.bestUnder
-            const move = p._flickerCells?.get(b.id)
-            return (
-              <td
-                key={b.id}
-                className="px-2 py-2.5 text-center align-middle border-l border-border/40"
-                style={{ minWidth: 92 }}
-              >
-                <OUStack
-                  over={cell?.overPrice ?? null}
-                  under={cell?.underPrice ?? null}
-                  accentOver={isBestOver}
-                  accentUnder={isBestUnder}
-                  flickerOver={move?.top}
-                  flickerUnder={move?.bottom}
-                />
-              </td>
-            )
-          })}
-        </tr>
+          player={p}
+          books={books}
+          cellGame={cellGame}
+          cellBest={cellBest}
+          cellAvg={cellAvg}
+        />
       ))}
 
       {isOpen && game.players.length === 0 && (
@@ -236,6 +228,106 @@ function GameBlock({
     </>
   )
 }
+
+// ── PlayerRow ────────────────────────────────────────────────────────
+// Memoized so switching one player's line doesn't re-render siblings.
+// Owns its `selectedLine` state — null = "Auto" (consensus from loader).
+const PlayerRow = memo(function PlayerRow({
+  player, books, cellGame, cellBest, cellAvg,
+}: {
+  player: PlayerPropRow
+  books: BookColumn[]
+  cellGame: React.CSSProperties
+  cellBest: React.CSSProperties
+  cellAvg: React.CSSProperties
+}) {
+  // null = Auto (resolves to consensusLine from the loader)
+  const [selectedLine, setSelectedLine] = useState<number | null>(null)
+
+  // Resolve which line we're actually displaying right now.
+  const effectiveLine = selectedLine ?? player.consensusLine
+
+  // Pick the summary for that line. Falls back to the row's flat fields
+  // (back-compat for callers that didn't set linesByValue yet).
+  const summary = useMemo(() => {
+    if (effectiveLine == null) return null
+    const fromIndex = player.linesByValue?.[String(effectiveLine)]
+    if (fromIndex) return fromIndex
+    return {
+      byBook: player.byBook,
+      bestOver: player.bestOver,
+      bestUnder: player.bestUnder,
+      bestOverBook: player.bestOverBook,
+      bestUnderBook: player.bestUnderBook,
+      avgOver: player.avgOver,
+      avgUnder: player.avgUnder,
+      bookCount: Object.keys(player.byBook).length,
+    }
+  }, [effectiveLine, player])
+
+  // Build LineSelector options from the row's available lines.
+  const lineOptions: LineOption[] = useMemo(() => {
+    const lines = player.availableLines ?? (player.consensusLine != null ? [player.consensusLine] : [])
+    return lines.map(v => ({
+      value: v,
+      bookCount: player.linesByValue?.[String(v)]?.bookCount ?? 0,
+    }))
+  }, [player.availableLines, player.linesByValue, player.consensusLine])
+
+  if (!summary) return null
+  const { byBook, bestOver, bestUnder, avgOver, avgUnder } = summary
+
+  return (
+    <tr className="border-b border-border/30 bg-nb-950 hover:bg-nb-900">
+      <td className="sticky z-20 bg-inherit px-4 py-2.5 align-middle" style={{ ...cellGame, left: 0 }}>
+        <div className="space-y-1">
+          <div className="text-xs font-medium text-white truncate">{player.playerName}</div>
+          {effectiveLine != null && (
+            <LineSelector
+              lines={lineOptions}
+              selected={selectedLine}
+              autoLine={player.consensusLine}
+              onChange={setSelectedLine}
+              compact
+            />
+          )}
+        </div>
+      </td>
+      <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-nb-700" style={cellBest}>
+        <OUStack over={bestOver} under={bestUnder} accentOver accentUnder />
+      </td>
+      <td className="sticky z-20 bg-inherit px-3 py-2.5 text-center align-middle border-l border-r border-nb-700" style={cellAvg}>
+        <OUStack over={avgOver} under={avgUnder} />
+      </td>
+      {books.map(b => {
+        const cell = byBook[b.id]
+        const isBestOver  = cell?.overPrice  != null && bestOver  != null && cell.overPrice  === bestOver
+        const isBestUnder = cell?.underPrice != null && bestUnder != null && cell.underPrice === bestUnder
+        // Flicker only fires when we're on the consensus line — that's
+        // the line the SWR diff layer compares against. Switching to an
+        // alt line shows static prices until the next poll.
+        const onConsensus = selectedLine == null || selectedLine === player.consensusLine
+        const move = onConsensus ? player._flickerCells?.get(b.id) : undefined
+        return (
+          <td
+            key={b.id}
+            className="px-2 py-2.5 text-center align-middle border-l border-border/40"
+            style={{ minWidth: 92 }}
+          >
+            <OUStack
+              over={cell?.overPrice ?? null}
+              under={cell?.underPrice ?? null}
+              accentOver={isBestOver}
+              accentUnder={isBestUnder}
+              flickerOver={move?.top}
+              flickerUnder={move?.bottom}
+            />
+          </td>
+        )
+      })}
+    </tr>
+  )
+})
 
 function OUStack({
   over, under, accentOver, accentUnder, flickerOver, flickerUnder,

@@ -45,6 +45,17 @@ export interface PlayerLineCell {
   underPrice: number | null
 }
 
+export interface PlayerLineSummary {
+  byBook: Record<string, PlayerLineCell>
+  bestOver: number | null
+  bestUnder: number | null
+  bestOverBook: string | null
+  bestUnderBook: string | null
+  avgOver: number | null
+  avgUnder: number | null
+  bookCount: number
+}
+
 export interface PlayerPropRow {
   playerName: string
   consensusLine: number | null
@@ -55,6 +66,10 @@ export interface PlayerPropRow {
   bestUnderBook: string | null
   avgOver: number | null
   avgUnder: number | null
+  /** Per-line snapshots keyed by line.toString() — drives the line
+   *  selector dropdown without re-fetching. */
+  linesByValue: Record<string, PlayerLineSummary>
+  availableLines: number[]
 }
 
 export interface PropsGameRow {
@@ -320,54 +335,89 @@ export async function loadPropOdds(
       const { home, away } = splitTitle(ev.title)
       const players: PlayerPropRow[] = []
       for (const [playerName, cells] of byPlayer) {
-        const lineCounts = new Map<string, number>()
+        // Group raw cells by line value first — we'll build a summary
+        // per (player, line) so the client can switch lines without
+        // re-fetching.
+        const cellsByLine = new Map<string, PlayerLineCell[]>()
         for (const c of cells) {
           if (c.line == null) continue
           const k = String(c.line)
-          lineCounts.set(k, (lineCounts.get(k) ?? 0) + 1)
+          const arr = cellsByLine.get(k) ?? []
+          arr.push(c)
+          cellsByLine.set(k, arr)
         }
+
+        // Consensus line = the one with the most book coverage. Ties
+        // broken by smaller line value (a 24.5 line with 4 books beats
+        // a 25.5 line with 3, but two lines tied at 4 books pick the
+        // lower one for stable display).
         let consensus: number | null = null
         let bestCount = -1
-        for (const [k, n] of lineCounts) {
+        for (const [k, arr] of cellsByLine) {
           const v = Number(k)
+          const n = new Set(arr.map(c => c.sourceId)).size
           if (n > bestCount || (n === bestCount && consensus != null && v < consensus)) {
             bestCount = n
             consensus = v
           }
         }
 
-        const byBook: Record<string, PlayerLineCell> = {}
-        for (const c of cells) {
-          const existing = byBook[c.sourceId]
-          if (!existing) { byBook[c.sourceId] = c; continue }
-          if (consensus != null && c.line === consensus && existing.line !== consensus) {
-            byBook[c.sourceId] = c
+        // Build a per-line summary index. Each entry mirrors the shape
+        // the row historically carried for the consensus line (byBook,
+        // best, avg, …) but is computed for that specific line.
+        const linesByValue: Record<string, PlayerLineSummary> = {}
+        for (const [k, arr] of cellsByLine) {
+          const lineNum = Number(k)
+          const lineByBook: Record<string, PlayerLineCell> = {}
+          for (const c of arr) {
+            // If a book quotes the same player at this same line via
+            // multiple snapshots, the latest one in the array wins —
+            // arr was built in fetch order, so the first hit is fine.
+            if (!lineByBook[c.sourceId]) lineByBook[c.sourceId] = c
+          }
+          const overPrices: number[] = []
+          const underPrices: number[] = []
+          let lBestOver: number | null = null, lBestUnder: number | null = null
+          let lBestOverBook: string | null = null, lBestUnderBook: string | null = null
+          for (const cell of Object.values(lineByBook)) {
+            if (cell.overPrice != null) {
+              overPrices.push(cell.overPrice)
+              if (lBestOver == null || cell.overPrice > lBestOver) { lBestOver = cell.overPrice; lBestOverBook = cell.sourceId }
+            }
+            if (cell.underPrice != null) {
+              underPrices.push(cell.underPrice)
+              if (lBestUnder == null || cell.underPrice > lBestUnder) { lBestUnder = cell.underPrice; lBestUnderBook = cell.sourceId }
+            }
+          }
+          linesByValue[k] = {
+            byBook: lineByBook,
+            bestOver: lBestOver,
+            bestUnder: lBestUnder,
+            bestOverBook: lBestOverBook,
+            bestUnderBook: lBestUnderBook,
+            avgOver:  overPrices.length  ? Math.round(avgAmerican(overPrices))  : null,
+            avgUnder: underPrices.length ? Math.round(avgAmerican(underPrices)) : null,
+            bookCount: Object.keys(lineByBook).length,
           }
         }
 
-        const overPrices: number[] = []
-        const underPrices: number[] = []
-        let bestOver: number | null = null, bestUnder: number | null = null
-        let bestOverBook: string | null = null, bestUnderBook: string | null = null
-        for (const cell of Object.values(byBook)) {
-          if (consensus != null && cell.line !== consensus) continue
-          if (cell.overPrice != null) {
-            overPrices.push(cell.overPrice)
-            if (bestOver == null || cell.overPrice > bestOver) { bestOver = cell.overPrice; bestOverBook = cell.sourceId }
-          }
-          if (cell.underPrice != null) {
-            underPrices.push(cell.underPrice)
-            if (bestUnder == null || cell.underPrice > bestUnder) { bestUnder = cell.underPrice; bestUnderBook = cell.sourceId }
-          }
-        }
+        const availableLines = [...cellsByLine.keys()].map(Number).sort((a, b) => a - b)
+        // Top-level back-compat fields mirror the consensus summary.
+        const consensusKey = consensus != null ? String(consensus) : null
+        const consensusSummary = consensusKey ? linesByValue[consensusKey] : null
 
         players.push({
           playerName,
           consensusLine: consensus,
-          byBook,
-          bestOver, bestUnder, bestOverBook, bestUnderBook,
-          avgOver:  overPrices.length  ? Math.round(avgAmerican(overPrices))  : null,
-          avgUnder: underPrices.length ? Math.round(avgAmerican(underPrices)) : null,
+          byBook: consensusSummary?.byBook ?? {},
+          bestOver:     consensusSummary?.bestOver     ?? null,
+          bestUnder:    consensusSummary?.bestUnder    ?? null,
+          bestOverBook: consensusSummary?.bestOverBook ?? null,
+          bestUnderBook:consensusSummary?.bestUnderBook?? null,
+          avgOver:      consensusSummary?.avgOver      ?? null,
+          avgUnder:     consensusSummary?.avgUnder     ?? null,
+          linesByValue,
+          availableLines,
         })
       }
       players.sort((a, b) => (Object.keys(b.byBook).length - Object.keys(a.byBook).length) || a.playerName.localeCompare(b.playerName))
