@@ -57,6 +57,12 @@ const KAMBI_CATEGORY_MAP: Record<string, string> = {
   'assists by the player - ice hockey': 'player_hockey_assists',
   'points by the player - ice hockey': 'player_hockey_points',
   'shots on goal by the player': 'player_shots_on_goal',
+  // Kambi NHL ships shots-on-goal under a possessive label that
+  // doesn't match the "X by the player" convention used everywhere
+  // else. Without this entry, every Kambi book (BetRivers / NorthStar /
+  // LeoVegas / Bally / Proline) misses NHL SOG entirely — which is the
+  // only NHL O/U player prop they actually post.
+  "player's shots on goal": 'player_shots_on_goal',
   'saves by the goalkeeper': 'player_saves',
   'anytime goalscorer': 'anytime_goal_scorer',
 
