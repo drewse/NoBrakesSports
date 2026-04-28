@@ -226,19 +226,54 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
     const marketType = (market.marketType ?? '') as string
     const runners = market.runners ?? []
 
-    // Match PLAYER_X_TOTAL_* or PITCHER_X_TOTAL_* O/U markets
-    if ((marketType.startsWith('PLAYER_') || marketType.startsWith('PITCHER_')) && marketType.includes('TOTAL_') && runners.length === 2) {
+    // Match PLAYER_X_*  / PITCHER_X_*  O/U markets. We used to gate on
+    // `TOTAL_` in the marketType + a "Player - Stat" dash format in the
+    // marketName, but FanDuel ships some pitcher props under different
+    // shapes that broke both gates:
+    //   marketType=PITCHER_B_OUTS_RECORDED_SB  marketName="Logan Gilbert Outs Recorded"
+    //                  ^^^^ no TOTAL_                       ^^^^^^^^^^^^^^^^^^^^^^^ no dash
+    // Result: Outs Recorded was silently dropped, leaving DK as the lone
+    // book on the line and no arbs detectable. Trailing "_SB" / "_Anytime"
+    // / "_Alt" suffixes on the marketType also slip through this way.
+    if ((marketType.startsWith('PLAYER_') || marketType.startsWith('PITCHER_')) && runners.length === 2) {
       const overRunner = runners.find((r: any) => r.runnerName?.includes('Over'))
       const underRunner = runners.find((r: any) => r.runnerName?.includes('Under'))
       if (!overRunner && !underRunner) continue
 
       const marketName: string = market.marketName ?? ''
+      // Try "Player - Stat" first; fall back to "Player <Stat>" for the
+      // dash-less variants. The fallback only fires when the suffix matches
+      // a known stat phrase, so we don't fabricate categories for unknown
+      // markets.
+      let playerName: string | null = null
+      let statRaw: string | null = null
       const dashMatch = marketName.match(/^(.+?)\s*-\s*(.+)$/)
-      if (!dashMatch) continue
-
-      const playerName = normalizePlayerName(dashMatch[1].trim())
-      const statRaw = dashMatch[2].trim().toLowerCase()
-      const category = FD_STAT_MAP[statRaw]
+      if (dashMatch) {
+        playerName = normalizePlayerName(dashMatch[1].trim())
+        statRaw = dashMatch[2].trim().toLowerCase()
+      } else {
+        // Match against known stat suffixes (longest first so "Outs Recorded"
+        // beats "Outs", "Earned Runs Allowed" beats "Runs", etc.).
+        const STAT_SUFFIXES = [
+          'outs recorded', 'earned runs allowed', 'walks allowed',
+          'hits allowed', 'pitcher strikeouts', 'total bases',
+          'home runs', 'shots on goal', 'shots on target',
+          'stolen bases', 'power play points', 'hockey assists',
+          'hockey points',
+          'strikeouts', 'walks', 'hits', 'rbis', 'runs', 'outs',
+          'points', 'rebounds', 'assists', 'threes', 'blocks',
+          'steals', 'turnovers', 'goals', 'saves', 'shots',
+        ]
+        const lower = marketName.toLowerCase().trim()
+        for (const suf of STAT_SUFFIXES) {
+          if (lower.endsWith(' ' + suf)) {
+            playerName = normalizePlayerName(marketName.slice(0, marketName.length - suf.length).trim())
+            statRaw = suf
+            break
+          }
+        }
+      }
+      const category = statRaw ? FD_STAT_MAP[statRaw] : null
       if (!playerName || !category) continue
 
       props.push({
