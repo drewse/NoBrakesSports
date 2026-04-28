@@ -42,7 +42,15 @@ export interface ArbsResult {
 // hiding real arbs that AVO/OddsJam were surfacing).
 const FRESHNESS_MS = 15 * 60 * 1000
 const PROP_PAGE = 1000
-const TOP_N = 50
+// Top-N truncation. The page header reports "N opportunities detected"
+// from the pre-truncation count, but only the top-N by profit% actually
+// render as cards. 50 was too tight — at peak slate we detect 200-300
+// arbs and the user scrolled the panel hunting for a specific bet that
+// was sitting at #80 (Vucevic ast_reb 6.5 PointsBet O / Betway U at
+// 4.9%) and assumed we weren't detecting it. Bumping the cap means
+// the panel actually mirrors the detected count up to a reasonable
+// upper bound that doesn't blow up the React render.
+const TOP_N = 250
 
 // Maximum arb profit we'll surface. Real cross-book arbs cluster in the
 // 0.5-5% band; anything above ~15% is almost always a data-quality issue
