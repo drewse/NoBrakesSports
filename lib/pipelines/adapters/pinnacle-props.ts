@@ -312,16 +312,34 @@ export async function scrapePinnacleProps(
                 }
 
                 if (market.type === 'total' || market.type === 'team_total') {
-                  const overOutcome = prices.find(p => roleOf(p) === 'over')
-                  const underOutcome = prices.find(p => roleOf(p) === 'under')
-                  // No fallbacks. Earlier versions used price-sign or
-                  // positional fallbacks — both fabricated flipped
-                  // lines on player props where Over is the favorite
-                  // (e.g. SOG 4.5 on a top shooter, points 25.5 on a
-                  // star scorer). Result: Pinnacle Under +273 was
-                  // labeled "Under" when it was actually Over, opening
-                  // ~40% phantom arbs. If neither designation nor
-                  // participant map resolves a side, drop the prop.
+                  let overOutcome = prices.find(p => roleOf(p) === 'over')
+                  let underOutcome = prices.find(p => roleOf(p) === 'under')
+                  // Line-value-gated fallback. The price-sign rule
+                  // ("negative odds = Under, positive odds = Over")
+                  // holds for low binary-ish lines (0.5 goals/HRs/
+                  // assists/blocks) where Under is reliably the
+                  // favorite. It BREAKS on higher player-total lines
+                  // (4.5 SOG, 25.5 points) where Over can be favored,
+                  // which is what fabricated the Robertson Under +273
+                  // / Edgecombe-Merrill 3PM phantom arbs.
+                  //
+                  // Threshold: only fall back when the line is ≤ 1.5.
+                  // Above that, require designation/participant to
+                  // resolve cleanly or drop the prop. We READ the line
+                  // off any price (both sides carry the same `points`).
+                  if (!overOutcome && !underOutcome && prices.length >= 2) {
+                    const points = prices[0]?.points ?? prices[1]?.points ?? null
+                    if (points != null && points <= 1.5) {
+                      const a = prices[0]?.price, b = prices[1]?.price
+                      if (typeof a === 'number' && typeof b === 'number' && (a > 0) !== (b > 0)) {
+                        overOutcome = a > 0 ? prices[0] : prices[1]
+                        underOutcome = a > 0 ? prices[1] : prices[0]
+                      } else {
+                        overOutcome = prices[0]
+                        underOutcome = prices[1]
+                      }
+                    }
+                  }
                   if (!overOutcome || !underOutcome) { diag.skippedType++; continue }
                   props.push({
                     propCategory: mapped.category,
@@ -335,10 +353,22 @@ export async function scrapePinnacleProps(
                   })
                   diag.emitted++
                 } else if (market.type === 'moneyline') {
-                  // Binary specials (Yes/No). Same map-based resolution
-                  // — drop if we can't resolve cleanly.
-                  const yesOutcome = prices.find(p => { const r = roleOf(p); return r === 'yes' || r === 'over' })
-                  const noOutcome = prices.find(p => { const r = roleOf(p); return r === 'no' || r === 'under' })
+                  // Binary specials (Yes/No). Yes is consistently the
+                  // underdog at sportsbooks ("Will X happen?" pays
+                  // positive odds), so the price-sign fallback is
+                  // safe here.
+                  let yesOutcome = prices.find(p => { const r = roleOf(p); return r === 'yes' || r === 'over' })
+                  let noOutcome = prices.find(p => { const r = roleOf(p); return r === 'no' || r === 'under' })
+                  if (!yesOutcome && !noOutcome && prices.length >= 2) {
+                    const a = prices[0]?.price, b = prices[1]?.price
+                    if (typeof a === 'number' && typeof b === 'number' && (a > 0) !== (b > 0)) {
+                      yesOutcome = a > 0 ? prices[0] : prices[1]
+                      noOutcome = a > 0 ? prices[1] : prices[0]
+                    } else {
+                      yesOutcome = prices[0]
+                      noOutcome = prices[1]
+                    }
+                  }
                   if (!yesOutcome || !noOutcome) { diag.skippedType++; continue }
                   props.push({
                     propCategory: mapped.category,
