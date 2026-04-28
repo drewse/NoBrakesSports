@@ -74,9 +74,9 @@ const REVIEWS: Review[] = [
     text: 'The line movement alerts are the best part. I can see where the market is moving before I place anything.',
   },
   {
-    name: 'Alex',
-    handle: '@alxsports',
-    result: '+$386 week',
+    name: 'Jola',
+    handle: '@swance',
+    result: '+$40k All Time',
     tint: 'profit',
     text: 'The arb alerts alone make this worth checking every day.',
   },
