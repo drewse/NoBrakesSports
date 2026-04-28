@@ -248,8 +248,6 @@ interface KambiOutcome {
  */
 function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> {
   const byEvent = new Map<number, NormalizedProp[]>()
-  // Track seen (event, category, player) to skip alternates
-  const seenMainLine = new Set<string>()
   const seenTotalHits = new Set<number>()
 
   for (const offer of offers) {
@@ -314,17 +312,19 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     if (!playerRaw) continue
     const playerName = normalizePlayerName(playerRaw)
 
-    // Dedup: only keep the first (main) line per player per category per event.
-    // Kambi returns alternate lines without a MAIN_LINE tag for player props,
-    // so the first occurrence is the primary line.
-    // EXCEPTION: HR binary thresholds (0.5, 1.5, 2.5) should all be kept since
-    // they represent different lines — include threshold in dedup key.
-    const effectiveDedupSuffix = binaryHrThreshold != null ? `|${binaryHrThreshold}` : ''
-    if (!mapped.isBinary || binaryHrThreshold != null) {
-      const dedupKey = `${offer.eventId}|${mapped.category}|${playerName}${effectiveDedupSuffix}`
-      if (seenMainLine.has(dedupKey)) continue
-      seenMainLine.add(dedupKey)
-    }
+    // Earlier this dedup'd to the first occurrence per (event, category,
+    // player) on the assumption that Kambi shipped the main line first
+    // and we couldn't tell main from alt without a MAIN_LINE tag. That
+    // hid every alt line from the line selector / arb engine — Cunningham
+    // Threes 2.5 (an alt) was unreachable because Kambi's main is 1.5.
+    //
+    // Now we keep every line; downstream dedup is by (event, source,
+    // category, player, line) so each alt becomes its own row, and the
+    // line selector / arb engine can fan out across alts.
+    //
+    // For binary HR threshold markets (0.5, 1.5, 2.5+), each threshold
+    // is already a distinct prop, so dropping the dedup is fine — the
+    // line value differs per offer.
 
     // Parse over/under or yes/no prices
     let overPrice: number | null = null
