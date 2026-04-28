@@ -294,6 +294,46 @@ const DK_PROP_MAP: Record<string, string> = {
  * Parse DraftKings American odds string to integer.
  * DK uses unicode minus (U+2212) and plus (U+002B).
  */
+/**
+ * Strip DraftKings' "<Stat>[ Allowed|Thrown] O/u" suffix from market.name
+ * so the player name pairs cleanly with other books.
+ *
+ * DK ships most player props with market.name = just the player ("LeBron
+ * James"), but a subset of pitcher/batter O/u markets bake the stat label
+ * into the name. We can't tell which subset by typeName alone (DK uses
+ * many type variants), so we run a longest-suffix match against the known
+ * stat phrases. The match is anchored to the trailing "O/u" / "O/U" /
+ * "Over/Under" token to avoid stripping a player whose surname legitimately
+ * ends in one of these words.
+ */
+function stripDkStatSuffix(name: string): string {
+  // Anchor: must end with " O/u" / " O/U" / " Over/Under" — no anchor, no strip.
+  const ouMatch = name.match(/^(.*?)\s+(?:O\/[uU]|Over\/Under)\s*$/)
+  if (!ouMatch) return name
+  const beforeOU = ouMatch[1].trim()
+  // Now strip a known stat phrase from the end. Longest first so
+  // "Earned Runs Allowed" beats "Runs", "Strikeouts Thrown" beats
+  // "Strikeouts", etc.
+  const STAT_PHRASES = [
+    'Earned Runs Allowed', 'Strikeouts Thrown', 'Walks Allowed',
+    'Hits Allowed', 'Total Bases', 'Home Runs', 'Stolen Bases',
+    'Outs Recorded', 'Runs Allowed',
+    'Strikeouts', 'Walks', 'Outs', 'Runs', 'Hits', 'RBIs', 'RBI',
+    'Points', 'Rebounds', 'Assists', 'Threes', 'Blocks', 'Steals',
+    'Turnovers', 'Goals', 'Saves',
+  ]
+  // Stat phrases above are plain words/spaces — no regex metacharacters
+  // to escape. Build the suffix matcher directly.
+  const lower = beforeOU.toLowerCase()
+  for (const phrase of STAT_PHRASES) {
+    const needle = ' ' + phrase.toLowerCase()
+    if (lower.endsWith(needle)) {
+      return beforeOU.slice(0, beforeOU.length - needle.length).trim()
+    }
+  }
+  return beforeOU
+}
+
 function parseAmerican(odds: string | undefined | null): number | null {
   if (!odds) return null
   const cleaned = odds.replace(/\u2212/g, '-').replace(/\u002B/g, '+')
@@ -479,8 +519,20 @@ function parseLeagueData(data: any, league: typeof DK_LEAGUES[number]): DKResult
       const underSel = selections.find((s: any) => s.outcomeType === 'Under')
       if (!overSel && !underSel) continue
 
-      // market.name contains the player name (e.g., "LeBron James")
-      const playerRaw = (market.name ?? '').trim()
+      // market.name contains the player name on most DK markets (e.g.,
+      // "LeBron James"), but the "*_o/u" pitcher / batter walks / runs /
+      // outs market types ship the FULL market label as name:
+      //   "Jake Burger Walks O/u"
+      //   "Shohei Ohtani Walks Allowed O/u"
+      //   "Joe Ryan Outs O/u"
+      //   "Aaron Civale Strikeouts Thrown O/u"
+      //   "Chad Patrick Earned Runs Allowed O/u"
+      //   "Victor Caratini Runs O/u"
+      // Storing those raw breaks every cross-book arb on these props
+      // because no other book stores the player as "Jake Burger Walks
+      // O/u" — pairing requires exact (event, category, player, line)
+      // match. Strip the trailing stat phrase + " O/u" suffix.
+      const playerRaw = stripDkStatSuffix((market.name ?? '').trim())
       if (!playerRaw) continue
 
       const lineValue = overSel?.points ?? underSel?.points ?? null
@@ -633,7 +685,7 @@ async function fetchLeague(
                 const underSel = sels.find((s: any) => s.outcomeType === 'Under')
                 if (!overSel && !underSel) continue
 
-                const playerRaw = (market.name ?? '').trim()
+                const playerRaw = stripDkStatSuffix((market.name ?? '').trim())
                 if (!playerRaw) continue
 
                 const lineValue = overSel?.points ?? underSel?.points ?? null

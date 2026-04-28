@@ -276,10 +276,26 @@ function parsePropsFromMarkets(markets: Record<string, any>): NormalizedProp[] {
       const category = statRaw ? FD_STAT_MAP[statRaw] : null
       if (!playerName || !category) continue
 
+      // FanDuel ships TWO O/U shapes:
+      //   PITCHER_C_TOTAL_STRIKEOUTS — handicap on each runner is the line
+      //   PITCHER_B_OUTS_RECORDED_SB — handicap is 0; line is baked into
+      //     the runnerName ("Logan Gilbert Over 17.5"). Extract the
+      //     numeric tail in the SB shape so we don't write line=0 (which
+      //     collides with every other 0-line market and the arb loader's
+      //     dedup key, hiding real arbs).
+      const handicapLine = overRunner?.handicap ?? underRunner?.handicap ?? null
+      const nameLineMatch =
+        (overRunner?.runnerName ?? '').match(/\b(Over|Under)\s+(\d+(?:\.\d+)?)/i) ??
+        (underRunner?.runnerName ?? '').match(/\b(Over|Under)\s+(\d+(?:\.\d+)?)/i)
+      const nameLine = nameLineMatch ? parseFloat(nameLineMatch[2]) : null
+      const lineValue = (handicapLine != null && handicapLine !== 0)
+        ? handicapLine
+        : nameLine
+
       props.push({
         propCategory: category,
         playerName,
-        lineValue: overRunner?.handicap ?? underRunner?.handicap ?? null,
+        lineValue,
         overPrice: overRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
         underPrice: underRunner?.winRunnerOdds?.americanDisplayOdds?.americanOddsInt ?? null,
         yesPrice: null,
