@@ -66,23 +66,32 @@ const TOP_N = 250
 const MAX_ARB_PROFIT_PCT = 15
 
 function formatPropCat(cat: string): string {
+  // Full names (was abbreviated — "Pts" / "Reb" / "TB" — but the user
+  // wants "Points" / "Rebounds" / "Total Bases" so the bet card reads
+  // unambiguously without the bettor having to decode three-letter
+  // abbreviations.
   const labels: Record<string, string> = {
-    player_points: 'Pts', player_rebounds: 'Reb', player_assists: 'Ast',
-    player_threes: '3PM', player_pts_reb_ast: 'PRA', player_steals: 'Stl',
-    player_blocks: 'Blk', player_turnovers: 'TO', player_steals_blocks: 'Stl+Blk',
-    player_pts_reb: 'P+R', player_pts_ast: 'P+A', player_ast_reb: 'R+A',
-    player_double_double: 'DD', player_triple_double: 'TD',
-    game_total_hits: 'Game Hits',
-    player_hits: 'Hits', player_home_runs: 'HR', player_rbis: 'RBI',
-    player_strikeouts_p: 'K', player_earned_runs: 'ER', player_total_bases: 'TB',
-    player_runs: 'Runs', player_stolen_bases: 'SB', player_walks: 'BB',
-    player_hits_allowed: 'HA', pitcher_outs: 'Outs',
-    player_goals: 'Goals', player_hockey_assists: 'Ast', player_hockey_points: 'Pts',
-    player_shots_on_goal: 'SOG', player_saves: 'Saves', player_power_play_pts: 'PPP',
-    player_soccer_goals: 'Goals', player_shots_target: 'SOT',
-    anytime_scorer: 'AGS', anytime_goal_scorer: 'AGS',
+    player_points: 'Points', player_rebounds: 'Rebounds', player_assists: 'Assists',
+    player_threes: 'Threes', player_pts_reb_ast: 'Points + Rebounds + Assists',
+    player_steals: 'Steals', player_blocks: 'Blocks', player_turnovers: 'Turnovers',
+    player_steals_blocks: 'Steals + Blocks',
+    player_pts_reb: 'Points + Rebounds', player_pts_ast: 'Points + Assists',
+    player_ast_reb: 'Rebounds + Assists',
+    player_double_double: 'Double Double', player_triple_double: 'Triple Double',
+    game_total_hits: 'Game Total Hits',
+    player_hits: 'Hits', player_home_runs: 'Home Runs', player_rbis: 'RBIs',
+    player_strikeouts_p: 'Strikeouts', player_earned_runs: 'Earned Runs',
+    player_total_bases: 'Total Bases', player_runs: 'Runs',
+    player_stolen_bases: 'Stolen Bases', player_walks: 'Walks',
+    player_hits_allowed: 'Hits Allowed', pitcher_outs: 'Outs Recorded',
+    player_goals: 'Goals', player_hockey_assists: 'Assists',
+    player_hockey_points: 'Points', player_shots_on_goal: 'Shots On Goal',
+    player_saves: 'Saves', player_power_play_pts: 'Power Play Points',
+    player_soccer_goals: 'Goals', player_shots_target: 'Shots On Target',
+    anytime_scorer: 'Anytime Goal Scorer',
+    anytime_goal_scorer: 'Anytime Goal Scorer',
   }
-  return labels[cat] ?? cat.replace(/^player_/, '')
+  return labels[cat] ?? cat.replace(/^player_/, '').replace(/_/g, ' ')
 }
 
 export async function loadArbs(
