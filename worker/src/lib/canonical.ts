@@ -103,10 +103,19 @@ function normalizeTeam(raw: string): string {
  *  canonicalEventKey() — any divergence creates duplicate events because
  *  worker-side writes and Vercel-side cron writes compute different
  *  external_id values and the unique constraint lets both through.
- *  Date parsing goes through `new Date(...).toISOString()` so non-ISO
- *  startTime strings (e.g. "04/24/2026 18:40", local-offset ISO like
- *  "2026-04-24T21:50:00-04:00") collapse to the same UTC date both
- *  sides. */
+ *  Date is the America/New_York calendar day so doubleheaders that
+ *  share a UTC date but sit in different ET days don't collide
+ *  (e.g. an MLB 02:10Z game = 22:10 ET prev day vs a 19:10Z afternoon
+ *  game on the same UTC date). No NA league we cover starts games
+ *  after midnight ET, so a single ET day cleanly partitions slates. */
+const ET_DATE_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+})
+function etDate(d: Date): string {
+  return ET_DATE_FMT.format(d) // en-CA gives YYYY-MM-DD shape
+}
+
 export function canonicalEventKey(args: {
   leagueSlug: string
   startTime: string
@@ -117,7 +126,7 @@ export function canonicalEventKey(args: {
   const parsed = new Date(args.startTime)
   const date = isNaN(parsed.getTime())
     ? (args.startTime || '').slice(0, 10)  // fall back to raw slice if unparseable
-    : parsed.toISOString().slice(0, 10)
+    : etDate(parsed)
   return `${args.leagueSlug}:${date}:${teams[0]}:${teams[1]}`
 }
 

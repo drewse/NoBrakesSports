@@ -151,9 +151,11 @@ export function normalizeEvent(raw: RawEventInput): CanonicalEvent {
  * Solution: key on (league, date, normalized home team, normalized away team).
  * All sources describing the same real game map to the same DB row.
  *
- * Date is UTC YYYY-MM-DD — normalizes away the minor start-time differences
- * (one book says 7:00 PM, another says 7:10 PM for the same game).
- * Cross-midnight edge cases are rare for mainstream North American sports.
+ * Date is America/New_York YYYY-MM-DD — normalizes away minor start-time
+ * differences (one book says 7:00 PM, another 7:10 PM for the same game)
+ * AND avoids splitting MLB doubleheaders that fall on the same ET day but
+ * cross UTC midnight. No NA league we cover has games starting after
+ * midnight ET, so the ET calendar day cleanly partitions slates.
  *
  * @example
  *   canonicalEventKey(event)
@@ -255,6 +257,16 @@ const TEAM_FULL_ALIASES: Record<string, string> = {
   'sacramento athletics': 'athletics',
 }
 
+// Format a Date as "YYYY-MM-DD" in America/New_York. DST-aware via Intl.
+const ET_DATE_FMT = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/New_York',
+  year: 'numeric', month: '2-digit', day: '2-digit',
+})
+function etDate(d: Date): string {
+  // en-CA gives YYYY-MM-DD shape directly
+  return ET_DATE_FMT.format(d)
+}
+
 export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'homeTeam' | 'awayTeam' | 'startTime'>): string {
   const normalizeTeam = (name: string) => {
     let n = (name || '').toLowerCase().trim()
@@ -274,11 +286,11 @@ export function canonicalEventKey(event: Pick<CanonicalEvent, 'leagueSlug' | 'ho
     return n
   }
   // Parse through Date() so non-ISO startTime strings collapse to the
-  // same UTC date both sides. Fall back to a raw slice if unparseable.
+  // same ET date both sides. Fall back to a raw slice if unparseable.
   const parsed = new Date(event.startTime)
   const date = isNaN(parsed.getTime())
     ? (event.startTime || '').slice(0, 10)
-    : parsed.toISOString().slice(0, 10)
+    : etDate(parsed)
   // Sort alphabetically so "Away vs Home" and "Home vs Away" produce the same key
   const teams = [normalizeTeam(event.homeTeam), normalizeTeam(event.awayTeam)].sort()
   return `${event.leagueSlug}:${date}:${teams[0]}:${teams[1]}`
