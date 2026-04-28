@@ -15,7 +15,6 @@ import {
   americanToImpliedProb,
   type NormalizedProp,
 } from '../prop-normalizer'
-import { pipeFetch } from '../proxy-fetch'
 
 const BASE = 'https://guest.api.arcadia.pinnacle.com/0.1'
 const API_KEY = 'CmX2KcMrXuFmNg6YFbmTxE0y9CIrOi0R'
@@ -92,42 +91,18 @@ export interface PinnaclePropResult {
  * Retry twice with short backoff; most resets resolve on the second
  * attempt.
  */
-// Set when the proxy returns a non-recoverable auth error (407) on any
-// fetch in the current scrape. All subsequent calls short-circuit so a
-// dead PROXY_URL doesn't burn the entire sync-props 5-minute budget on
-// 10 leagues × 3 attempts × 15s timeout = ~3 minutes of doomed waits
-// (which was making sync-props 504 every cycle and silently dropping
-// every adapter's prop_odds upserts).
-let proxyDead = false
-function isProxyAuthError(e: unknown): boolean {
-  const cause = (e as any)?.cause
-  if (cause?.cause?.message?.includes('Proxy response (407)')) return true
-  if (cause?.message?.includes('Proxy response (407)')) return true
-  return false
-}
-
-async function pipeFetchRetry(
+async function fetchRetry(
   url: string,
   signal?: AbortSignal,
   attempts = 3,
 ): Promise<Response> {
-  if (proxyDead) throw new Error('proxy auth dead — short-circuit')
   let lastErr: unknown
   for (let i = 0; i < attempts; i++) {
     try {
-      return await pipeFetch(url, { headers: HEADERS, signal })
+      return await fetch(url, { headers: HEADERS, signal })
     } catch (e) {
       lastErr = e
       if (signal?.aborted) throw e
-      // 407 = proxy auth failure. Never recovers within the same run —
-      // PROXY_URL creds are stale or PacketStream account is suspended.
-      // Trip the circuit breaker so the rest of the scrape aborts fast
-      // instead of burning 45s × N leagues on retry waterfalls.
-      if (isProxyAuthError(e)) {
-        proxyDead = true
-        throw e
-      }
-      // Backoff: 200ms, 600ms, 1400ms
       await new Promise(r => setTimeout(r, 200 + 400 * i * (i + 1)))
     }
   }
@@ -140,7 +115,7 @@ async function pipeFetchRetry(
 async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Promise<PinnacleMatchup[]> {
   const url = `${BASE}/leagues/${leagueId}/matchups`
   try {
-    const resp = await pipeFetchRetry(url, signal)
+    const resp = await fetchRetry(url, signal)
     if (!resp.ok) {
       console.error(`Pinnacle matchups ${leagueId}: HTTP ${resp.status}`)
       return []
@@ -158,7 +133,7 @@ async function fetchLeagueMatchups(leagueId: number, signal?: AbortSignal): Prom
 async function fetchMatchupMarkets(matchupId: number, signal?: AbortSignal): Promise<PinnacleMarket[]> {
   const url = `${BASE}/matchups/${matchupId}/markets/related/straight`
   try {
-    const resp = await pipeFetchRetry(url, signal)
+    const resp = await fetchRetry(url, signal)
     if (!resp.ok) return []
     return resp.json()
   } catch (e) {
@@ -173,10 +148,6 @@ async function fetchMatchupMarkets(matchupId: number, signal?: AbortSignal): Pro
 export async function scrapePinnacleProps(
   signal?: AbortSignal,
 ): Promise<PinnaclePropResult[]> {
-  // Reset the proxy circuit breaker per run — a fresh deploy or
-  // PROXY_URL rotation should retry; the breaker only protects against
-  // burning the budget within ONE scrape.
-  proxyDead = false
   const results: PinnaclePropResult[] = []
 
   // Fetch leagues 3 at a time. All 10 in parallel triggered enough

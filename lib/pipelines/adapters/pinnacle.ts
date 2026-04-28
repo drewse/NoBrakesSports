@@ -6,7 +6,7 @@
 // Docs:      https://pinnacle.com/en/betting-articles/General/api-documentation
 //
 // No Playwright needed — the guest API is standard JSON over HTTPS.
-// Requests go through pipeFetch (residential proxy if PROXY_URL is set).
+// Direct-IP from Vercel/Railway — Pinnacle isn't IP-gated in NA.
 //
 // Data flow:
 //   1. For each target sport, GET /sports/{sportId}/matchups
@@ -31,7 +31,6 @@ import type {
   CanonicalOutcome,
 } from '../types'
 import { normalizeEvent, americanToImplied, detectMarketShape } from '../normalize'
-import { pipeFetch } from '../proxy-fetch'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -136,7 +135,7 @@ function toLeagueSlug(leagueName: string): string | null {
 type FetchJsonFn = (url: string, headers?: Record<string, string>) => Promise<any>
 
 async function apiGet(path: string): Promise<any> {
-  const resp = await pipeFetch(`${BASE}${path}`, {
+  const resp = await fetch(`${BASE}${path}`, {
     headers: {
       ...API_HEADERS,
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
