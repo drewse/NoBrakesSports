@@ -312,53 +312,42 @@ export async function scrapePinnacleProps(
                 }
 
                 if (market.type === 'total' || market.type === 'team_total') {
-                  let overOutcome = prices.find(p => roleOf(p) === 'over')
-                  let underOutcome = prices.find(p => roleOf(p) === 'under')
-                  // Price-sign fallback when neither designation nor
-                  // participant map resolve. For player totals (hockey
-                  // 0.5 goals/assists, baseball hit props, etc.) the
-                  // negative-odds side is almost always Under (favorite
-                  // to stay below the line) and positive-odds is Over.
-                  // Only falls through to naïve positional when both
-                  // prices share the same sign (e.g. ±115 on a 25.5
-                  // points line where either assignment is harmless).
-                  if (!overOutcome && !underOutcome && prices.length >= 2) {
-                    const a = prices[0]?.price, b = prices[1]?.price
-                    if (typeof a === 'number' && typeof b === 'number' && (a > 0) !== (b > 0)) {
-                      overOutcome = a > 0 ? prices[0] : prices[1]
-                      underOutcome = a > 0 ? prices[1] : prices[0]
-                    } else {
-                      overOutcome = prices[0]
-                      underOutcome = prices[1]
-                    }
-                  }
+                  const overOutcome = prices.find(p => roleOf(p) === 'over')
+                  const underOutcome = prices.find(p => roleOf(p) === 'under')
+                  // No fallbacks. Earlier versions used price-sign or
+                  // positional fallbacks — both fabricated flipped
+                  // lines on player props where Over is the favorite
+                  // (e.g. SOG 4.5 on a top shooter, points 25.5 on a
+                  // star scorer). Result: Pinnacle Under +273 was
+                  // labeled "Under" when it was actually Over, opening
+                  // ~40% phantom arbs. If neither designation nor
+                  // participant map resolves a side, drop the prop.
+                  if (!overOutcome || !underOutcome) { diag.skippedType++; continue }
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
-                    lineValue: overOutcome?.points ?? underOutcome?.points ?? null,
-                    overPrice: overOutcome?.price ?? null,
-                    underPrice: underOutcome?.price ?? null,
+                    lineValue: overOutcome.points ?? underOutcome.points ?? null,
+                    overPrice: overOutcome.price ?? null,
+                    underPrice: underOutcome.price ?? null,
                     yesPrice: null,
                     noPrice: null,
                     isBinary: false,
                   })
                   diag.emitted++
                 } else if (market.type === 'moneyline') {
-                  // Binary specials (Yes/No). Same map-based resolution.
-                  let yesOutcome = prices.find(p => { const r = roleOf(p); return r === 'yes' || r === 'over' })
-                  let noOutcome = prices.find(p => { const r = roleOf(p); return r === 'no' || r === 'under' })
-                  if (!yesOutcome && !noOutcome) {
-                    yesOutcome = prices[0]
-                    noOutcome = prices[1]
-                  }
+                  // Binary specials (Yes/No). Same map-based resolution
+                  // — drop if we can't resolve cleanly.
+                  const yesOutcome = prices.find(p => { const r = roleOf(p); return r === 'yes' || r === 'over' })
+                  const noOutcome = prices.find(p => { const r = roleOf(p); return r === 'no' || r === 'under' })
+                  if (!yesOutcome || !noOutcome) { diag.skippedType++; continue }
                   props.push({
                     propCategory: mapped.category,
                     playerName: mapped.playerName,
                     lineValue: null,
                     overPrice: null,
                     underPrice: null,
-                    yesPrice: yesOutcome?.price ?? null,
-                    noPrice: noOutcome?.price ?? null,
+                    yesPrice: yesOutcome.price ?? null,
+                    noPrice: noOutcome.price ?? null,
                     isBinary: true,
                   })
                   diag.emitted++
