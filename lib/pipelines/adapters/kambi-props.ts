@@ -389,6 +389,29 @@ function parseBetOffers(offers: KambiBetOffer[]): Map<number, NormalizedProp[]> 
     byEvent.get(offer.eventId)!.push(prop)
   }
 
+  // Visibility into alt-line emissions per event after dropping the
+  // main-only dedup. If an event has zero multi-line players, the
+  // upstream Kambi feed isn't shipping alts for it (or something is
+  // still collapsing them); if it reports many, the data is in propRows
+  // and a missing line in the UI lives downstream.
+  for (const [eventId, props] of byEvent) {
+    const linesByPlayer = new Map<string, Set<number>>()
+    for (const p of props) {
+      if (p.lineValue == null) continue
+      const k = `${p.playerName}|${p.propCategory}`
+      if (!linesByPlayer.has(k)) linesByPlayer.set(k, new Set())
+      linesByPlayer.get(k)!.add(p.lineValue)
+    }
+    const multiLine = [...linesByPlayer.entries()].filter(([, s]) => s.size >= 2)
+    if (multiLine.length > 0) {
+      const sample = multiLine.slice(0, 3).map(([k, s]) => {
+        const [name, cat] = k.split('|')
+        return `${name} ${cat} [${[...s].sort((a, b) => a - b).join(',')}]`
+      }).join(' | ')
+      console.log(`[Kambi:${eventId}] ${props.length} props, ${multiLine.length} players with 2+ lines (sample: ${sample})`)
+    }
+  }
+
   return byEvent
 }
 
