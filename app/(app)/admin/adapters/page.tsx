@@ -38,7 +38,6 @@ const PACKETSTREAM_LIVE: BookEntry[] = [
 ]
 
 const IPROYAL_LIVE: BookEntry[] = [
-  { name: 'BET99',      note: 'SBTech · Railway · discovery' },
   { name: 'TitanPlay',  note: 'Ontario · Railway · discovery' },
   { name: 'Stake.us',   note: 'CF-gated sweeps · Railway · discovery' },
 ]
@@ -87,6 +86,7 @@ const PAUSED: BookEntry[] = [
   { name: 'Hard Rock Bet (direct)', note: 'IPRoyal US · disabled — proxy spend · game lines via Action Network' },
   // Adapter shipped but blocked / awaiting unlock
   { name: 'bet365 (direct)',     note: 'WSS-only transport · parked · game lines via Action Network' },
+  { name: 'Bet99 (Ontario)',     note: 'DGC encoded WS protocol · parked · needs partner data feed' },
   { name: 'BetParx',         note: 'CF-blocked · awaits IPRoyal US' },
   { name: 'BetOnline',       note: 'CF-blocked · awaits IPRoyal US' },
   { name: 'LowVig',          note: 'CF-blocked · awaits IPRoyal US' },
