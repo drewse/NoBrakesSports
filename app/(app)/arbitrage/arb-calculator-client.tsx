@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatOdds, formatRelativeTime } from '@/lib/utils'
-import { Calculator, Clock, DollarSign, Target, Wallet } from 'lucide-react'
+import { Calculator, Clock, DollarSign, ExternalLink, Target, Wallet } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
+import { getBookUrl } from '@/lib/book-urls'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,6 +171,35 @@ export function ArbCalculatorClient({
                     <p className="text-nb-500 text-xs uppercase tracking-wider mt-1">Profit</p>
                   </div>
                 </div>
+
+                {/* Open-both-books button — fires window.open for each side
+                  * so the user can place both legs simultaneously without
+                  * digging through their bookmarks. Opens the draw side too
+                  * for 3-way arbs. Disabled if any side has no known URL. */}
+                {(() => {
+                  const sources = [
+                    selected.bestSideA.source,
+                    ...(selected.bestDraw ? [selected.bestDraw.source] : []),
+                    selected.bestSideB.source,
+                  ]
+                  const urls = sources.map(s => getBookUrl(s))
+                  const allKnown = urls.every(u => u != null)
+                  const label = sources.length === 3 ? 'Open All 3 Books' : 'Open Both Books'
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const u of urls) if (u) window.open(u, '_blank', 'noopener,noreferrer')
+                      }}
+                      disabled={!allKnown}
+                      title={allKnown ? `Opens ${sources.join(' + ')} in new tabs` : 'No web URL on file for one of these books'}
+                      className="inline-flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-green-500/15 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-500/25 hover:border-green-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {label}
+                    </button>
+                  )
+                })()}
 
                 {/* Bet Cards */}
                 <div className={`grid gap-4 ${selected.bestDraw ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'}`}>
@@ -425,11 +455,19 @@ function BetCard({
   payout: number
   isPrimary?: boolean
 }) {
-  return (
-    <div className="bg-nb-800/60 rounded-xl border border-nb-700/50 p-4 space-y-3">
+  // Whole card click-through. The book logo + name in the header is the
+  // visual click target; the rest of the card is the same anchor so the
+  // user can hit anywhere in the card to deep-link to the book.
+  const url = getBookUrl(source)
+
+  const cardInner = (
+    <>
       <div className="flex items-center justify-between">
         <span className={`text-sm font-bold ${isPrimary ? 'text-white' : 'text-nb-300'}`}>{label}</span>
-        <BookLogo name={source} size="md" />
+        <span className="inline-flex items-center gap-1.5 text-xs text-nb-200">
+          <BookLogo name={source} size="md" />
+          {url && <ExternalLink className="h-3 w-3 text-nb-500 group-hover:text-white transition-colors" />}
+        </span>
       </div>
       <div className="text-center py-1">
         <p className="font-mono text-3xl font-bold text-white">{formatOdds(price)}</p>
@@ -444,6 +482,26 @@ function BetCard({
           <p className="font-mono text-sm text-green-400 font-semibold">${payout.toFixed(2)}</p>
         </div>
       </div>
+    </>
+  )
+
+  if (url) {
+    return (
+      <a
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title={`Open ${source} in a new tab`}
+        className="group block bg-nb-800/60 rounded-xl border border-nb-700/50 p-4 space-y-3 hover:border-nb-600 hover:bg-nb-800 transition-colors"
+      >
+        {cardInner}
+      </a>
+    )
+  }
+
+  return (
+    <div className="bg-nb-800/60 rounded-xl border border-nb-700/50 p-4 space-y-3">
+      {cardInner}
     </div>
   )
 }
