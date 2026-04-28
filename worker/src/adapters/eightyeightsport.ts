@@ -20,7 +20,7 @@
 
 import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
-import type { ScrapeResult, GameMarket, NormalizedEvent } from '../lib/types.js'
+import type { ScrapeResult, GameMarket, NormalizedEvent, NormalizedProp } from '../lib/types.js'
 
 const SEED_URL = 'https://www.888sport.ca/basketball/united-states/nba-t-563941/'
 const API_HOST = 'https://spectate-web.888sport.ca'
@@ -126,6 +126,182 @@ function extractStart(e: SpectateEvent): string | null {
   return null
 }
 
+// Spectate player-prop labels seen in the wild (across NBA / MLB / NHL on
+// Spectate-driven books): "<Player> Total <Stat>", "<Player> - <Stat>",
+// "<Player> to score X+ Points", "<Stat> by <Player>". The match below
+// runs longest-first so multi-word stats ("Three Pointers Made") beat
+// shorter substrings ("Points").
+const PROP_STAT_MAP: Array<{ phrase: string; category: string }> = [
+  // Multi-word baseball pitcher stats first (longest)
+  { phrase: 'earned runs allowed', category: 'player_earned_runs' },
+  { phrase: 'walks allowed',       category: 'player_walks' },
+  { phrase: 'hits allowed',        category: 'player_hits_allowed' },
+  { phrase: 'pitcher strikeouts',  category: 'player_strikeouts_p' },
+  { phrase: 'strikeouts thrown',   category: 'player_strikeouts_p' },
+  { phrase: 'outs recorded',       category: 'pitcher_outs' },
+  { phrase: 'pitcher outs',        category: 'pitcher_outs' },
+  { phrase: 'total bases',         category: 'player_total_bases' },
+  { phrase: 'home runs',           category: 'player_home_runs' },
+  { phrase: 'stolen bases',        category: 'player_stolen_bases' },
+  { phrase: 'runs batted in',      category: 'player_rbis' },
+  // Basketball multi-word
+  { phrase: 'three pointers made', category: 'player_threes' },
+  { phrase: 'three pointers',      category: 'player_threes' },
+  { phrase: '3-pointers made',     category: 'player_threes' },
+  { phrase: '3-pointers',          category: 'player_threes' },
+  { phrase: 'points + rebounds + assists', category: 'player_pts_reb_ast' },
+  { phrase: 'points + rebounds',   category: 'player_pts_reb' },
+  { phrase: 'points + assists',    category: 'player_pts_ast' },
+  { phrase: 'rebounds + assists',  category: 'player_ast_reb' },
+  // Hockey multi-word
+  { phrase: 'shots on goal',       category: 'player_shots_on_goal' },
+  { phrase: 'power play points',   category: 'player_power_play_pts' },
+  // Soccer multi-word
+  { phrase: 'shots on target',     category: 'player_shots_target' },
+  // Single-word fallbacks (run last)
+  { phrase: 'strikeouts',          category: 'player_strikeouts_p' },
+  { phrase: 'rbis',                category: 'player_rbis' },
+  { phrase: 'rbi',                 category: 'player_rbis' },
+  { phrase: 'walks',               category: 'player_walks' },
+  { phrase: 'hits',                category: 'player_hits' },
+  { phrase: 'runs',                category: 'player_runs' },
+  { phrase: 'outs',                category: 'pitcher_outs' },
+  { phrase: 'rebounds',            category: 'player_rebounds' },
+  { phrase: 'assists',             category: 'player_assists' },
+  { phrase: 'points',              category: 'player_points' },
+  { phrase: 'threes',              category: 'player_threes' },
+  { phrase: 'blocks',              category: 'player_blocks' },
+  { phrase: 'steals',              category: 'player_steals' },
+  { phrase: 'turnovers',           category: 'player_turnovers' },
+  { phrase: 'goals',               category: 'player_goals' },
+  { phrase: 'saves',               category: 'player_saves' },
+]
+
+/** Parse a Spectate market label into (player, stat-category). The label
+ *  shape Spectate uses is fluid across leagues, so we try several patterns:
+ *    "Total Points - LeBron James"
+ *    "LeBron James - Points"
+ *    "LeBron James Total Points"
+ *    "Player Points (LeBron James)"
+ *  Returns null when the label doesn't look like a player O/U prop. */
+function parsePropLabel(label: string): { playerName: string; category: string } | null {
+  if (!label) return null
+  const lower = label.toLowerCase()
+  // Skip obvious non-player markets early.
+  if (/\b(moneyline|money line|spread|run line|puck line|match winner|to win|race to|race-to|first|1st|2nd|3rd|4th|half|quarter|period|inning|alt(ernate)?\s|odd\/even|bands?|exact|correct score|both teams)/i.test(lower)) return null
+  // Find the longest matching stat phrase
+  let stat: { phrase: string; category: string } | null = null
+  for (const s of PROP_STAT_MAP) {
+    if (lower.includes(s.phrase) && (!stat || s.phrase.length > stat.phrase.length)) stat = s
+  }
+  if (!stat) return null
+
+  // Strip the stat phrase + boilerplate words to recover the player name.
+  // Try parenthetical first: "Player Points (LeBron James)" → captures LeBron.
+  const paren = label.match(/\(([^()]+)\)\s*$/)
+  if (paren) {
+    const candidate = paren[1].trim()
+    if (looksLikePlayerName(candidate)) return { playerName: candidate, category: stat.category }
+  }
+  // Try dash: "Total Points - LeBron James" or "LeBron James - Points"
+  const dash = label.match(/^(.+?)\s*[-–]\s*(.+)$/)
+  if (dash) {
+    const left = dash[1].trim()
+    const right = dash[2].trim()
+    // Whichever side does NOT contain the stat phrase is the player.
+    const leftHasStat = left.toLowerCase().includes(stat.phrase)
+    const rightHasStat = right.toLowerCase().includes(stat.phrase)
+    if (leftHasStat && !rightHasStat && looksLikePlayerName(right)) return { playerName: right, category: stat.category }
+    if (rightHasStat && !leftHasStat && looksLikePlayerName(left)) return { playerName: left, category: stat.category }
+  }
+  // Plain "<Player> Total <Stat>" / "<Player> <Stat>" — strip stat phrase off
+  // the END (anchored), then strip leading "Total ".
+  const phraseRe = new RegExp('\\s*(?:total\\s+)?' + stat.phrase + '\\s*$', 'i')
+  const stripped = label.replace(phraseRe, '').replace(/\s+(o\/u|over\/under|prop|props|specials?|markets?)\s*$/i, '').trim()
+  if (looksLikePlayerName(stripped)) return { playerName: stripped, category: stat.category }
+  return null
+}
+
+function looksLikePlayerName(s: string): boolean {
+  if (!s) return false
+  if (s.length < 3 || s.length > 60) return false
+  // Must contain at least one space (first + last name) OR a hyphen for
+  // dashed names (Karl-Anthony) — "Points" alone shouldn't pass.
+  if (!/\s/.test(s) && !/-[A-Z]/.test(s)) return false
+  // Reject anything that's still a known stat word.
+  if (/^(over|under|yes|no|home|away|draw|game|total|points|rebounds|assists|threes|blocks|steals|hits|runs|walks|outs|saves|goals)$/i.test(s)) return false
+  return true
+}
+
+function extractPlayerProps(e: SpectateEvent): NormalizedProp[] {
+  const markets = Array.isArray(e.markets)
+    ? e.markets
+    : e.markets && typeof e.markets === 'object' ? Object.values(e.markets) : []
+  if (markets.length === 0) return []
+
+  const props: NormalizedProp[] = []
+  // One row per (player, category, line). Multiple Spectate markets can
+  // resolve to the same key (alt lines + main line) — keep the line with
+  // both sides priced when possible.
+  const byKey = new Map<string, NormalizedProp>()
+  for (const m of markets as any[]) {
+    const parsed = parsePropLabel(spectateMarketLabel(m))
+    if (!parsed) continue
+    const outcomes = spectateOutcomesOf(m)
+    let overPrice: number | null = null, underPrice: number | null = null
+    let line: number | null = null
+    for (const o of outcomes) {
+      const n = spectateNameOf(o), price = spectatePriceOf(o), l = spectateLineOf(o)
+      if (price == null) continue
+      if (n.startsWith('over') || n === 'o') {
+        overPrice = price; if (line == null) line = l
+      } else if (n.startsWith('under') || n === 'u') {
+        underPrice = price; if (line == null) line = l
+      }
+    }
+    if (overPrice == null && underPrice == null) continue
+    if (line == null) continue
+    const key = `${parsed.playerName}|${parsed.category}|${line}`
+    const existing = byKey.get(key)
+    const newBoth = overPrice != null && underPrice != null
+    const existingBoth = existing && existing.overPrice != null && existing.underPrice != null
+    if (!existing || (newBoth && !existingBoth)) {
+      byKey.set(key, {
+        propCategory: parsed.category,
+        playerName: parsed.playerName,
+        lineValue: line,
+        overPrice,
+        underPrice,
+        yesPrice: null,
+        noPrice: null,
+        isBinary: false,
+      })
+    }
+  }
+  for (const p of byKey.values()) props.push(p)
+  return props
+}
+
+// ── Spectate selection / market shape helpers (shared by game + props) ──
+function spectateOutcomesOf(m: any): any[] {
+  if (m?.selections && typeof m.selections === 'object' && !Array.isArray(m.selections)) return Object.values(m.selections)
+  if (Array.isArray(m?.outcomes)) return m.outcomes
+  if (Array.isArray(m?.selections)) return m.selections
+  if (m?.outcomes && typeof m.outcomes === 'object') return Object.values(m.outcomes)
+  return []
+}
+const spectateNameOf = (o: any) => String(o?.name ?? o?.selection_name ?? o?.label ?? '').toLowerCase()
+const spectatePriceOf = (o: any) => toAmerican(o?.fraction_price ?? o?.decimal_price ?? o?.decimal_odds ?? o?.odds ?? o?.price ?? o?.value)
+function spectateLineOf(o: any): number | null {
+  for (const k of ['line', 'handicap', 'point', 'value', 'param', 'base']) {
+    const v = o?.[k]
+    if (typeof v === 'number' && isFinite(v)) return v
+    if (typeof v === 'string') { const n = Number(v); if (!isNaN(n)) return n }
+  }
+  return null
+}
+const spectateMarketLabel = (m: any) => String(m?.name ?? m?.market_name ?? m?.type ?? m?.display_name ?? '')
+
 /** Pull game markets out of an event's markets object. Spectate ships either
  *  an object keyed by market_id or an array. Outcomes carry a name +
  *  decimal_odds + line. */
@@ -137,33 +313,16 @@ function extractGameMarkets(e: SpectateEvent, home: string, away: string): GameM
 
   const byType: Record<'moneyline' | 'spread' | 'total', any[]> = { moneyline: [], spread: [], total: [] }
   for (const m of markets as any[]) {
-    const label = String(m?.name ?? m?.market_name ?? m?.type ?? m?.display_name ?? '')
-    const t = classifyMarket(label)
+    const t = classifyMarket(spectateMarketLabel(m))
     if (!t) continue
     byType[t].push(m)
   }
 
   const out: GameMarket[] = []
-  const outcomesOf = (m: any): any[] => {
-    // Spectate: m.selections is an object keyed by selection_id.
-    if (m?.selections && typeof m.selections === 'object' && !Array.isArray(m.selections)) {
-      return Object.values(m.selections)
-    }
-    if (Array.isArray(m?.outcomes)) return m.outcomes
-    if (Array.isArray(m?.selections)) return m.selections
-    if (m?.outcomes && typeof m.outcomes === 'object') return Object.values(m.outcomes)
-    return []
-  }
-  const nameOf = (o: any) => String(o?.name ?? o?.selection_name ?? o?.label ?? '').toLowerCase()
-  const priceOf = (o: any) => toAmerican(o?.fraction_price ?? o?.decimal_price ?? o?.decimal_odds ?? o?.odds ?? o?.price ?? o?.value)
-  const lineOf = (o: any): number | null => {
-    for (const k of ['line', 'handicap', 'point', 'value', 'param', 'base']) {
-      const v = o?.[k]
-      if (typeof v === 'number' && isFinite(v)) return v
-      if (typeof v === 'string') { const n = Number(v); if (!isNaN(n)) return n }
-    }
-    return null
-  }
+  const outcomesOf = spectateOutcomesOf
+  const nameOf = spectateNameOf
+  const priceOf = spectatePriceOf
+  const lineOf = spectateLineOf
 
   // Moneyline
   if (byType.moneyline[0]) {
@@ -368,13 +527,15 @@ export const eightyEightSportAdapter: BookAdapter = {
             sport: L.sportCanonical,
           }
           const gameMarkets = extractGameMarkets(ev, teams.home, teams.away)
-          scraped.push({ event, gameMarkets, props: [] })
+          const props = extractPlayerProps(ev)
+          scraped.push({ event, gameMarkets, props })
         }
       }
 
       log.info('888sport scrape summary', {
         events: scraped.length,
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
+        totalProps: scraped.reduce((s, e) => s + e.props.length, 0),
       })
       return { events: scraped, errors }
     }, { useProxy: true })

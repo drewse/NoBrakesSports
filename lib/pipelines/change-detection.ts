@@ -185,7 +185,20 @@ export async function upsertCurrentOdds(
 
   // ── Changed rows: full upsert (odds moved → update everything + changed_at) ──
   if (changed.length > 0) {
-    const changedUpserts = changed.map(row => ({
+    // Dedup by conflict key BEFORE upsert. Postgres rejects an upsert
+    // batch with duplicate ON CONFLICT keys with
+    //   "ON CONFLICT DO UPDATE command cannot affect row a second time"
+    // Pinnacle in particular hits this when two source-side matchups
+    // collapse to the same canonical event (doubleheader collisions,
+    // related-matchup parents) and both emit a moneyline. Keep the
+    // last occurrence in input order — adapters generally append
+    // freshest-last.
+    const dedup = new Map<string, OddsRow>()
+    for (const row of changed) {
+      const k = `${row.event_id}|${row.source_id}|${row.market_type}|0`
+      dedup.set(k, row)
+    }
+    const changedUpserts = [...dedup.values()].map(row => ({
       event_id:           row.event_id,
       source_id:          row.source_id,
       market_type:        row.market_type,
