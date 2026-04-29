@@ -556,7 +556,11 @@ export const eightyEightSportAdapter: BookAdapter = {
           const leagueSeg = (ev0 as any)?.tournament_slug ?? L.league
           const tourId = (ev0 as any)?.tournament_id ?? '563941'
           const evSlug = (ev0 as any)?.event_l10n_slug ?? (ev0 as any)?.slug ?? ''
-          const eventUrl = `https://www.888sport.ca/${sportSeg}/${countrySeg}/${leagueSeg}-t${tourId}/${evSlug}-e${probeEid}/`
+          // Spectate URL convention uses hyphens between the slug
+          // and the type-prefixed id: "nba-t-563941", "<slug>-e-<id>".
+          // Without the hyphen the SPA returns 404 + a 26x retry storm
+          // on /spectate/translation/urlPath (verified from prior diag).
+          const eventUrl = `https://www.888sport.ca/${sportSeg}/${countrySeg}/${leagueSeg}-t-${tourId}/${evSlug}-e-${probeEid}/`
           const callsBefore = spectateCalls.length
           try {
             await page.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
