@@ -31,7 +31,9 @@ interface BookEntry {
 const PACKETSTREAM_LIVE: BookEntry[] = [
   { name: 'BetMGM ON',  note: 'Entain CDS · Railway' },
   { name: '888sport',   note: 'Spectate · Railway · NBA/MLB/NHL game lines + props' },
-  { name: 'Betano',     note: 'Kaizen SSR · Railway' },
+  // Betano moved to Paused — adapter is `[discovery]`, returns events: []
+  // until the events-list endpoint is reverse-engineered. See
+  // worker/src/adapters/betano.ts.
   { name: 'TonyBet',    note: 'BetConstruct · Railway' },
   { name: 'Betovo',     note: 'CA discovery · Railway' },
   { name: 'Sports Interaction', note: 'Entain CDS · Railway · NBA/MLB/NHL game lines + props · awaiting first cycle' },
@@ -95,6 +97,7 @@ const PAUSED: BookEntry[] = [
   { name: 'Miseojeu',        note: 'TCP-drop on PacketStream · awaits IPRoyal CA' },
   { name: 'Crypto.com Markets', note: 'Cloudflare 403 from datacenter, page is RSC-only · needs Playwright + IPRoyal' },
   // Discovery-only / partial — running but not producing markets yet
+  { name: 'Betano',          note: 'Kaizen SSR · Railway · discovery — adapter returns 0 events, parser not built (do not pair in arb expectations)' },
   { name: 'BetMGM ON props', note: 'Markets endpoint broken · events flow' },
   { name: 'MyBookie',        note: 'Discovery · awaits PROXY_URL_US' },
   { name: 'Bookmaker.eu',    note: 'Discovery · awaits PROXY_URL_US' },
