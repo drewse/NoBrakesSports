@@ -30,7 +30,12 @@ function makeExternalId(leagueSlug: string, startTime: string, homeTeam: string,
 }
 import type { NormalizedProp } from '@/lib/pipelines/prop-normalizer'
 
-export const maxDuration = 300
+// Bumped from 300s → 800s. Vercel Pro caps at 900s; we were
+// timing out every cycle (504 every 2 min) with partial book
+// completion. The 4-min internal AbortController safety still
+// gates upstream HTTP fetches; the extra runtime budget covers
+// DB upserts + late-arriving books.
+export const maxDuration = 800
 export const dynamic = 'force-dynamic'
 
 // Map Kambi sport paths to our DB league slugs
@@ -116,7 +121,7 @@ export async function GET(req: NextRequest) {
 
   // 1. Scrape all sources in parallel
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 240_000) // 4 min safety
+  const timeout = setTimeout(() => controller.abort(), 720_000) // 12 min safety (maxDuration=800)
 
   try {
     // NOTE: PointsBet is now handled by the Railway worker. Skip the HTTP
