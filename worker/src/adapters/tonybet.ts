@@ -480,26 +480,67 @@ export const tonybetAdapter: BookAdapter = {
       }
       page.on('response', wideHandler)
 
-      // Pick a candidate event from the listing.
+      // If the SPA didn't fire /api/event/list passively this cycle,
+      // pull it ourselves via context.request so the picker has data.
+      if (listBodies.length === 0) {
+        try {
+          const r = await page.context().request.get(
+            'https://platform.tonybet.ca/api/event/list?lang=en&relations[]=odds&relations[]=competitors&relations[]=league&isLive=0',
+            { headers: { Accept: 'application/json', Referer: 'https://tonybet.ca/' }, timeout: 15_000 },
+          )
+          if (r.status() === 200) {
+            const text = await r.text()
+            listBodies.push(text)
+            log.info('tonybet active list fetch', { bodyLen: text.length })
+          } else {
+            log.warn('tonybet active list fetch non-200', { status: r.status() })
+          }
+        } catch (e: any) {
+          log.warn('tonybet active list fetch threw', { message: (e?.message ?? String(e)).slice(0, 200) })
+        }
+      }
+
+      // Pick a candidate event from the listing. Relaxed picker:
+      // any event with an id is fine — we just need to trigger the
+      // SPA's per-event markets fetch. Default to a generic /event/<id>
+      // URL that doesn't depend on sport mapping. Capture diagnostic
+      // info about why detailEvent was null last cycle.
       let detailEvent: { id: string; slug: string; sport: string } | null = null
+      let pickerDiag: any = null
       for (const body of listBodies) {
         try {
           const j = JSON.parse(body)
-          const items: any[] = j?.data?.items ?? j?.items ?? []
+          const items: any[] = j?.data?.items ?? j?.items ?? j?.data?.events ?? []
+          if (items.length > 0 && !pickerDiag) {
+            const sample = items[0]
+            pickerDiag = {
+              listBodiesCount: listBodies.length,
+              firstItemKeys: Object.keys(sample).slice(0, 30),
+              firstItemSample: JSON.stringify(sample).slice(0, 800),
+              itemsLen: items.length,
+            }
+          }
           for (const it of items) {
             const id = it?.id ?? it?.sbEventId
-            const slug = it?.translationSlug ?? ''
+            const slug = it?.translationSlug ?? it?.slug ?? ''
             const sportId = it?.sportId
-            if (!id || !slug || !sportId) continue
-            // sportId 2=basketball, 4=hockey, 5=baseball
-            const sportPath = sportId === 2 ? 'basketball' : sportId === 4 ? 'ice-hockey' : sportId === 5 ? 'baseball' : null
-            if (!sportPath) continue
-            detailEvent = { id: String(id), slug, sport: sportPath }
+            if (!id) continue
+            // Map common BetConstruct sportIds; default to 'sport' so
+            // a generic URL still triggers the SPA.
+            const sportPath = sportId === 2 ? 'basketball'
+              : sportId === 4 ? 'ice-hockey'
+              : sportId === 5 ? 'baseball'
+              : sportId === 17 ? 'american-football'
+              : sportId === 1 ? 'football'
+              : sportId === 3 ? 'tennis'
+              : 'sport'
+            detailEvent = { id: String(id), slug: String(slug), sport: sportPath }
             break
           }
         } catch {}
         if (detailEvent) break
       }
+      log.info('tonybet picker diag', { detailEvent, pickerDiag, listBodiesCount: listBodies.length })
       if (detailEvent) {
         const tryUrls = [
           `https://tonybet.ca/prematch/${detailEvent.sport}/event/${detailEvent.id}`,
