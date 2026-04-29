@@ -232,7 +232,12 @@ function extractMarkets(
       const home = prices.find(p => p.designation === 'home')
       const away = prices.find(p => p.designation === 'away')
       if (!home || !away || home.points == null) continue
-      const lineValue = Math.abs(home.points)
+      // Home-signed line. Math.abs collapsed favored/underdog onto the
+      // same magnitude, which broke cross-book grouping in the EV /
+      // arb loaders (they key by spread_value to bucket books). Symptom
+      // was BetRivers/NorthStar +0.5 looking like a 57% +EV vs Pinnacle
+      // -0.5 because they were in different groups.
+      const lineValue = home.points
       const outcomes: CanonicalOutcome[] = [
         buildOutcome(`Home ${home.points > 0 ? '+' : ''}${home.points}`, home.price, 'home'),
         buildOutcome(`Away ${away.points != null && away.points > 0 ? '+' : ''}${away.points ?? ''}`, away.price, 'away'),

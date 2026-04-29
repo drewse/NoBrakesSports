@@ -110,9 +110,18 @@ function buildMarket(eventId: string, leagueSlug: string, raw: any): CanonicalMa
   if (outcomes.length === 0) return null
 
   let lineValue: number | null = null
-  if (marketType !== 'moneyline') {
+  if (marketType === 'total') {
+    // Total is naturally unsigned (Over X / Under X share the same line).
     const first = (raw.outcomes ?? []).find((o: any) => o.points != null && o.points !== 0)
-    lineValue = first ? Math.abs(first.points) : null
+    lineValue = first?.points ?? null
+  } else if (marketType === 'spread') {
+    // Home-signed: take the home outcome's points directly so the EV / arb
+    // loaders can group books by spread_value and not bucket "home -1.5"
+    // into a different group than "home +1.5".
+    const homeOutcome = (raw.outcomes ?? []).find((o: any) => (o.side ?? '').toLowerCase() === 'home')
+    const awayOutcome = (raw.outcomes ?? []).find((o: any) => (o.side ?? '').toLowerCase() === 'away')
+    if (homeOutcome?.points != null) lineValue = homeOutcome.points
+    else if (awayOutcome?.points != null) lineValue = -awayOutcome.points
   }
 
   return {

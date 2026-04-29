@@ -483,11 +483,22 @@ function parseGameMarkets(offers: KambiBetOffer[]): Map<number, KambiGameMarket[
         else if (type === 'OT_TWO') awayPrice = american
         else if (type === 'OT_CROSS') drawPrice = american
       } else if (marketType === 'spread') {
-        spreadValue = o.line != null ? o.line / 1000 : null
-        if (type === 'OT_ONE') homePrice = american
-        else if (type === 'OT_TWO') awayPrice = american
+        // Home-signed: pull line from the HOME outcome (OT_ONE) only,
+        // and only if not already set. Was unconditional assignment on
+        // every iteration — whoever's outcome was processed last won
+        // the assignment, so spreadValue's sign was order-dependent
+        // and routinely wrong (book + line value collided across books
+        // in EV / arb groups, fabricating phantom +EV lines).
+        if (type === 'OT_ONE') {
+          homePrice = american
+          if (spreadValue == null && o.line != null) spreadValue = o.line / 1000
+        } else if (type === 'OT_TWO') {
+          awayPrice = american
+          if (spreadValue == null && o.line != null) spreadValue = -o.line / 1000
+        }
       } else if (marketType === 'total') {
-        totalValue = o.line != null ? o.line / 1000 : null
+        // Total is naturally unsigned — same line value on Over and Under.
+        if (totalValue == null && o.line != null) totalValue = o.line / 1000
         if (type.includes('OVER') || (o.label || '').toLowerCase() === 'over') overPrice = american
         else if (type.includes('UNDER') || (o.label || '').toLowerCase() === 'under') underPrice = american
       }

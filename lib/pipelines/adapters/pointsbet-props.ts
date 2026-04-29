@@ -179,7 +179,12 @@ async function fetchCompetition(league: typeof PB_LEAGUES[number]): Promise<PBRe
           homePrice: home?.price ? decToAm(home.price) : null,
           awayPrice: away?.price ? decToAm(away.price) : null,
           drawPrice: null,
-          spreadValue: home?.points != null ? Math.abs(home.points) : null,
+          // Home-signed spread: -1.5 if home favored, +1.5 if underdog. Was
+          // Math.abs which collapsed both sides to the same magnitude and
+          // broke EV / arb cross-book grouping.
+          spreadValue: home?.points != null
+            ? home.points
+            : (away?.points != null ? -away.points : null),
           totalValue: null, overPrice: null, underPrice: null,
         })
         continue

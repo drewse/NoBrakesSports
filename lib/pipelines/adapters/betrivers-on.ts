@@ -127,12 +127,25 @@ function extractMarkets(item: any, eventId: string, leagueSlug: string): Canonic
 
   if (sp) {
     const outcomes: CanonicalOutcome[] = []
+    // lineValue is HOME-SIGNED so the EV / arb loaders (which key by
+    // spread_value to group books) put every book's "Home -0.5" entries
+    // in the same bucket. Was Math.abs which collapsed Auxerre at -0.5
+    // (favored) and Auxerre at +0.5 (underdog) to the same magnitude;
+    // result was Pinnacle's signed -0.5 falling into a different group
+    // than BetRivers' +0.5, so the EV loader saw BR/NorthStar with no
+    // Pinnacle anchor and fabricated a 57% +EV "Auxerre +0.5" line.
     let lineValue: number | null = null
     for (const o of open(sp).filter((o: any) => ['OT_ONE', 'OT_TWO'].includes(o.type))) {
       const p = parseOdds(o.oddsAmerican)
       if (isNaN(p)) continue
       const line = (o.line ?? 0) / 1000
-      if (lineValue === null) lineValue = Math.abs(line)
+      // Take the line from the HOME outcome (OT_ONE) directly. If the
+      // home outcome is missing for some reason, derive home-signed
+      // value from the away outcome by negating.
+      if (lineValue === null) {
+        if (o.type === 'OT_ONE') lineValue = line
+        else if (o.type === 'OT_TWO') lineValue = -line
+      }
       outcomes.push({ side: getSide(o.type), label: `${o.label} ${line >= 0 ? '+' : ''}${line}`, price: p, impliedProb: americanToImplied(p) })
     }
     if (outcomes.length >= 2 && lineValue !== null) {
