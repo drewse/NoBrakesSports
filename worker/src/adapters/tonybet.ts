@@ -372,22 +372,38 @@ export const tonybetAdapter: BookAdapter = {
       // origin. Passive capture: navigate, let the SPA fire its XHRs,
       // snarf the response bodies.
       const listBodies: string[] = []
+      const v4MenuBodies: Array<{ path: string; body: string }> = []
+      const eventDetailBodies: Array<{ path: string; body: string }> = []
       const seenPaths = new Map<string, number>()
       const responseHandler = async (resp: import('playwright').Response) => {
         const u = resp.url()
         const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
-        if (ct.includes('json')) {
-          try {
-            const parsed = new URL(u)
-            if (/platform\.tonybet\.(ca|com)$/i.test(parsed.host)) {
-              const shape = parsed.pathname.replace(/\/\d{3,}/g, '/:id')
-              seenPaths.set(shape, (seenPaths.get(shape) ?? 0) + 1)
-            }
-          } catch { /* ignore */ }
-        }
-        if (!/platform\.tonybet\.(ca|com)\/api\/event\/list/i.test(u)) return
+        if (!ct.includes('json')) return
+        let parsed: URL
+        try { parsed = new URL(u) } catch { return }
+        if (!/platform\.tonybet\.(ca|com)$/i.test(parsed.host)) return
+        const shape = parsed.pathname.replace(/\/\d{3,}/g, '/:id')
+        seenPaths.set(shape, (seenPaths.get(shape) ?? 0) + 1)
         if (resp.status() !== 200) return
-        try { listBodies.push(await resp.text()) } catch { /* stream closed */ }
+        // /api/event/list — the existing path that returns events without
+        // odds inline. Keep capturing for the existing parser.
+        if (/\/api\/event\/list/i.test(parsed.pathname)) {
+          try { listBodies.push(await resp.text()) } catch {}
+          return
+        }
+        // /api/v4/menu/line/en — captured in earlier discovery as a
+        // top hit; suspected to be the events-with-odds menu. Capture
+        // the first ~3 bodies so we can see the shape.
+        if (/\/api\/v4\/menu\/line/i.test(parsed.pathname) && v4MenuBodies.length < 3) {
+          try { v4MenuBodies.push({ path: parsed.pathname, body: await resp.text() }) } catch {}
+          return
+        }
+        // /api/event/<id> — per-event detail likely shipped after the SPA
+        // navigates into a single event. Captures here help us discover
+        // the per-event markets endpoint.
+        if (/\/api\/event\/\d+/.test(parsed.pathname) && eventDetailBodies.length < 3) {
+          try { eventDetailBodies.push({ path: parsed.pathname, body: await resp.text() }) } catch {}
+        }
       }
       page.on('response', responseHandler)
 
@@ -421,8 +437,41 @@ export const tonybetAdapter: BookAdapter = {
       page.off('response', responseHandler)
       log.info('tonybet captured', {
         listResponses: listBodies.length,
+        v4MenuResponses: v4MenuBodies.length,
+        eventDetailResponses: eventDetailBodies.length,
         topPlatformPaths: Array.from(seenPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
       })
+      // Dump v4 menu and event-detail samples for the first cycle so we can
+      // see whether either of them ships markets/odds.
+      for (const m of v4MenuBodies.slice(0, 1)) {
+        let topKeys: string[] = []
+        let firstItemKeys: string[] = []
+        let firstItemSample = ''
+        try {
+          const j = JSON.parse(m.body)
+          if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 10)
+          // Common BetConstruct shape: data.items or data.events
+          const items = j?.data?.items ?? j?.data?.events ?? j?.events ?? []
+          if (Array.isArray(items) && items.length > 0) {
+            firstItemKeys = Object.keys(items[0]).slice(0, 30)
+            firstItemSample = JSON.stringify(items[0]).slice(0, 1500)
+          }
+        } catch {}
+        log.info('tonybet v4 menu sample', {
+          path: m.path,
+          bodyLen: m.body.length,
+          topKeys,
+          firstItemKeys,
+          firstItemSample,
+        })
+      }
+      for (const m of eventDetailBodies.slice(0, 1)) {
+        log.info('tonybet event-detail sample', {
+          path: m.path,
+          bodyLen: m.body.length,
+          sample: m.body.slice(0, 1500),
+        })
+      }
 
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()
