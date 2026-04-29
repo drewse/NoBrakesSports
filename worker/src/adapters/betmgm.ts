@@ -14,7 +14,172 @@
 
 import { withPage } from '../lib/browser.js'
 import type { BookAdapter } from '../lib/adapter.js'
-import type { ScrapeResult, GameMarket } from '../lib/types.js'
+import type { ScrapeResult, GameMarket, NormalizedProp } from '../lib/types.js'
+
+// ── Prop category detection ─────────────────────────────────────────
+//
+// BetMGM (Entain) prop labels observed from the live diag:
+//   "Donovan Mitchell - Rebounds"
+//   "James Harden - Three Pointers"
+//   "Cade Cunningham - Points"
+//   "Bryan Reynolds - Runs"
+//   "Konnor Griffin - Player triples"
+//   "Willson Contreras to record 1+ hits"          (binary threshold)
+//   "Ceddanne Rafaela: Strikeouts"                  (colon variant)
+//   "Donovan Mitchell to score 30+ points"          (binary threshold)
+//   "Joel Embiid to record 5+ assists"              (binary threshold)
+//   "Joel Embiid to record 25+ Total Points and Rebounds"  (combo)
+
+const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
+  // Combos must come first so single-stat substring checks don't swallow them
+  { re: /\bpoints?\s*[,+]?\s*rebounds?\s*[,+]?\s*(and\s+)?assists?\b/i, category: 'player_pts_reb_ast' },
+  { re: /\bpoints?\s*and\s*rebounds?\b/i, category: 'player_pts_reb' },
+  { re: /\bpoints?\s*and\s*assists?\b/i, category: 'player_pts_ast' },
+  { re: /\brebounds?\s*and\s*assists?\b/i, category: 'player_ast_reb' },
+  { re: /\bsteals?\s*and\s*blocks?\b/i, category: 'player_steals_blocks' },
+  // Singles
+  { re: /\bthree\s*pointers?\b|\b3-?pointers?\b/i, category: 'player_threes' },
+  { re: /\bturnovers?\b/i, category: 'player_turnovers' },
+  { re: /\bsteals?\b/i, category: 'player_steals' },
+  { re: /\bblocks?\b/i, category: 'player_blocks' },
+  { re: /\brebounds?\b/i, category: 'player_rebounds' },
+  { re: /\bassists?\b/i, category: 'player_assists' },
+  { re: /\bpoints?\b/i, category: 'player_points' },
+  // MLB
+  { re: /\btotal\s*bases?\b/i, category: 'player_total_bases' },
+  { re: /\bhome\s*runs?\b/i, category: 'player_home_runs' },
+  { re: /\brbis?\b/i, category: 'player_rbis' },
+  { re: /\b(walks?\s*allowed|pitcher\s*walks)\b/i, category: 'player_walks' },
+  { re: /\bwalks?\b/i, category: 'player_walks' },
+  { re: /\bstrikeouts?\b/i, category: 'player_strikeouts_p' },
+  { re: /\bearned\s*runs?\b/i, category: 'player_earned_runs' },
+  { re: /\bouts?\b/i, category: 'pitcher_outs' },
+  { re: /\bhits?\s*allowed\b/i, category: 'player_hits_allowed' },
+  { re: /\bhits?\b/i, category: 'player_hits' },
+  { re: /\bstolen\s*bases?\b/i, category: 'player_stolen_bases' },
+  { re: /\bruns?\b/i, category: 'player_runs' },
+  // NHL
+  { re: /\bshots?\s*on\s*goal\b/i, category: 'player_shots_on_goal' },
+  { re: /\bsaves?\b/i, category: 'player_saves' },
+  { re: /\bgoals?\b/i, category: 'player_goals' },
+]
+
+function detectBmgPropCategory(stat: string): string | null {
+  for (const { re, category } of BMG_PROP_KEYWORDS) {
+    if (re.test(stat)) return category
+  }
+  return null
+}
+
+/** Parse a BetMGM market name into (player, stat). Three shapes seen:
+ *    "<Player> - <Stat>"           (most common O/U)
+ *    "<Player>: <Stat>"            (colon variant)
+ *    "<Player> to <verb> <N>+ <Stat>"  (threshold/binary)
+ */
+function parseBmgPropName(name: string): { player: string; stat: string; isThreshold: boolean } | null {
+  if (!name) return null
+  // Threshold form first ("Player to record 25+ ...")
+  const thresh = name.match(/^(.+?)\s+to\s+(?:get|score|record|make|throw|hit|have)\s+\d+\+\s+(.+)$/i)
+  if (thresh) return { player: thresh[1].trim(), stat: thresh[2].trim(), isThreshold: true }
+  // Dash separator (last " - " in case stat contains dashes like "Three-Pointers Made")
+  const dashIdx = name.lastIndexOf(' - ')
+  if (dashIdx > 0) {
+    return { player: name.slice(0, dashIdx).trim(), stat: name.slice(dashIdx + 3).trim(), isThreshold: false }
+  }
+  // Colon separator
+  const colonIdx = name.indexOf(': ')
+  if (colonIdx > 0) {
+    return { player: name.slice(0, colonIdx).trim(), stat: name.slice(colonIdx + 2).trim(), isThreshold: false }
+  }
+  return null
+}
+
+function looksLikePlayerName(s: string): boolean {
+  if (!s || s.length < 3 || s.length > 60) return false
+  // Reject obvious non-player tokens
+  if (/\b(home|away|over|under|yes|no|both|neither|tie|either|each|first|last|any|player|game)\b/i.test(s)
+      && !/^[A-Z]/.test(s)) return false
+  // Multi-word OR includes a hyphen (Karl-Anthony) — bare single-word names rare
+  if (!/\s/.test(s) && !/-[A-Z]/.test(s)) return false
+  return true
+}
+
+function extractFixtureProps(fixture: BMGFixture): NormalizedProp[] {
+  const out: NormalizedProp[] = []
+  // Track (player, category, line) → prefer two-sided over one-sided
+  const seen = new Map<string, NormalizedProp>()
+
+  // Walk both optionMarkets and games[] — Entain CDS sometimes ships
+  // player props under either depending on fixture type.
+  const allMarkets: any[] = []
+  for (const m of (fixture.optionMarkets ?? [])) allMarkets.push(m)
+  for (const g of ((fixture as any)?.games ?? [])) allMarkets.push(g)
+
+  for (const m of allMarkets) {
+    const status = m?.status ?? m?.visibility ?? ''
+    if (status && /suspended|closed|hidden|inactive|disabled/i.test(String(status))) continue
+    const marketName: string = m?.name?.value ?? ''
+    if (!marketName) continue
+    const parsed = parseBmgPropName(marketName)
+    if (!parsed) continue
+    if (!looksLikePlayerName(parsed.player)) continue
+    const category = detectBmgPropCategory(parsed.stat)
+    if (!category) continue
+
+    const opts: any[] = m?.options ?? m?.results ?? []
+    if (opts.length < 1) continue
+
+    if (parsed.isThreshold) {
+      // Binary "Yes/No" or single-side "<N>+" — skip since arbs need O/U
+      // pairs. Could surface as binary props later, but for the user's
+      // immediate request (game_total_hits arb pairing) this is moot.
+      continue
+    }
+
+    // Standard O/U: collect over/under prices + line.
+    let over: number | null = null, under: number | null = null, line: number | null = null
+    for (const o of opts) {
+      const optName: string = (o?.name?.value ?? '').toLowerCase()
+      const american = Number(o?.price?.americanOdds ?? o?.americanOdds)
+      if (!isFinite(american)) continue
+      const totalsPrefix = o?.totalsPrefix
+      const pts = Number(o?.points ?? o?.handicap)
+      const attr = o?.attr != null ? Number(o.attr) : NaN
+      const candidateLine = isFinite(pts) ? pts : isFinite(attr) ? attr : NaN
+      if (totalsPrefix === 'Over' || optName.startsWith('over')) {
+        over = american; if (line == null && isFinite(candidateLine)) line = candidateLine
+      } else if (totalsPrefix === 'Under' || optName.startsWith('under')) {
+        under = american; if (line == null && isFinite(candidateLine)) line = candidateLine
+      }
+    }
+    // Fall back to market-level attr for the line if not found on options.
+    if (line == null) {
+      const mAttr = m?.attr != null ? Number(m.attr) : NaN
+      if (isFinite(mAttr)) line = mAttr
+    }
+    if (line == null) continue
+    if (over == null && under == null) continue
+
+    const key = `${parsed.player}|${category}|${line}`
+    const newBoth = over != null && under != null
+    const existing = seen.get(key)
+    const existingBoth = existing && existing.overPrice != null && existing.underPrice != null
+    if (!existing || (newBoth && !existingBoth)) {
+      seen.set(key, {
+        propCategory: category,
+        playerName: parsed.player,
+        lineValue: line,
+        overPrice: over,
+        underPrice: under,
+        yesPrice: null,
+        noPrice: null,
+        isBinary: false,
+      })
+    }
+  }
+  for (const p of seen.values()) out.push(p)
+  return out
+}
 
 const DOMAIN = 'www.on.betmgm.ca'
 const ACCESS_ID = 'MzViOTU5Y2EtNzgyMy00ZTBmLThkNDctYjRlYjgwNjMwZDQy'
@@ -430,6 +595,7 @@ export const betmgmAdapter: BookAdapter = {
                 : null,
             }).slice(0, 3500)
           }
+          const props = extractFixtureProps(fixture)
           scraped.push({
             event: {
               externalId: String(fixture.id),
@@ -440,7 +606,7 @@ export const betmgmAdapter: BookAdapter = {
               sport: league.sport,
             },
             gameMarkets,
-            props: [],
+            props,
           })
         }
 
@@ -457,6 +623,7 @@ export const betmgmAdapter: BookAdapter = {
       log.info('betmgm scrape summary', {
         events: scraped.length,
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
+        totalProps: scraped.reduce((s, e) => s + e.props.length, 0),
       })
       return { events: scraped, errors }
     }, { useProxy: true })

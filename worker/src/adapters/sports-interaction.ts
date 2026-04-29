@@ -65,9 +65,15 @@ interface SiFixture {
 
 function toLeagueSlug(competitionName: string): string {
   const n = (competitionName ?? '').toLowerCase().trim()
-  if (n === 'nba' || n === 'nba basketball') return 'nba'
-  if (n === 'nhl' || n === 'nhl hockey')     return 'nhl'
-  if (n === 'mlb' || n === 'mlb baseball')   return 'mlb'
+  // Old code was strict equality (n === 'nba') which dropped any
+  // suffixed variant like "NBA Playoffs" / "MLB Series Betting".
+  // Use word-boundary substring so "NBA", "NBA Playoffs", "NBA -
+  // Series Betting" all match. Order matters: NCAAB / NCAAM contain
+  // "NBA" as substring → reject those first.
+  if (/\bn?caa\b/i.test(n)) return ''   // NCAAB / NCAAM / NCAA / etc.
+  if (/\b(nba|nba basketball)\b/.test(n)) return 'nba'
+  if (/\b(nhl|nhl hockey)\b/.test(n)) return 'nhl'
+  if (/\b(mlb|mlb baseball|major league baseball)\b/.test(n)) return 'mlb'
   return ''
 }
 

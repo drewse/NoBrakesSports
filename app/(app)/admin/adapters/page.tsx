@@ -31,7 +31,9 @@ interface BookEntry {
 const PACKETSTREAM_LIVE: BookEntry[] = [
   { name: 'BetMGM ON',  note: 'Entain CDS · Railway · NBA/MLB/NHL game lines' },
   { name: '888sport',   note: 'Spectate · Railway · NBA/MLB/NHL game lines + props' },
-  { name: 'TonyBet',    note: 'BetConstruct · Railway · NBA/MLB/NHL game lines' },
+  // TonyBet moved to Paused — SPA route handling changed,
+  // /api/event/list no longer fires from /prematch/<sport> seed and
+  // direct context.request gets socket-hung-up. See Paused entry.
   { name: 'Sports Interaction', note: 'Entain CDS · Railway · NBA/MLB/NHL game lines + props · awaiting first cycle' },
   { name: 'Sportzino',  note: 'Altenar widget · Railway · NBA/MLB/NHL game lines (no props yet)' },
 ]
@@ -96,6 +98,7 @@ const PAUSED: BookEntry[] = [
   // emit path (grep for scraped.push / out.push). Items here have an
   // adapter scheduled on Railway but the parser still returns 0 events.
   { name: 'Betano',          note: 'Kaizen SSR · Railway · discovery — adapter returns 0 events, events-list path not reverse-engineered' },
+  { name: 'TonyBet',         note: 'BetConstruct · Railway · /api/event/list stopped firing from /prematch seed; WAF blocks direct fetches; needs SPA root-page nav + click simulation or WS integration' },
   { name: 'Betovo',          note: 'Direct CA · Railway · discovery — homepage probe only, no parser' },
   { name: 'TitanPlay',       note: 'Ontario · IPRoyal · discovery — SPA reverse-engineering not started' },
   { name: 'Stake.us',        note: 'CF-gated sweeps · IPRoyal · discovery — GraphQL endpoint defined but returns 0' },
