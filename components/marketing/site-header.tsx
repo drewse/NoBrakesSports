@@ -1,15 +1,60 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { Zap } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+
+interface AuthedUser {
+  avatarUrl: string | null
+  initial: string
+}
 
 /**
  * Marketing-site sticky header. ~72px tall, dark glass background with a
  * hairline bottom border. Right side stays slim on mobile (only the CTA
  * is visible under sm); the rest of the nav unfolds at sm+.
+ *
+ * When the visitor is signed in, the right-side `Log in` / `Get started`
+ * pair is replaced by `<avatar> Launch app` so returning users land back
+ * in the product in one click instead of being prompted to sign up again.
  */
 export function SiteHeader() {
+  // null = not yet checked (render placeholder), false = anonymous
+  const [user, setUser] = useState<AuthedUser | null | false>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    const supabase = createClient()
+    ;(async () => {
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (cancelled) return
+      if (!authUser) {
+        setUser(false)
+        return
+      }
+      // Pull avatar / name from profiles. Failing softly: still treat as
+      // signed-in even if the profile row hasn't been created yet.
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('avatar_url, full_name, username')
+        .eq('id', authUser.id)
+        .maybeSingle()
+      if (cancelled) return
+      const nameSource = (profile?.full_name as string | null)
+        ?? (profile?.username as string | null)
+        ?? authUser.email
+        ?? '?'
+      setUser({
+        avatarUrl: (profile?.avatar_url as string | null) ?? null,
+        initial: nameSource.charAt(0).toUpperCase(),
+      })
+    })()
+    return () => { cancelled = true }
+  }, [])
+
   return (
     <motion.header
       initial={{ y: -16, opacity: 0 }}
@@ -49,20 +94,57 @@ export function SiteHeader() {
           >
             Affiliates
           </Link>
-          <Link
-            href="/login"
-            className="hidden xs:inline-flex h-9 items-center px-3 text-sm text-nb-300 hover:text-white transition-colors rounded-md"
-          >
-            Log in
-          </Link>
-          <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
-            <Link
-              href="/signup"
-              className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-nb-950 shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
-            >
-              Get started
-            </Link>
-          </motion.div>
+          {/* Auth-aware right side. While `user` is null we render a
+              fixed-width placeholder so the header doesn't reflow when
+              the auth check finishes. */}
+          {user === null ? (
+            <div aria-hidden className="h-9 w-[152px]" />
+          ) : user === false ? (
+            <>
+              <Link
+                href="/login"
+                className="hidden xs:inline-flex h-9 items-center px-3 text-sm text-nb-300 hover:text-white transition-colors rounded-md"
+              >
+                Log in
+              </Link>
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
+                <Link
+                  href="/signup"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-nb-950 shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
+                >
+                  Get started
+                </Link>
+              </motion.div>
+            </>
+          ) : (
+            <div className="flex items-center gap-2 sm:gap-2.5">
+              <Link
+                href="/account/profile"
+                className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-nb-800 text-xs font-semibold text-white hover:border-white/40 transition-colors"
+                aria-label="Account"
+              >
+                {user.avatarUrl ? (
+                  <Image
+                    src={user.avatarUrl}
+                    alt=""
+                    width={32}
+                    height={32}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span>{user.initial}</span>
+                )}
+              </Link>
+              <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
+                <Link
+                  href="/odds"
+                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-nb-950 shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
+                >
+                  Launch app
+                </Link>
+              </motion.div>
+            </div>
+          )}
         </nav>
       </div>
     </motion.header>
