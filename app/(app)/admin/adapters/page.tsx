@@ -30,7 +30,7 @@ interface BookEntry {
 
 const PACKETSTREAM_LIVE: BookEntry[] = [
   { name: 'BetMGM ON',  note: 'Entain CDS · Railway' },
-  { name: '888sport',   note: 'Spectate · Railway' },
+  { name: '888sport',   note: 'Spectate · Railway · NBA/MLB/NHL game lines + props' },
   { name: 'Betano',     note: 'Kaizen SSR · Railway' },
   { name: 'TonyBet',    note: 'BetConstruct · Railway' },
   { name: 'Betovo',     note: 'CA discovery · Railway' },
@@ -53,7 +53,7 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'DraftKings',       note: 'DK API · Vercel' },
   { name: 'bwin',             note: 'Entain CDS · Vercel' },
   { name: 'partypoker',       note: 'Entain CDS · Vercel' },
-  { name: 'Bovada',           note: 'Vercel cron' },
+  { name: 'Bovada',           note: 'Vercel cron · NBA/MLB/NHL/NFL/NCAAF/NCAAB + EPL/UCL/MLS · game lines + props' },
   { name: 'PrizePicks',       note: 'DFS · Vercel cron' },
   { name: 'Sleeper Picks',    note: 'DFS · Vercel cron' },
   { name: 'Kalshi',           note: 'Prediction · Vercel cron' },

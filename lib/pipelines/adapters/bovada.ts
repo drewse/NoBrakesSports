@@ -35,10 +35,22 @@ import { normalizePlayerName, type NormalizedProp } from '../prop-normalizer'
 
 const BASE = 'https://www.bovada.lv/services/sports/event/coupon/events/A/description'
 
+// Canonical league slugs (`leagueSlug`) match rows in the `leagues` table
+// — the sync-bovada cron pairs Bovada events to canonical events by
+// `(league_slug, sorted-team-pair, ET-day-bucket)`. Adding a league here
+// only surfaces data once another pipeline has populated canonical events
+// for that league; otherwise rows show up under `unmatched` (harmless).
 const LEAGUES: Array<{ path: string; leagueSlug: string; sport: string }> = [
-  { path: 'basketball/nba', leagueSlug: 'nba', sport: 'basketball' },
-  { path: 'baseball/mlb',   leagueSlug: 'mlb', sport: 'baseball' },
-  { path: 'hockey/nhl',     leagueSlug: 'nhl', sport: 'ice_hockey' },
+  { path: 'basketball/nba',                            leagueSlug: 'nba',   sport: 'basketball' },
+  { path: 'baseball/mlb',                              leagueSlug: 'mlb',   sport: 'baseball' },
+  { path: 'hockey/nhl',                                leagueSlug: 'nhl',   sport: 'ice_hockey' },
+  // ── Coverage upgrade (verified 2026-04-28) ───────────────────────
+  { path: 'football/nfl',                              leagueSlug: 'nfl',   sport: 'football' },
+  { path: 'football/college-football',                 leagueSlug: 'ncaaf', sport: 'football' },
+  { path: 'basketball/college-basketball',             leagueSlug: 'ncaab', sport: 'basketball' },
+  { path: 'soccer/europe/england/premier-league',      leagueSlug: 'epl',   sport: 'soccer' },
+  { path: 'soccer/international-club/uefa-champions-league', leagueSlug: 'ucl', sport: 'soccer' },
+  { path: 'soccer/north-america/united-states/mls',    leagueSlug: 'mls',   sport: 'soccer' },
 ]
 
 export interface BovadaEvent {
