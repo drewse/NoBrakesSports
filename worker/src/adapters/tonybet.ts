@@ -434,7 +434,98 @@ export const tonybetAdapter: BookAdapter = {
           log.warn('tonybet league nav failed', { path, message: e?.message ?? String(e) })
         }
       }
+
+      // Also navigate into a single event detail page so the SPA fires
+      // its per-event markets fetch. Pull the first event id + slug
+      // from listBodies and try a couple of URL shapes (bet-construct
+      // skins use either /prematch/<sport>/event/<id> or
+      // /prematch/<sport>/<id>/<slug>).
+      const allHostPaths = new Map<string, number>()
+      const detailHostBodies: Array<{ host: string; path: string; status: number; bodyLen: number; topKeys: string[]; sample: string }> = []
+      const wideHandler = async (resp: import('playwright').Response) => {
+        try {
+          const u = new URL(resp.url())
+          // Capture every tonybet-domain XHR (any subdomain) and any
+          // sibling host the SPA hits — the BetConstruct "swarm" data
+          // sometimes lives at swarm.<host> or prematch.<host>.
+          if (!/tonybet\.(ca|com)$/i.test(u.host) && !/betconstruct/i.test(u.host)) return
+          const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
+          if (!ct.includes('json')) return
+          const shape = u.host + u.pathname.replace(/\/\d{3,}/g, '/:id')
+          allHostPaths.set(shape, (allHostPaths.get(shape) ?? 0) + 1)
+          if (resp.status() === 200 && detailHostBodies.length < 8) {
+            const text = await resp.text()
+            let topKeys: string[] = []
+            try {
+              const j = JSON.parse(text)
+              if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
+              else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
+            } catch {}
+            // Only keep bodies that look like they might contain markets:
+            // size > 5KB OR top keys mention markets/games/event
+            const sizeBig = text.length > 5000
+            const keysInteresting = topKeys.some(k => /market|game|event|odds|outcome/i.test(k))
+            if (sizeBig || keysInteresting) {
+              detailHostBodies.push({
+                host: u.host,
+                path: u.pathname,
+                status: resp.status(),
+                bodyLen: text.length,
+                topKeys,
+                sample: text.slice(0, 800),
+              })
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      page.on('response', wideHandler)
+
+      // Pick a candidate event from the listing.
+      let detailEvent: { id: string; slug: string; sport: string } | null = null
+      for (const body of listBodies) {
+        try {
+          const j = JSON.parse(body)
+          const items: any[] = j?.data?.items ?? j?.items ?? []
+          for (const it of items) {
+            const id = it?.id ?? it?.sbEventId
+            const slug = it?.translationSlug ?? ''
+            const sportId = it?.sportId
+            if (!id || !slug || !sportId) continue
+            // sportId 2=basketball, 4=hockey, 5=baseball
+            const sportPath = sportId === 2 ? 'basketball' : sportId === 4 ? 'ice-hockey' : sportId === 5 ? 'baseball' : null
+            if (!sportPath) continue
+            detailEvent = { id: String(id), slug, sport: sportPath }
+            break
+          }
+        } catch {}
+        if (detailEvent) break
+      }
+      if (detailEvent) {
+        const tryUrls = [
+          `https://tonybet.ca/prematch/${detailEvent.sport}/event/${detailEvent.id}`,
+          `https://tonybet.ca/prematch/${detailEvent.sport}/${detailEvent.id}/${detailEvent.slug}`,
+          `https://tonybet.ca/prematch/event/${detailEvent.id}`,
+        ]
+        for (const u of tryUrls) {
+          try {
+            await page.goto(u, { waitUntil: 'domcontentloaded', timeout: 25_000 })
+            await page.waitForTimeout(7_000)
+            // If the page actually loaded a real event view we'll have
+            // captured bodies; bail after first one that produces any.
+            if (detailHostBodies.length > 0) break
+          } catch (e: any) {
+            log.warn('tonybet event-detail nav failed', { url: u, message: (e?.message ?? String(e)).slice(0, 200) })
+          }
+        }
+      }
+      page.off('response', wideHandler)
       page.off('response', responseHandler)
+      log.info('tonybet event-detail nav', {
+        triedEvent: detailEvent,
+        capturedHostPaths: Array.from(allHostPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 30),
+        bigBodyCount: detailHostBodies.length,
+        bigBodySamples: detailHostBodies.slice(0, 3),
+      })
       log.info('tonybet captured', {
         listResponses: listBodies.length,
         v4MenuResponses: v4MenuBodies.length,
