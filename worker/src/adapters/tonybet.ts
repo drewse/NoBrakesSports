@@ -442,27 +442,61 @@ export const tonybetAdapter: BookAdapter = {
         topPlatformPaths: Array.from(seenPaths.entries()).sort((a, b) => b[1] - a[1]).slice(0, 15),
       })
       // Dump v4 menu and event-detail samples for the first cycle so we can
-      // see whether either of them ships markets/odds.
+      // see whether either of them ships markets/odds. Earlier cycle confirmed
+      // top-level shape is { status, code, data }; data did NOT contain
+      // items/events. BetConstruct's "menu" endpoint typically returns a
+      // nested tree (sport → region → competition → game) so walk it
+      // generically and look for the first object that has team1/team2 or
+      // a markets array — that's the game node.
       for (const m of v4MenuBodies.slice(0, 1)) {
         let topKeys: string[] = []
-        let firstItemKeys: string[] = []
-        let firstItemSample = ''
+        let dataKeys: string[] = []
+        let firstGameSample = ''
+        let firstGamePath = ''
+        let dataSample = ''
         try {
           const j = JSON.parse(m.body)
           if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 10)
-          // Common BetConstruct shape: data.items or data.events
-          const items = j?.data?.items ?? j?.data?.events ?? j?.events ?? []
-          if (Array.isArray(items) && items.length > 0) {
-            firstItemKeys = Object.keys(items[0]).slice(0, 30)
-            firstItemSample = JSON.stringify(items[0]).slice(0, 1500)
+          const data = j?.data
+          if (data && typeof data === 'object' && !Array.isArray(data)) {
+            dataKeys = Object.keys(data).slice(0, 20)
+            dataSample = JSON.stringify(data).slice(0, 800)
+          }
+          // DFS-ish walk to find the first node that looks like an event.
+          const queue: Array<{ node: any; path: string; depth: number }> = [{ node: j, path: '$', depth: 0 }]
+          let scanned = 0
+          while (queue.length && scanned < 4000) {
+            const { node, path, depth } = queue.shift()!
+            scanned++
+            if (depth > 8) continue
+            if (!node || typeof node !== 'object') continue
+            // Game-shaped detection: BetConstruct games carry team1/team2
+            // (sometimes empty strings) + markets/markets_count.
+            const looksLikeGame =
+              node && typeof node === 'object' && !Array.isArray(node) &&
+              ('team1' in node || 'team_1' in node || 'opp_1' in node) &&
+              ('team2' in node || 'team_2' in node || 'opp_2' in node)
+            if (looksLikeGame && !firstGameSample) {
+              firstGameSample = JSON.stringify(node).slice(0, 1500)
+              firstGamePath = path
+              break
+            }
+            const entries = Array.isArray(node) ? node.entries() : Object.entries(node)
+            for (const [k, v] of entries) {
+              if (v && typeof v === 'object') {
+                queue.push({ node: v, path: `${path}.${k}`, depth: depth + 1 })
+              }
+            }
           }
         } catch {}
         log.info('tonybet v4 menu sample', {
           path: m.path,
           bodyLen: m.body.length,
           topKeys,
-          firstItemKeys,
-          firstItemSample,
+          dataKeys,
+          dataSample,
+          firstGamePath,
+          firstGameSample,
         })
       }
       for (const m of eventDetailBodies.slice(0, 1)) {
