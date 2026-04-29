@@ -99,6 +99,32 @@ async function pageFetchJson(
   }
 }
 
+/** "Away @ Home" / "Home vs Away" / "Home - Away" → { home, away }.
+ *  SIA recently started shipping MLB/NHL/NBA fixtures with empty
+ *  participants arrays; team names live only in the fixture name now,
+ *  so we have to parse them out. */
+function teamsFromName(name: string): { home: string; away: string } | null {
+  if (!name) return null
+  const atSplit = name.split(/\s+@\s+/)
+  if (atSplit.length === 2) {
+    const [away, home] = atSplit.map(s => s.trim())
+    if (away && home) return { home, away }
+  }
+  const vsSplit = name.split(/\s+vs\.?\s+/i)
+  if (vsSplit.length === 2) {
+    const [home, away] = vsSplit.map(s => s.trim())
+    if (home && away) return { home, away }
+  }
+  // " - " is risky (team names contain dashes) but still useful as a
+  // last resort for European hockey / NCAA games.
+  const dashSplit = name.split(/\s+-\s+/)
+  if (dashSplit.length === 2) {
+    const [home, away] = dashSplit.map(s => s.trim())
+    if (home && away) return { home, away }
+  }
+  return null
+}
+
 function parseFixtureList(data: any): SiFixture[] {
   const out: SiFixture[] = []
   const fixtures: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
@@ -106,28 +132,39 @@ function parseFixtureList(data: any): SiFixture[] {
   for (const f of fixtures) {
     const id = Number(f?.id ?? f?.sourceId)
     if (!id) continue
-    if (!TARGET_SPORT_IDS.has(f?.sport?.id)) continue
-    const participants: any[] = f?.participants ?? []
-    if (participants.length !== 2) continue
-
-    let homeTeam = '', awayTeam = ''
-    for (const p of participants) {
-      const name: string = p?.name?.value ?? p?.name ?? ''
-      const pos: string  = (p?.homeAway ?? p?.position ?? '').toLowerCase()
-      if (pos === 'home' || pos === '1')      homeTeam = name
-      else if (pos === 'away' || pos === '2') awayTeam = name
-    }
-    if (!homeTeam || !awayTeam) continue
-
-    const startDate: string = f?.startDate ?? f?.startTime ?? ''
-    if (!startDate) continue
 
     const competitionName: string =
       f?.competition?.name?.value ??
       f?.league?.name?.value ??
       (f?.tags ?? []).find((t: any) => t?.type === 'Competition')?.name?.value ?? ''
     const leagueSlug = toLeagueSlug(competitionName)
-    if (!leagueSlug) continue
+    if (!leagueSlug) continue   // fast-skip non-target leagues without
+                                 // having to inspect sport.id
+
+    const startDate: string = f?.startDate ?? f?.startTime ?? ''
+    if (!startDate) continue
+
+    // Try the participants array first — older Entain shape and still
+    // used for some leagues. Then fall back to parsing the fixture
+    // name, which is what SIA started shipping for MLB/NHL/NBA after
+    // the participant array went empty (rawTotal=1000 count=0 in the
+    // diag confirmed every fixture filtered on participants.length!=2).
+    let homeTeam = '', awayTeam = ''
+    const participants: any[] = f?.participants ?? []
+    if (participants.length === 2) {
+      for (const p of participants) {
+        const name: string = p?.name?.value ?? p?.name ?? ''
+        const pos: string  = (p?.homeAway ?? p?.position ?? '').toLowerCase()
+        if (pos === 'home' || pos === '1')      homeTeam = name
+        else if (pos === 'away' || pos === '2') awayTeam = name
+      }
+    }
+    if (!homeTeam || !awayTeam) {
+      const fixtureName: string = f?.name?.value ?? f?.name ?? ''
+      const parsed = teamsFromName(fixtureName)
+      if (parsed) { homeTeam = parsed.home; awayTeam = parsed.away }
+    }
+    if (!homeTeam || !awayTeam) continue
 
     out.push({ id, homeTeam, awayTeam, startDate, leagueSlug, sport: toSport(leagueSlug) })
   }

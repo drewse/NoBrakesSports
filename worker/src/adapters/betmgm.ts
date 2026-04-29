@@ -359,15 +359,27 @@ export const betmgmAdapter: BookAdapter = {
           const { markets: gameMarkets, debug } = parseFixtureMarkets(fixture, homeName, awayName)
           for (const c of debug.catNames) allCatNames.add(c)
           for (const s of debug.statuses) allStatuses.add(s)
-          if (gameMarkets.length === 0 && !firstNoMarketSample && (fixture.optionMarkets?.length ?? 0) > 0) {
+          if (gameMarkets.length === 0 && !firstNoMarketSample) {
+            // optionMarkets and games[] both empty in the previous diag.
+            // Sample marketGroups + the first fixture root keys so we can
+            // see WHERE Entain has moved game markets on this CDS feed.
+            const f: any = fixture
             firstNoMarketSample = JSON.stringify({
               id: fixture.id,
-              keys: Object.keys(fixture).slice(0, 30),
-              firstMarket: fixture.optionMarkets?.[0]
-                ? JSON.stringify(fixture.optionMarkets[0]).slice(0, 1500)
+              optionMarketsLen: f?.optionMarkets?.length ?? 0,
+              gamesLen: Array.isArray(f?.games) ? f.games.length : -1,
+              gamesType: Array.isArray(f?.games) ? 'array' : typeof f?.games,
+              marketGroupsLen: Array.isArray(f?.marketGroups) ? f.marketGroups.length : -1,
+              marketGroupsType: Array.isArray(f?.marketGroups) ? 'array' : typeof f?.marketGroups,
+              totalMarketsCount: f?.totalMarketsCount ?? null,
+              firstGame: f?.games?.[0] ? JSON.stringify(f.games[0]).slice(0, 1200) : null,
+              firstMarketGroup: f?.marketGroups?.[0]
+                ? JSON.stringify(f.marketGroups[0]).slice(0, 1200)
                 : null,
-              marketCount: fixture.optionMarkets?.length ?? 0,
-            }).slice(0, 2000)
+              firstParticipant: f?.participants?.[0]
+                ? JSON.stringify(f.participants[0]).slice(0, 400)
+                : null,
+            }).slice(0, 3500)
           }
           scraped.push({
             event: {
