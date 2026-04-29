@@ -537,31 +537,42 @@ export const tonybetAdapter: BookAdapter = {
           `${probeBase}/odds/api/event/${probeEventId}?lang=en`,
           `${probeBase}/api/event/list?lang=en&relations[]=markets&relations[]=odds&relations[]=competitors&relations[]=marketOrder&isLive=0&id=${probeEventId}`,
         ]
-        const probeFetch = async (u: string): Promise<{ status: number; bodyLen: number; topKeys: string[]; sample: string }> => {
-          return page.evaluate(async (url: string) => {
-            try {
-              const r = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'include' })
-              const text = await r.text()
-              let topKeys: string[] = []
-              try {
-                const j = JSON.parse(text)
-                if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
-                else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
-              } catch {}
-              return { status: r.status, bodyLen: text.length, topKeys, sample: text.slice(0, 1200) }
-            } catch (e: any) {
-              return { status: -1, bodyLen: 0, topKeys: [], sample: `threw: ${e?.message ?? String(e)}` }
-            }
-          }, u)
-        }
+        // Page-evaluate failed last cycle with "Execution context was
+        // destroyed, most likely because of a navigation" — the SPA does
+        // a client-side route change during the dwell that invalidates
+        // the JS context. Use context().request which goes through the
+        // same cookie jar but doesn't depend on page state.
+        const ctx = page.context()
         const probeResults: Array<{ url: string; status: number; bodyLen: number; topKeys: string[]; sample: string }> = []
         for (const purl of probeCandidates) {
-          const r = await probeFetch(purl)
-          probeResults.push({
-            url: purl.replace(probeBase, ''),
-            ...r,
-            sample: r.status === 200 ? r.sample : r.sample.slice(0, 200),
-          })
+          try {
+            const r = await ctx.request.get(purl, {
+              headers: { Accept: 'application/json', Referer: 'https://tonybet.ca/' },
+              timeout: 15_000,
+            })
+            const text = await r.text()
+            let topKeys: string[] = []
+            try {
+              const j = JSON.parse(text)
+              if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
+              else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
+            } catch { /* non-JSON */ }
+            probeResults.push({
+              url: purl.replace(probeBase, ''),
+              status: r.status(),
+              bodyLen: text.length,
+              topKeys,
+              sample: r.status() === 200 ? text.slice(0, 1500) : text.slice(0, 200),
+            })
+          } catch (e: any) {
+            probeResults.push({
+              url: purl.replace(probeBase, ''),
+              status: -1,
+              bodyLen: 0,
+              topKeys: [],
+              sample: `threw: ${(e?.message ?? String(e)).slice(0, 180)}`,
+            })
+          }
         }
         log.info('tonybet event-endpoint probe', { probeEventId, results: probeResults })
       }
