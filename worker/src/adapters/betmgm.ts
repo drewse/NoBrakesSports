@@ -84,18 +84,42 @@ function parseFixtureMarkets(
   fixture: BMGFixture,
   homeName: string,
   awayName: string,
-): GameMarket[] {
+): { markets: GameMarket[]; debug: { catNames: string[]; statuses: string[]; total: number } } {
   const out: GameMarket[] = []
   const homeKey = homeName.split(' ').pop()?.toLowerCase() ?? ''
   const awayKey = awayName.split(' ').pop()?.toLowerCase() ?? ''
 
+  // Diagnostic accumulators — Railway logs were showing
+  // events=27 totalGameMkts=0, meaning we were reading fixtures but
+  // every option market was getting filtered. Capture catNames +
+  // statuses so the parent can dump them once per cycle.
+  const catNamesSeen = new Set<string>()
+  const statusesSeen = new Set<string>()
+  let totalRaw = 0
+
   for (const m of fixture.optionMarkets ?? []) {
-    if (m.status !== 'Visible') continue
-    if (m.isMain === false) continue
+    totalRaw++
+    if (m.status) statusesSeen.add(m.status)
+    // Old code skipped anything not status=Visible. BetMGM appears to
+    // ship 'Active' / 'Open' interchangeably; broaden to "anything
+    // except explicit Suspended / Closed / Hidden".
+    const status = m.status ?? ''
+    if (status && /^(suspended|closed|hidden|inactive|disabled)$/i.test(status)) continue
+    // m.isMain === false filter dropped — Entain stopped flagging
+    // game-line markets as isMain on the league-wide fixture list. We
+    // don't need it: the catName match already restricts to game
+    // lines and the per-market dedupe above keeps only the first.
     const catName = m.templateCategory?.name?.value ?? m.name?.value ?? ''
+    if (catName) catNamesSeen.add(catName)
     const opts = m.options ?? []
 
-    if (catName === 'Moneyline' && opts.length >= 2) {
+    // Moneyline aliases: Entain has shipped "Match Result", "Result",
+    // "Money Line" alongside "Moneyline" depending on sport.
+    const isMoneyline = /^(moneyline|money\s*line|match\s*result|result|to\s*win|winner)$/i.test(catName)
+    const isSpread = /^(spread|handicap|run\s*line|puck\s*line|point\s*spread|asian\s*handicap)$/i.test(catName)
+    const isTotal = /^(totals?|total\s*(runs|goals|points|games))$/i.test(catName)
+
+    if (isMoneyline && opts.length >= 2) {
       if (out.some(g => g.marketType === 'moneyline')) continue
       const byName = (label: string) =>
         opts.find(o => (o.name?.value ?? '').toLowerCase().includes(label))
@@ -112,11 +136,7 @@ function parseFixtureMarkets(
         spreadValue: null, totalValue: null,
         overPrice: null, underPrice: null,
       })
-    } else if (
-      (catName === 'Spread' || catName === 'Handicap'
-        || catName === 'Run Line' || catName === 'Puck Line')
-      && opts.length >= 2
-    ) {
+    } else if (isSpread && opts.length >= 2) {
       if (out.some(g => g.marketType === 'spread')) continue
       const byName = (label: string) =>
         opts.find(o => (o.name?.value ?? '').toLowerCase().includes(label))
@@ -131,11 +151,7 @@ function parseFixtureMarkets(
         spreadValue: spread == null || isNaN(spread) ? null : spread,
         totalValue: null, overPrice: null, underPrice: null,
       })
-    } else if (
-      (catName === 'Totals' || catName === 'Total Runs'
-        || catName === 'Total Goals' || catName === 'Total Points')
-      && opts.length >= 2
-    ) {
+    } else if (isTotal && opts.length >= 2) {
       if (out.some(g => g.marketType === 'total')) continue
       const over = opts.find(o =>
         o.totalsPrefix === 'Over' || (o.name?.value ?? '').toLowerCase().startsWith('over'))
@@ -153,7 +169,14 @@ function parseFixtureMarkets(
       }
     }
   }
-  return out
+  return {
+    markets: out,
+    debug: {
+      catNames: [...catNamesSeen].slice(0, 30),
+      statuses: [...statusesSeen],
+      total: totalRaw,
+    },
+  }
 }
 
 export const betmgmAdapter: BookAdapter = {
@@ -219,8 +242,18 @@ export const betmgmAdapter: BookAdapter = {
         log.info('betmgm fixtures', { comp: league.name, count: fixtures.length })
         if (fixtures.length === 0) continue
 
+        // Aggregate diagnostics so we can see exactly what BetMGM is
+        // shipping when totalGameMkts comes back 0. The first fixture
+        // with no markets after parse gets its full optionMarkets array
+        // logged so the next iteration can see the real shape.
+        const allCatNames = new Set<string>()
+        const allStatuses = new Set<string>()
+        let firstNoMarketSample: any = null
+        let firstFixtureKeys: string[] | null = null
+
         for (const fixture of fixtures) {
           if (signal.aborted) break
+          if (!firstFixtureKeys) firstFixtureKeys = Object.keys(fixture)
           const parts = fixture.participants ?? []
           const home = parts.find(p => p.properties?.type === 'HomeTeam') ?? parts[1]
           const away = parts.find(p => p.properties?.type === 'AwayTeam') ?? parts[0]
@@ -228,7 +261,19 @@ export const betmgmAdapter: BookAdapter = {
           const awayName = away?.name?.value ?? ''
           if (!homeName || !awayName) continue
 
-          const gameMarkets = parseFixtureMarkets(fixture, homeName, awayName)
+          const { markets: gameMarkets, debug } = parseFixtureMarkets(fixture, homeName, awayName)
+          for (const c of debug.catNames) allCatNames.add(c)
+          for (const s of debug.statuses) allStatuses.add(s)
+          if (gameMarkets.length === 0 && !firstNoMarketSample && (fixture.optionMarkets?.length ?? 0) > 0) {
+            firstNoMarketSample = JSON.stringify({
+              id: fixture.id,
+              keys: Object.keys(fixture).slice(0, 30),
+              firstMarket: fixture.optionMarkets?.[0]
+                ? JSON.stringify(fixture.optionMarkets[0]).slice(0, 1500)
+                : null,
+              marketCount: fixture.optionMarkets?.length ?? 0,
+            }).slice(0, 2000)
+          }
           scraped.push({
             event: {
               externalId: String(fixture.id),
@@ -242,6 +287,15 @@ export const betmgmAdapter: BookAdapter = {
             props: [],
           })
         }
+
+        log.info('betmgm parse diag', {
+          comp: league.name,
+          firstFixtureKeys,
+          catNamesSeen: [...allCatNames],
+          statusesSeen: [...allStatuses],
+          fixturesWithEmptyOptionMarkets: fixtures.filter(f => (f.optionMarkets?.length ?? 0) === 0).length,
+          firstNoMarketSample,
+        })
       }
 
       log.info('betmgm scrape summary', {

@@ -425,6 +425,10 @@ export const sportsInteractionAdapter: BookAdapter = {
       // 2. Pull fixture list across a few pages — the API ignores the
       //    sport tag filter and returns everything in one big stream.
       const fixtures: SiFixture[] = []
+      let totalRawFixtures = 0
+      let rawShapeSample: any = null
+      const rawSportIds = new Set<any>()
+      const rawCompetitions = new Set<string>()
       for (const skip of [0, 200, 400, 600, 800]) {
         if (signal.aborted) break
         const url =
@@ -432,9 +436,38 @@ export const sportsInteractionAdapter: BookAdapter = {
           `&state=Latest&skip=${skip}&take=200`
         const data = await pageFetchJson(page, url)
         if (!data) { errors.push(`fixtures skip=${skip}`); continue }
+        const rawList: any[] = data?.fixtures ?? (data?.fixture ? [data.fixture] : [])
+        totalRawFixtures += rawList.length
+        if (!rawShapeSample && rawList.length > 0) {
+          // Capture top-level keys + sport id shape + competition name shape
+          // so the next cycle's logs reveal why parseFixtureList drops to 0.
+          const f0 = rawList[0]
+          rawShapeSample = JSON.stringify({
+            keys: Object.keys(f0).slice(0, 20),
+            sportId: f0?.sport?.id,
+            sportShape: typeof f0?.sport,
+            competition: f0?.competition?.name?.value
+              ?? f0?.league?.name?.value
+              ?? null,
+            participantsLen: f0?.participants?.length ?? null,
+          }).slice(0, 800)
+        }
+        for (const f of rawList) {
+          if (f?.sport?.id != null) rawSportIds.add(f.sport.id)
+          const compName = f?.competition?.name?.value
+            ?? f?.league?.name?.value ?? null
+          if (compName) rawCompetitions.add(compName)
+        }
         fixtures.push(...parseFixtureList(data))
       }
-      log.info('sia fixtures', { count: fixtures.length, sample: fixtures[0] ?? null })
+      log.info('sia fixtures', {
+        count: fixtures.length,
+        sample: fixtures[0] ?? null,
+        rawTotal: totalRawFixtures,
+        sportIdsSeen: [...rawSportIds].slice(0, 20),
+        competitionsSeen: [...rawCompetitions].slice(0, 30),
+        rawShapeSample: fixtures.length === 0 ? rawShapeSample : null,
+      })
       if (fixtures.length === 0) {
         return { events: [], errors }
       }

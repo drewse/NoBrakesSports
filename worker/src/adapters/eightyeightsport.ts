@@ -437,9 +437,15 @@ export const eightyEightSportAdapter: BookAdapter = {
       }
 
       // Markets are inlined under events[id].markets[market_id] — confirmed
-      // from round-4 raw dump. No separate getMarkets call needed.
+      // from round-4 raw dump. The inlined block only carries the 3 main
+      // markets (Spread / ML / Total) so total props=0 every cycle. To
+      // unlock props we have to discover Spectate's per-event detail
+      // endpoint. On the first event of each cycle, probe a handful of
+      // common Spectate path shapes and log which return 200 + a sample
+      // of the body so the next iteration can settle on the right one.
       let loggedSample = false
       let rawSampleLogged = false
+      let propsProbeFired = false
       for (const L of LEAGUES) {
         if (signal.aborted) break
         const url = `${API_HOST}/spectate/sportsbook-req/getTournamentMatches/${L.sport}/${L.country}/${L.league}`
@@ -496,6 +502,43 @@ export const eightyEightSportAdapter: BookAdapter = {
             // see where Spectate actually nested them.
             listSample: firstEv ? null : JSON.stringify(json).slice(0, 2000),
           })
+        }
+
+        // One-time-per-cycle props-endpoint probe. Fire on the first
+        // event we see; subsequent leagues skip. Probes are best-effort:
+        // a non-200 just gets logged.
+        if (!propsProbeFired && order.length > 0) {
+          propsProbeFired = true
+          const probeEid = order[0]
+          const probeCandidates = [
+            `${API_HOST}/spectate/sportsbook-req/getEventMarkets/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getEvent/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getMatchEventMarkets/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getMatchMarkets/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getEventDetails/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getMarkets/${probeEid}`,
+            `${API_HOST}/spectate/sportsbook-req/getEventView/${probeEid}`,
+          ]
+          const probeResults: Array<{ url: string; status: number; bodyLen: number; topKeys: string[]; sample: string }> = []
+          for (const purl of probeCandidates) {
+            const { status, text } = await pageFetch(purl)
+            let topKeys: string[] = []
+            if (status === 200) {
+              try {
+                const j = JSON.parse(text)
+                if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
+                else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
+              } catch {}
+            }
+            probeResults.push({
+              url: purl.replace(API_HOST, ''),
+              status,
+              bodyLen: text.length,
+              topKeys,
+              sample: status === 200 ? text.slice(0, 1500) : text.slice(0, 200),
+            })
+          }
+          log.info('888sport props endpoint probe', { eid: probeEid, league: L.leagueSlug, results: probeResults })
         }
 
         for (const eid of order) {
