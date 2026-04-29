@@ -507,6 +507,65 @@ export const tonybetAdapter: BookAdapter = {
         })
       }
 
+      // /api/v4/menu/line/en is just the sidebar tree (sport counts) —
+      // no actual fixtures with odds. /api/event/list ships fixture
+      // metadata WITHOUT inline markets. The SPA must fire a per-event
+      // detail call that ships markets+odds. Probe a handful of likely
+      // BetConstruct paths for the first event id we can extract from
+      // the listing bodies; the next cycle's log reveals which one
+      // returns markets so we can wire it up.
+      let probeEventId: string | null = null
+      for (const body of listBodies) {
+        try {
+          const j = JSON.parse(body)
+          const items: any[] = j?.data?.items ?? j?.items ?? []
+          for (const it of items) {
+            const id = it?.id ?? it?.sbEventId
+            if (id) { probeEventId = String(id); break }
+          }
+        } catch { /* skip */ }
+        if (probeEventId) break
+      }
+      if (probeEventId) {
+        const probeBase = 'https://platform.tonybet.ca'
+        const probeCandidates = [
+          `${probeBase}/api/event/${probeEventId}?lang=en`,
+          `${probeBase}/api/event/get/${probeEventId}?lang=en`,
+          `${probeBase}/api/event/${probeEventId}/markets?lang=en`,
+          `${probeBase}/api/v1/event/${probeEventId}?lang=en`,
+          `${probeBase}/api/event/${probeEventId}?lang=en&relations[]=markets&relations[]=odds`,
+          `${probeBase}/odds/api/event/${probeEventId}?lang=en`,
+          `${probeBase}/api/event/list?lang=en&relations[]=markets&relations[]=odds&relations[]=competitors&relations[]=marketOrder&isLive=0&id=${probeEventId}`,
+        ]
+        const probeFetch = async (u: string): Promise<{ status: number; bodyLen: number; topKeys: string[]; sample: string }> => {
+          return page.evaluate(async (url: string) => {
+            try {
+              const r = await fetch(url, { headers: { Accept: 'application/json' }, credentials: 'include' })
+              const text = await r.text()
+              let topKeys: string[] = []
+              try {
+                const j = JSON.parse(text)
+                if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
+                else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
+              } catch {}
+              return { status: r.status, bodyLen: text.length, topKeys, sample: text.slice(0, 1200) }
+            } catch (e: any) {
+              return { status: -1, bodyLen: 0, topKeys: [], sample: `threw: ${e?.message ?? String(e)}` }
+            }
+          }, u)
+        }
+        const probeResults: Array<{ url: string; status: number; bodyLen: number; topKeys: string[]; sample: string }> = []
+        for (const purl of probeCandidates) {
+          const r = await probeFetch(purl)
+          probeResults.push({
+            url: purl.replace(probeBase, ''),
+            ...r,
+            sample: r.status === 200 ? r.sample : r.sample.slice(0, 200),
+          })
+        }
+        log.info('tonybet event-endpoint probe', { probeEventId, results: probeResults })
+      }
+
       // Parse all captured bodies, dedupe by event id, and attach a league.
       const seen = new Set<string>()
       let loggedSample = false
