@@ -214,15 +214,24 @@ const PINNACLE_NON_PLAYER_MARKERS = /\b(exact|odd\/even|range|winning|margin|1st
  *   MLB:  "Aaron Judge Total Home Runs"        — same as NBA
  */
 export function mapPinnacleCategory(description: string): { category: string; playerName: string } | null {
+  // Pinnacle MLB now appends "(must start)" / "(listed player must
+  // start for bets to stand)" to pitcher prop descriptions, e.g.
+  // "Logan Webb (Hits Allowed)(must start)". Strip those suffixes
+  // before pattern matching so descMatched > 0 again.
+  const cleaned = description
+    .replace(/\s*\(must start\)\s*$/i, '')
+    .replace(/\s*\(listed player.*?\)\s*$/i, '')
+    .replace(/\s*\(.*?must start.*?\)\s*$/i, '')
+    .trim()
   // Format 1: "Player Name (Stat)"
-  const parenMatch = description.match(/^(.+?)\s*\((.+?)\)\s*$/)
+  const parenMatch = cleaned.match(/^(.+?)\s*\((.+?)\)\s*$/)
   if (parenMatch) {
     const [, rawPlayer, rawStat] = parenMatch
     const category = PINNACLE_CATEGORY_MAP[rawStat.toLowerCase().trim()]
     if (category) return { category, playerName: normalizePlayerName(rawPlayer) }
   }
   // Format 2: "Player Name Total {Stat}"
-  const totalMatch = description.match(/^(.+?)\s+Total\s+(.+?)$/i)
+  const totalMatch = cleaned.match(/^(.+?)\s+Total\s+(.+?)$/i)
   if (totalMatch) {
     const [, rawPlayer, rawStat] = totalMatch
     // Reject team / game props that also contain " Total ".
