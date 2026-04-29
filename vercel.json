@@ -30,7 +30,7 @@
     },
     {
       "path": "/api/cron/sync-props",
-      "schedule": "*/2 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/sync-dk-predictions",
