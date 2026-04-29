@@ -89,14 +89,109 @@ function parseFixtureMarkets(
   const homeKey = homeName.split(' ').pop()?.toLowerCase() ?? ''
   const awayKey = awayName.split(' ').pop()?.toLowerCase() ?? ''
 
-  // Diagnostic accumulators — Railway logs were showing
-  // events=27 totalGameMkts=0, meaning we were reading fixtures but
-  // every option market was getting filtered. Capture catNames +
-  // statuses so the parent can dump them once per cycle.
   const catNamesSeen = new Set<string>()
   const statusesSeen = new Set<string>()
   let totalRaw = 0
 
+  // Entain CDS ships full-game ML/spread/total under `fixture.games`
+  // (catId 43=ML, 44=spread, 45=total), with results carrying
+  // sourceName.value '1'/'2'/'3' for home/away/draw and americanOdds
+  // flat on the result. The old code tried `optionMarkets` instead,
+  // which is empty on the league fixtures list (verified from the
+  // diagnostic log — fixturesWithEmptyOptionMarkets matched the
+  // fixture count exactly). Port the SI/SIA parser pattern.
+  const games: any[] = (fixture as any)?.games ?? []
+  const sideOf = (r: any): 'home' | 'away' | 'draw' | 'over' | 'under' | null => {
+    const src = r?.sourceName?.value ?? ''
+    if (src === '1') return 'home'
+    if (src === '2') return 'away'
+    if (src === '3') return 'draw'
+    const lab = (r?.name?.value ?? '').toLowerCase()
+    if (lab.startsWith('over')) return 'over'
+    if (lab.startsWith('under')) return 'under'
+    if (homeKey && lab.includes(homeKey)) return 'home'
+    if (awayKey && lab.includes(awayKey)) return 'away'
+    return null
+  }
+
+  for (const game of games) {
+    totalRaw++
+    const visibility = game?.visibility
+    if (visibility) statusesSeen.add(String(visibility))
+    if (visibility && visibility !== 'Visible') continue
+    const catId: number = game?.categoryId ?? game?.templateCategory?.id ?? 0
+    const name: string = (game?.name?.value ?? '').toLowerCase()
+    if (name) catNamesSeen.add(name)
+    const results: any[] = (game?.results ?? []).filter((r: any) => !r?.visibility || r?.visibility === 'Visible')
+    if (results.length < 2) continue
+
+    // Moneyline (catId 43)
+    if (!out.some(g => g.marketType === 'moneyline')
+        && (catId === 43 || /^moneyline$|^money line$|^match result$/.test(name))) {
+      let home: number | null = null, away: number | null = null, draw: number | null = null
+      for (const r of results) {
+        const p = Number(r?.americanOdds ?? r?.price?.americanOdds)
+        if (!isFinite(p)) continue
+        const s = sideOf(r)
+        if (s === 'home') home = p
+        else if (s === 'away') away = p
+        else if (s === 'draw') draw = p
+      }
+      if (home != null && away != null) {
+        out.push({
+          marketType: 'moneyline',
+          homePrice: home, awayPrice: away, drawPrice: draw,
+          spreadValue: null, totalValue: null, overPrice: null, underPrice: null,
+        })
+      }
+    }
+    // Spread (catId 44)
+    else if (!out.some(g => g.marketType === 'spread')
+        && (catId === 44 || /^spread$|^handicap$|^run line$|^puck line$|^point spread$/.test(name))) {
+      let home: number | null = null, away: number | null = null, line: number | null = null
+      for (const r of results) {
+        const p = Number(r?.americanOdds ?? r?.price?.americanOdds)
+        if (!isFinite(p)) continue
+        const s = sideOf(r)
+        const pts = Number(r?.points ?? r?.handicap)
+        if (s === 'home') { home = p; if (isFinite(pts)) line = pts }
+        else if (s === 'away') { away = p; if (line == null && isFinite(pts)) line = -pts }
+      }
+      if (home != null || away != null) {
+        out.push({
+          marketType: 'spread',
+          homePrice: home, awayPrice: away, drawPrice: null,
+          spreadValue: line, totalValue: null,
+          overPrice: null, underPrice: null,
+        })
+      }
+    }
+    // Total (catId 45)
+    else if (!out.some(g => g.marketType === 'total')
+        && (catId === 45 || /^totals?$|^total (runs|goals|points|games)$/.test(name))) {
+      let over: number | null = null, under: number | null = null, line: number | null = null
+      for (const r of results) {
+        const p = Number(r?.americanOdds ?? r?.price?.americanOdds)
+        if (!isFinite(p)) continue
+        const s = sideOf(r)
+        const pts = Number(r?.points ?? r?.handicap)
+        if (s === 'over') { over = p; if (line == null && isFinite(pts)) line = pts }
+        else if (s === 'under') { under = p; if (line == null && isFinite(pts)) line = pts }
+      }
+      if ((over != null || under != null) && line != null) {
+        out.push({
+          marketType: 'total',
+          homePrice: null, awayPrice: null, drawPrice: null,
+          spreadValue: null, totalValue: line,
+          overPrice: over, underPrice: under,
+        })
+      }
+    }
+  }
+
+  // Legacy path — keep optionMarkets parsing as a fallback for any
+  // sport where Entain happens to ship game markets there instead of
+  // games[]. Suspended/Closed/Hidden statuses are still filtered.
   for (const m of fixture.optionMarkets ?? []) {
     totalRaw++
     if (m.status) statusesSeen.add(m.status)
