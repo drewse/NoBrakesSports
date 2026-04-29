@@ -209,11 +209,23 @@ function detectPropCategory(title: string, groupCName: string): string | null {
   // in the string.
   if (lower.includes('total bases')) return 'player_total_bases'
   if (lower.includes('total hits')) return 'player_hits'
+  if (lower.includes('hits allowed')) return 'player_hits_allowed'
   if (lower.includes('home run')) return 'player_home_runs'
   if (lower.includes('strikeout')) return 'player_strikeouts_p'
   if (/\brbis?\b/.test(lower)) return 'player_rbis'
   if (lower.includes('earned run')) return 'player_earned_runs'
   if (lower.includes('stolen base')) return 'player_stolen_bases'
+  // walks: catches "Total Walks", "Walks Thrown", "Walks Allowed",
+  // "Pitcher Walks". Bubba Chandler "Walks Thrown 2.5" was being
+  // dropped because no walks/runs/outs title check existed and the
+  // secondary-pass title-rescued markets have no marketGroupMap entry,
+  // so the group fallback returned null.
+  if (/\bwalks?\b/.test(lower)) return 'player_walks'
+  if (/\bouts?\s*(recorded|thrown)?\b/.test(lower)) return 'pitcher_outs'
+  // "Total Runs Scored", "Runs - <Player>" — but NOT "home runs" /
+  // "earned runs" (handled above) or game-level "Total Runs"
+  // (no dash separator → already filtered).
+  if (/\bruns?\b/.test(lower) && !/home run|earned run/.test(lower)) return 'player_runs'
 
   // Hockey
   if (lower.includes('total goals') || lower.includes('goals scored')) return 'player_goals'
@@ -397,7 +409,15 @@ async function fetchLeague(league: typeof BW_LEAGUES[number]): Promise<BWResult[
               'player-props', 'player props', 'props',
               'hits', 'home-runs', 'rbis', 'strikeouts', 'pitcher-strikeouts', 'total-bases',
               'runs', 'stolen-bases', 'goals', 'shots-on-goal', 'saves', 'shots-on-target',
-              'batter-props', 'pitcher-props']
+              'batter-props', 'pitcher-props',
+              // pitcher stat groups previously missing — Betway files
+              // walks/outs/earned-runs under their own groups, and the
+              // detectPropCategory path needed the marketGroupMap entry
+              // to fall back on
+              'walks', 'pitcher-walks', 'walks-allowed',
+              'outs', 'pitcher-outs', 'outs-recorded',
+              'earned-runs', 'pitcher-earned-runs',
+              'hits-allowed', 'pitcher-hits']
             const propMarketIds = new Set<number>()
             const marketGroupMap = new Map<number, string>()
             const groups = evData.Event?.MarketGroups ?? {}

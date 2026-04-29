@@ -213,6 +213,13 @@ const DK_PROP_MAP: Record<string, string> = {
   'strikeouts o/u': 'player_strikeouts_p',
   'pitcher strikeouts o/u': 'player_strikeouts_p',
   'walks allowed o/u': 'player_walks',
+  // "Walks Thrown" is the same stat under a different label —
+  // observed in MLB pitcher prop screens (e.g. Bubba Chandler 2.5)
+  'walks thrown o/u': 'player_walks',
+  'total walks thrown': 'player_walks',
+  'walks thrown': 'player_walks',
+  'pitcher walks o/u': 'player_walks',
+  'pitcher walks': 'player_walks',
   'hits allowed o/u': 'player_hits_allowed',
   'total hits allowed': 'player_hits_allowed',
   'earned runs o/u': 'player_earned_runs',
