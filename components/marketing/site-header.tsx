@@ -44,6 +44,12 @@ export function SiteHeader() {
             Pricing
           </Link>
           <Link
+            href="/affiliate"
+            className="inline-flex h-9 items-center px-2.5 sm:px-3 text-sm text-nb-300 hover:text-white transition-colors rounded-md"
+          >
+            Affiliates
+          </Link>
+          <Link
             href="/login"
             className="hidden xs:inline-flex h-9 items-center px-3 text-sm text-nb-300 hover:text-white transition-colors rounded-md"
           >
