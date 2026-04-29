@@ -329,13 +329,62 @@ export const betmgmAdapter: BookAdapter = {
           errors.push(`${league.name} list non-JSON`)
           continue
         }
-        const fixtures: BMGFixture[] = (listBody.fixtures ?? []).filter(
+        const fixturesMeta: BMGFixture[] = (listBody.fixtures ?? []).filter(
           (f: BMGFixture) =>
             f.competition?.id === league.competitionId
             && !f.isOutright && !f.isLive,
         )
-        log.info('betmgm fixtures', { comp: league.name, count: fixtures.length })
-        if (fixtures.length === 0) continue
+        log.info('betmgm fixtures', { comp: league.name, count: fixturesMeta.length })
+        if (fixturesMeta.length === 0) continue
+
+        // The leaderboard /bettingoffer/fixtures endpoint ships fixture
+        // metadata only — markets are now empty (totalMarketsCount=226 yet
+        // optionMarkets=[], games=[], marketGroups={} in the diag). To get
+        // markets we have to call /bettingoffer/fixture-view per fixture
+        // with offerMapping=All. Same Entain CDS pattern Sports Interaction
+        // already uses successfully. Fetch in chunks of 6 (each response
+        // is ~50 KB so we don't want to fan out 200 in parallel).
+        const fixturesById = new Map<string | number, BMGFixture>(
+          fixturesMeta.map(f => [f.id, f]),
+        )
+        const fixtureIds = fixturesMeta.map(f => String(f.id))
+        const enriched: BMGFixture[] = []
+        const VIEW_CHUNK = 6
+        for (let i = 0; i < fixtureIds.length; i += VIEW_CHUNK) {
+          if (signal.aborted) break
+          const chunk = fixtureIds.slice(i, i + VIEW_CHUNK)
+          const results = await Promise.all(chunk.map(async (id) => {
+            const url =
+              `https://${DOMAIN}/cds-api/bettingoffer/fixture-view?${COMMON_Q}`
+              + `&fixtureIds=${id}&state=Latest&offerMapping=All`
+              + `&scoreboardMode=None&useRegionalisedConfiguration=true`
+              + `&includeRelatedFixtures=false&statisticsModes=None`
+              + `&firstMarketGroupOnly=false`
+            const { status, text } = await pageFetch(url)
+            if (status !== 200) return null
+            try {
+              const body = JSON.parse(text)
+              const list: any[] = body?.fixtures ?? (body?.fixture ? [body.fixture] : [])
+              // fixture-view returns the same id with games/optionMarkets
+              // populated. Merge over the leaderboard fixture so we keep
+              // metadata (participants, startDate, etc.) and add markets.
+              for (const fx of list) {
+                const meta = fixturesById.get(fx?.id ?? Number(id))
+                if (!meta) continue
+                return { ...meta, ...fx } as BMGFixture
+              }
+              return null
+            } catch { return null }
+          }))
+          for (const r of results) if (r) enriched.push(r)
+        }
+        log.info('betmgm enriched', {
+          comp: league.name,
+          fetched: enriched.length,
+          metaCount: fixturesMeta.length,
+          firstEnrichedKeys: enriched[0] ? Object.keys(enriched[0]).slice(0, 30) : null,
+        })
+        const fixtures: BMGFixture[] = enriched.length > 0 ? enriched : fixturesMeta
 
         // Aggregate diagnostics so we can see exactly what BetMGM is
         // shipping when totalGameMkts comes back 0. The first fixture
