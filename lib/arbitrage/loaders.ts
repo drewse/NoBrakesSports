@@ -385,14 +385,51 @@ export async function loadArbs(
         latestPropBySrc.set(k, p)
       }
     }
+    // Fuzzy player-name bucket. Some books ship MLB / NHL props with the
+    // first name abbreviated ("A. Osuna") while others ship the full name
+    // ("Alejandro Osuna"). With a strict `player_name` key those rows
+    // never group together, so a real cross-book arb (BetMGM "A. Osuna"
+    // -145/+105 vs Betway "Alejandro Osuna" +125/-165 → 7.3%) silently
+    // disappears. We bucket by `{firstInitial}{lastName}` (lowercased,
+    // ASCII-folded) so both forms collapse into the same group. The
+    // chosen display name is the longest variant we saw (so cards still
+    // read as "Alejandro Osuna" not "A. Osuna").
+    const fuzzyPlayerKey = (raw: string): string => {
+      const base = raw
+        .toLowerCase()
+        .normalize('NFD')
+        // strip combining marks
+        .replace(/\p{M}/gu, '')
+        // strip apostrophes inside names ("o'neal" → "oneal")
+        .replace(/'/g, '')
+        .replace(/\./g, '')
+        .trim()
+      if (!base) return raw.toLowerCase()
+      const parts = base.split(/\s+/).filter(Boolean)
+      if (parts.length === 1) return parts[0]
+      const first = parts[0]
+      // Treat suffix tokens as part of the last word
+      const SUFFIX = /^(jr|sr|ii|iii|iv|v)$/i
+      let last = parts[parts.length - 1]
+      if (SUFFIX.test(last) && parts.length >= 2) last = parts[parts.length - 2]
+      return `${first.charAt(0)}|${last}`
+    }
     const propGroups = new Map<string, any[]>()
+    const groupDisplayName = new Map<string, string>()
     for (const p of latestPropBySrc.values()) {
-      const key = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}`
+      const fuzzy = fuzzyPlayerKey(String(p.player_name ?? ''))
+      const key = `${p.event_id}|${p.prop_category}|${fuzzy}|${p.line_value}`
       if (!propGroups.has(key)) propGroups.set(key, [])
       propGroups.get(key)!.push(p)
+      // Track longest seen full name as the canonical display label,
+      // so a "A. Osuna" / "Alejandro Osuna" pair surfaces as the latter.
+      const prev = groupDisplayName.get(key)
+      const cand = String(p.player_name ?? '')
+      if (!prev || cand.length > prev.length) groupDisplayName.set(key, cand)
     }
-    for (const group of propGroups.values()) {
+    for (const [groupKey, group] of propGroups.entries()) {
       if (group.length < 2) continue
+      const displayName = groupDisplayName.get(groupKey) ?? group[0].player_name
       const withOver = group.filter((p: any) => p.over_price != null)
       const withUnder = group.filter((p: any) => p.under_price != null)
       if (withOver.length === 0 || withUnder.length === 0) continue
@@ -435,7 +472,7 @@ export async function loadArbs(
             eventTitle: ev?.title ?? '—',
             league: ev?.league?.abbreviation ?? '—',
             propCategory: overRow.prop_category,
-            playerName: overRow.player_name,
+            playerName: displayName,
             lineValue: overRow.line_value,
             bestOverPrice: overRow.over_price,
             bestOverSource: sourceById.get((overRow as any).source_id)?.name ?? '—',

@@ -386,13 +386,39 @@ export async function loadEv(
         latestPropBySrc.set(k, p)
       }
     }
+    // Same fuzzy bucket as lib/arbitrage/loaders.ts — books that ship
+    // first-name-initialed labels ("A. Osuna") have to share a group with
+    // the full-name version ("Alejandro Osuna") or de-vig + fair-line
+    // computation runs on a half-populated bucket and EV is biased.
+    const fuzzyPlayerKey = (raw: string): string => {
+      const base = raw
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/\p{M}/gu, '')
+        .replace(/'/g, '')
+        .replace(/\./g, '')
+        .trim()
+      if (!base) return raw.toLowerCase()
+      const parts = base.split(/\s+/).filter(Boolean)
+      if (parts.length === 1) return parts[0]
+      const first = parts[0]
+      const SUFFIX = /^(jr|sr|ii|iii|iv|v)$/i
+      let last = parts[parts.length - 1]
+      if (SUFFIX.test(last) && parts.length >= 2) last = parts[parts.length - 2]
+      return `${first.charAt(0)}|${last}`
+    }
     const propGroups = new Map<string, any[]>()
+    const groupDisplayName = new Map<string, string>()
     for (const p of latestPropBySrc.values()) {
-      const key = `${p.event_id}|${p.prop_category}|${p.player_name}|${p.line_value}`
+      const fuzzy = fuzzyPlayerKey(String(p.player_name ?? ''))
+      const key = `${p.event_id}|${p.prop_category}|${fuzzy}|${p.line_value}`
       if (!propGroups.has(key)) propGroups.set(key, [])
       propGroups.get(key)!.push(p)
+      const prev = groupDisplayName.get(key)
+      const cand = String(p.player_name ?? '')
+      if (!prev || cand.length > prev.length) groupDisplayName.set(key, cand)
     }
-    for (const group of propGroups.values()) {
+    for (const [groupKey, group] of propGroups.entries()) {
       const twoSidedBooks = group.filter((p: any) => p.over_price != null && p.under_price != null)
       if (twoSidedBooks.length === 0) continue
       let bestBalance = Infinity
@@ -411,7 +437,7 @@ export async function loadEv(
       const ev = group[0].event
       const leagueAbbrev = ev?.league?.abbreviation ?? '—'
       const propCat = group[0].prop_category as string
-      const playerName = group[0].player_name as string
+      const playerName = (groupDisplayName.get(groupKey) ?? group[0].player_name) as string
       const lineVal = group[0].line_value
       const catLabel = PROP_LABELS[propCat] ?? propCat.replace(/^player_/, '').replace(/_/g, ' ')
 

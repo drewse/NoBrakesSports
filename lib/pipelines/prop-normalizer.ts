@@ -247,8 +247,17 @@ export function mapPinnacleCategory(description: string): { category: string; pl
  *   Kambi:     "CJ McCollum", "Dyson Daniels"
  *   Pinnacle:  "CJ McCollum", "Dyson Daniels"
  *   Odds API:  "C.J. McCollum"
+ *   BetMGM:    sometimes "A. Osuna" (first-initial form)
  *
  * We normalize to: Title Case, no periods in initials, trim whitespace.
+ *
+ * Note on first-initial forms ("A. Osuna" vs "Alejandro Osuna"): we
+ * deliberately do NOT collapse one form into the other here. The
+ * canonical first name isn't recoverable from "A." alone (multiple
+ * "Aaron"s on the same MLB roster), so collapsing at ingestion would
+ * lose information. Cross-book pairing instead happens at query time
+ * via the fuzzy `{firstInitial}|{lastName}` bucket in
+ * `lib/arbitrage/loaders.ts` and `lib/ev/loaders.ts`.
  */
 export function normalizePlayerName(name: string): string {
   return name

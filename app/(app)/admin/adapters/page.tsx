@@ -29,19 +29,16 @@ interface BookEntry {
 }
 
 const PACKETSTREAM_LIVE: BookEntry[] = [
-  { name: 'BetMGM ON',  note: 'Entain CDS · Railway' },
+  { name: 'BetMGM ON',  note: 'Entain CDS · Railway · NBA/MLB/NHL game lines' },
   { name: '888sport',   note: 'Spectate · Railway · NBA/MLB/NHL game lines + props' },
-  // Betano moved to Paused — adapter is `[discovery]`, returns events: []
-  // until the events-list endpoint is reverse-engineered. See
-  // worker/src/adapters/betano.ts.
-  { name: 'TonyBet',    note: 'BetConstruct · Railway' },
-  { name: 'Betovo',     note: 'CA discovery · Railway' },
+  { name: 'TonyBet',    note: 'BetConstruct · Railway · NBA/MLB/NHL game lines' },
   { name: 'Sports Interaction', note: 'Entain CDS · Railway · NBA/MLB/NHL game lines + props · awaiting first cycle' },
+  { name: 'Sportzino',  note: 'Altenar widget · Railway · NBA/MLB/NHL game lines (no props yet)' },
 ]
 
 const IPROYAL_LIVE: BookEntry[] = [
-  { name: 'TitanPlay',  note: 'Ontario · Railway · discovery' },
-  { name: 'Stake.us',   note: 'CF-gated sweeps · Railway · discovery' },
+  // empty — both prior entries (TitanPlay, Stake.us) emit zero events
+  // and have been moved to PAUSED. Re-promote when their parsers ship.
 ]
 
 const NO_PROXY_LIVE: BookEntry[] = [
@@ -72,11 +69,9 @@ const NO_PROXY_LIVE: BookEntry[] = [
   { name: 'Fanatics',           note: 'Lines via Action Network · Vercel cron · 5 min' },
   // Railway direct-IP
   { name: 'PointsBet ON',     note: 'PointsBet API · Railway' },
-  { name: 'Pinnacle',         note: 'Pinnacle API · Railway' },
-  { name: 'Proline (OLG)',    note: 'Kambi public CDN · Railway' },
-  { name: 'Bally Bet',        note: 'Kambi public CDN · Railway' },
-  { name: 'Novig',            note: 'Exchange · Railway' },
-  { name: 'Circa Sports',     note: 'Direct IP · Railway' },
+  { name: 'Pinnacle',         note: 'Pinnacle API · Railway · NBA/MLB/NHL/EPL/UCL game lines + props' },
+  { name: 'Proline (OLG)',    note: 'Kambi public CDN · Railway · game lines + props' },
+  { name: 'Bally Bet',        note: 'Kambi public CDN · Railway · game lines + props' },
 ]
 
 const PAUSED: BookEntry[] = [
@@ -96,13 +91,20 @@ const PAUSED: BookEntry[] = [
   { name: 'PowerPlay',       note: 'TCP-drop on PacketStream · awaits IPRoyal CA' },
   { name: 'Miseojeu',        note: 'TCP-drop on PacketStream · awaits IPRoyal CA' },
   { name: 'Crypto.com Markets', note: 'Cloudflare 403 from datacenter, page is RSC-only · needs Playwright + IPRoyal' },
-  // Discovery-only / partial — running but not producing markets yet
-  { name: 'Betano',          note: 'Kaizen SSR · Railway · discovery — adapter returns 0 events, parser not built (do not pair in arb expectations)' },
+  // Discovery-only / partial — running but not producing markets yet.
+  // Inventory verified 2026-04-29 by static-analyzing each adapter's
+  // emit path (grep for scraped.push / out.push). Items here have an
+  // adapter scheduled on Railway but the parser still returns 0 events.
+  { name: 'Betano',          note: 'Kaizen SSR · Railway · discovery — adapter returns 0 events, events-list path not reverse-engineered' },
+  { name: 'Betovo',          note: 'Direct CA · Railway · discovery — homepage probe only, no parser' },
+  { name: 'TitanPlay',       note: 'Ontario · IPRoyal · discovery — SPA reverse-engineering not started' },
+  { name: 'Stake.us',        note: 'CF-gated sweeps · IPRoyal · discovery — GraphQL endpoint defined but returns 0' },
   { name: 'BetMGM ON props', note: 'Markets endpoint broken · events flow' },
-  { name: 'MyBookie',        note: 'Discovery · awaits PROXY_URL_US' },
-  { name: 'Bookmaker.eu',    note: 'Discovery · awaits PROXY_URL_US' },
-  { name: 'BetUS',           note: 'Discovery · awaits PROXY_URL_US' },
-  { name: 'Sportzino',       note: 'Discovery · Railway' },
+  { name: 'MyBookie',        note: 'Offshore probe · awaits PROXY_URL_US' },
+  { name: 'Bookmaker.eu',    note: 'Offshore probe · awaits PROXY_URL_US' },
+  { name: 'BetUS',           note: 'Offshore probe · awaits PROXY_URL_US' },
+  { name: 'Circa Sports',    note: 'Direct IP · Railway · discovery — emits 0 events' },
+  { name: 'Novig',           note: 'Exchange · Railway · discovery — emits 0 events' },
   { name: 'Prophet Exchange', note: 'Auth-gated · parked' },
   { name: 'Underdog Fantasy', note: 'Awaiting first cron fire' },
 ]
