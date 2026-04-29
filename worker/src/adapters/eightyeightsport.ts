@@ -412,12 +412,47 @@ export const eightyEightSportAdapter: BookAdapter = {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
 
+      // Passive XHR capture for prop-endpoint discovery — when we
+      // navigate to an event detail page below, every Spectate
+      // request will be logged with its path so we can identify
+      // the per-event markets endpoint that ships player props.
+      interface SpectateCall { path: string; status: number; bodyLen: number; topKeys: string[]; sample: string }
+      const spectateCalls: SpectateCall[] = []
+      const responseHandler = async (resp: import('playwright').Response) => {
+        const u = resp.url()
+        if (!/spectate-web\.888sport\.ca\//.test(u)) return
+        if (!/\/spectate\//.test(u)) return
+        try {
+          const ct = (resp.headers()['content-type'] ?? '').toLowerCase()
+          if (!ct.includes('json')) return
+          const text = await resp.text()
+          const parsed = new URL(u)
+          let topKeys: string[] = []
+          try {
+            const j = JSON.parse(text)
+            if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
+            else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
+          } catch { /* non-JSON */ }
+          if (spectateCalls.length < 30) {
+            spectateCalls.push({
+              path: parsed.pathname,
+              status: resp.status(),
+              bodyLen: text.length,
+              topKeys,
+              sample: text.slice(0, 600),
+            })
+          }
+        } catch { /* stream closed */ }
+      }
+      page.on('response', responseHandler)
+
       log.info('888sport seeding', { url: SEED_URL })
       try {
         await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 45_000 })
       } catch (e: any) {
         errors.push(`seed: ${e?.message ?? e}`)
         log.error('888sport seed failed', { message: e?.message ?? String(e) })
+        page.off('response', responseHandler)
         return { events: scraped, errors }
       }
       // Let Spectate's SPA mint its session cookies. First-cycle after a
@@ -504,41 +539,67 @@ export const eightyEightSportAdapter: BookAdapter = {
           })
         }
 
-        // One-time-per-cycle props-endpoint probe. Fire on the first
-        // event we see; subsequent leagues skip. Probes are best-effort:
-        // a non-200 just gets logged.
+        // Once-per-cycle: navigate to an event detail page to let the
+        // SPA fire its per-event XHRs. The passive listener at the
+        // top of the function captures every spectate-web request,
+        // and after the dwell we log the unique paths so we can
+        // identify which endpoint actually ships player-prop markets.
         if (!propsProbeFired && order.length > 0) {
           propsProbeFired = true
           const probeEid = order[0]
-          const probeCandidates = [
-            `${API_HOST}/spectate/sportsbook-req/getEventMarkets/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getEvent/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getMatchEventMarkets/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getMatchMarkets/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getEventDetails/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getMarkets/${probeEid}`,
-            `${API_HOST}/spectate/sportsbook-req/getEventView/${probeEid}`,
-          ]
-          const probeResults: Array<{ url: string; status: number; bodyLen: number; topKeys: string[]; sample: string }> = []
-          for (const purl of probeCandidates) {
-            const { status, text } = await pageFetch(purl)
-            let topKeys: string[] = []
-            if (status === 200) {
-              try {
-                const j = JSON.parse(text)
-                if (Array.isArray(j)) topKeys = [`__array__len=${j.length}`]
-                else if (j && typeof j === 'object') topKeys = Object.keys(j).slice(0, 12)
-              } catch {}
-            }
-            probeResults.push({
-              url: purl.replace(API_HOST, ''),
-              status,
-              bodyLen: text.length,
-              topKeys,
-              sample: status === 200 ? text.slice(0, 1500) : text.slice(0, 200),
-            })
+          const ev0 = eventsObj[String(probeEid)] ?? eventsObj[probeEid as any]
+          // Spectate URL convention (from category_slug + tournament_slug):
+          //   /<sport_slug>/<category_l10n_slug>/<tournament_slug>-t<tournament_id>/
+          //     <event_l10n_slug>-e<event_id>/
+          const sportSeg = (ev0 as any)?.sport_slug ?? L.sport
+          const countrySeg = (ev0 as any)?.category_l10n_slug ?? L.country
+          const leagueSeg = (ev0 as any)?.tournament_slug ?? L.league
+          const tourId = (ev0 as any)?.tournament_id ?? '563941'
+          const evSlug = (ev0 as any)?.event_l10n_slug ?? (ev0 as any)?.slug ?? ''
+          const eventUrl = `https://www.888sport.ca/${sportSeg}/${countrySeg}/${leagueSeg}-t${tourId}/${evSlug}-e${probeEid}/`
+          const callsBefore = spectateCalls.length
+          try {
+            await page.goto(eventUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+            await page.waitForTimeout(8_000)
+          } catch (e: any) {
+            log.warn('888sport event-detail nav failed', { eventUrl, message: e?.message ?? String(e) })
           }
-          log.info('888sport props endpoint probe', { eid: probeEid, league: L.leagueSlug, results: probeResults })
+          const newCalls = spectateCalls.slice(callsBefore)
+          // Only log the per-event distinct paths; the league listing's
+          // own getTournamentMatches will already be in the captures.
+          const pathCounts = new Map<string, { count: number; statuses: Set<number>; bodyLens: number[]; sample: string; topKeys: string[] }>()
+          for (const c of newCalls) {
+            // Strip numeric IDs from path so we group by shape.
+            const shape = c.path.replace(/\/\d{3,}/g, '/:id')
+            const existing = pathCounts.get(shape)
+            if (existing) {
+              existing.count++
+              existing.statuses.add(c.status)
+              existing.bodyLens.push(c.bodyLen)
+            } else {
+              pathCounts.set(shape, {
+                count: 1,
+                statuses: new Set([c.status]),
+                bodyLens: [c.bodyLen],
+                sample: c.sample,
+                topKeys: c.topKeys,
+              })
+            }
+          }
+          const summary = [...pathCounts.entries()].map(([shape, v]) => ({
+            shape,
+            count: v.count,
+            statuses: [...v.statuses],
+            maxBody: Math.max(...v.bodyLens),
+            topKeys: v.topKeys,
+            sample: v.sample.slice(0, 400),
+          })).sort((a, b) => b.maxBody - a.maxBody)
+          log.info('888sport event-page captures', {
+            eventUrl,
+            probeEid,
+            distinctPaths: summary.length,
+            paths: summary.slice(0, 15),
+          })
         }
 
         for (const eid of order) {
@@ -575,6 +636,7 @@ export const eightyEightSportAdapter: BookAdapter = {
         }
       }
 
+      page.off('response', responseHandler)
       log.info('888sport scrape summary', {
         events: scraped.length,
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
