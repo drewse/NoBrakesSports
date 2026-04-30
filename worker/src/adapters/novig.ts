@@ -254,9 +254,20 @@ function walkForMarketIds(
       || (typeof node.event?.id === 'string' && node.event.id)
       || null
     if (typeof node.id === 'string' && (node.type || node.strike !== undefined || node.outcomes)) {
-      // Looks like a market node — add it with its inline eventId (or
-      // ancestor scope if none).
-      addMarket(node.id, (selfEventId as string | null) ?? nextEventId)
+      // Looks like a market node. CRITICAL: do NOT inherit ancestor
+      // eventId for player-prop-shaped markets (anything carrying a
+      // `player` field) — Novig's GraphQL nests "trending player
+      // markets" / "recommended bets" arrays under arbitrary event
+      // nodes, and inheriting that ancestor's eventId attaches Gabe
+      // Vincent (LAL) props to a Hawks-vs-Knicks event, producing
+      // phantom 7%+ arbs against other books' Hawks/Knicks rebounds.
+      // Player props must carry their OWN eventId / event.id, or be
+      // matched later via the per-market eventId fallback in
+      // walkForMarkets. Game markets (no player field) still inherit
+      // — those legitimately belong to their containing event scope.
+      const hasPlayer = !!node.player || !!node.player_id || !!node.playerId
+      const inheritedScope = hasPlayer ? null : nextEventId
+      addMarket(node.id, (selfEventId as string | null) ?? inheritedScope)
     }
 
     for (const k of ['market_id', 'marketId']) {
@@ -269,10 +280,12 @@ function walkForMarketIds(
     }
     if (Array.isArray(node.markets)) {
       for (const m of node.markets) {
+        const mPlayerScoped = !!m?.player || !!m?.player_id || !!m?.playerId
+        const mInherited = mPlayerScoped ? null : nextEventId
         const mEventId = (typeof m?.eventId === 'string' && m.eventId)
           || (typeof m?.event_id === 'string' && m.event_id)
           || (typeof m?.event?.id === 'string' && m.event.id)
-          || nextEventId
+          || mInherited
         if (typeof m?.id === 'string') addMarket(m.id, mEventId)
         if (typeof m?.marketId === 'string') addMarket(m.marketId, mEventId)
       }
