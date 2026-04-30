@@ -328,7 +328,8 @@ export const pointsbetAdapter: BookAdapter = {
       await page.waitForTimeout(2_000) // let cf_bm settle
 
       // 2. Fetch all competitions per sport
-      const competitions: Array<{ key: string; name: string }> = []
+      const competitions: Array<{ key: string; name: string; sport: string }> = []
+      const rawCompsBySport: Record<string, Array<{ name: string; numberOfEvents: number }>> = {}
       for (const sport of SPORTS) {
         if (signal.aborted) break
         try {
@@ -338,11 +339,13 @@ export const pointsbetAdapter: BookAdapter = {
             return r.json()
           }, `${BASE_V2}/sports/${sport}/competitions`)
 
+          rawCompsBySport[sport] ??= []
           const locales = (data as any).locales ?? []
           for (const loc of locales) {
             for (const c of loc.competitions ?? []) {
+              rawCompsBySport[sport].push({ name: c.name, numberOfEvents: c.numberOfEvents ?? 0 })
               if (c.numberOfEvents && !String(c.name).toLowerCase().includes('futures')) {
-                competitions.push({ key: c.key, name: c.name })
+                competitions.push({ key: c.key, name: c.name, sport })
               }
             }
           }
@@ -350,6 +353,18 @@ export const pointsbetAdapter: BookAdapter = {
           errors.push(`competitions ${sport}: ${e.message}`)
         }
       }
+      // Per-sport raw dump so we can see exactly what PB ships under
+      // /sports/icehockey/competitions even when the entries have
+      // numberOfEvents=0 (those would be filtered above and never
+      // appear in the competitions array).
+      log.info('pointsbet raw competitions by sport', {
+        bySport: Object.fromEntries(
+          Object.entries(rawCompsBySport).map(([s, arr]) => [
+            s,
+            { total: arr.length, sample: arr.slice(0, 25) },
+          ]),
+        ),
+      })
       // Promoted from debug → info, and now logs the per-sport
       // competition names + which ones our resolver matched. Lets us
       // see at a glance whether NHL competitions ("NHL Playoffs",
