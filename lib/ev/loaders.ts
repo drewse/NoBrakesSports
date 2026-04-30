@@ -202,34 +202,37 @@ export async function loadEv(
     .limit(10000)
 
   const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
-  const fetchAllProps = async (): Promise<any[]> => {
-    const { count } = await supabase
+  // Adaptive paging — same approach as lib/arbitrage/loaders.ts.
+  // Page 0 first; if it's full, fan out remaining pages in parallel.
+  // With the (event_id, snapshot_time DESC) index the count(*) we
+  // used to issue first is no longer worth its round trip.
+  const MAX_PAGES = 40   // 40_000 prop rows cap (EV uses 30-min window)
+  const fetchPropPage = (i: number) =>
+    supabase
       .from('prop_odds')
-      .select('id', { count: 'exact', head: true })
+      .select(`
+        event_id, source_id, prop_category, player_name, line_value,
+        over_price, under_price, snapshot_time,
+        event:events(id, title, start_time, league:leagues(abbreviation)),
+        source:market_sources(id, name, slug)
+      `)
       .in('event_id', upcomingIds)
       .gt('snapshot_time', propCutoff)
       .or('over_price.not.is.null,under_price.not.is.null')
-    const total = count ?? 0
-    if (total === 0) return []
-    const pageCount = Math.ceil(total / PROP_PAGE)
-    const batches = await Promise.all(
-      Array.from({ length: pageCount }, (_, i) =>
-        supabase
-          .from('prop_odds')
-          .select(`
-            event_id, source_id, prop_category, player_name, line_value,
-            over_price, under_price, snapshot_time,
-            event:events(id, title, start_time, league:leagues(abbreviation)),
-            source:market_sources(id, name, slug)
-          `)
-          .in('event_id', upcomingIds)
-          .gt('snapshot_time', propCutoff)
-          .or('over_price.not.is.null,under_price.not.is.null')
-          .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
-      ),
+      .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
+  const fetchAllProps = async (): Promise<any[]> => {
+    const first = await fetchPropPage(0)
+    const firstRows = first.data ?? []
+    if (firstRows.length < PROP_PAGE) return firstRows
+    const restBatches = await Promise.all(
+      Array.from({ length: MAX_PAGES - 1 }, (_, i) => fetchPropPage(i + 1)),
     )
-    const all: any[] = []
-    for (const { data } of batches) if (data) all.push(...data)
+    const all: any[] = [...firstRows]
+    for (const b of restBatches) {
+      const rows = b.data ?? []
+      all.push(...rows)
+      if (rows.length < PROP_PAGE) break
+    }
     return all
   }
   const propBatchPromises = fetchAllProps()

@@ -145,29 +145,36 @@ export async function loadArbs(
   // whole loader. count(*) is ~150ms on this table; cheap insurance.
   // The big perf win was dropping embedded joins (3.5s → 0.9s on 36
   // pages); pagination shape is secondary.
-  const fetchAllProps = async (): Promise<any[]> => {
-    const { count } = await supabase
+  // Adaptive paging — fetch page 0 first; if it came back full,
+  // fan out the remaining pages in parallel up to MAX_PAGES. With
+  // the new (event_id, snapshot_time DESC) composite index the per-
+  // page latency is ~50-150ms, so the count(*) round trip we used
+  // to do is no longer worth it (~150ms saved on every cycle, and
+  // we never wait for count when the data fits in one page).
+  const MAX_PAGES = 60   // hard cap = 60_000 prop rows
+  const fetchPropPage = (i: number) =>
+    supabase
       .from('prop_odds')
-      .select('id', { count: 'exact', head: true })
+      .select('event_id, source_id, prop_category, player_name, line_value, over_price, under_price, snapshot_time')
       .in('event_id', upcomingIds)
       .gt('snapshot_time', propStaleCutoff)
       .or('over_price.not.is.null,under_price.not.is.null')
-    const total = count ?? 0
-    if (total === 0) return []
-    const pageCount = Math.ceil(total / PROP_PAGE)
-    const batches = await Promise.all(
-      Array.from({ length: pageCount }, (_, i) =>
-        supabase
-          .from('prop_odds')
-          .select('event_id, source_id, prop_category, player_name, line_value, over_price, under_price, snapshot_time')
-          .in('event_id', upcomingIds)
-          .gt('snapshot_time', propStaleCutoff)
-          .or('over_price.not.is.null,under_price.not.is.null')
-          .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1),
-      ),
+      .range(i * PROP_PAGE, (i + 1) * PROP_PAGE - 1)
+  const fetchAllProps = async (): Promise<any[]> => {
+    const first = await fetchPropPage(0)
+    const firstRows = first.data ?? []
+    if (firstRows.length < PROP_PAGE) return firstRows
+    // Page 0 was full — there's more. Fan out pages 1..MAX_PAGES in
+    // parallel and stop once we hit a short page.
+    const restBatches = await Promise.all(
+      Array.from({ length: MAX_PAGES - 1 }, (_, i) => fetchPropPage(i + 1)),
     )
-    const all: any[] = []
-    for (const { data } of batches) if (data) all.push(...data)
+    const all: any[] = [...firstRows]
+    for (const b of restBatches) {
+      const rows = b.data ?? []
+      all.push(...rows)
+      if (rows.length < PROP_PAGE) break
+    }
     return all
   }
   const snapshotsPromise = supabase

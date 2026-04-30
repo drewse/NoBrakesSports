@@ -6,6 +6,7 @@ import { ProGate } from '@/components/shared/pro-gate'
 import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 import { loadEv } from '@/lib/ev/loaders'
 import { EvLiveWrapper } from '@/components/ev/ev-live-wrapper'
+import { EvSkeleton } from '@/components/ev/ev-skeleton'
 
 export const metadata = { title: 'Top EV Lines' }
 export const dynamic = 'force-dynamic'
@@ -110,25 +111,3 @@ async function EvDataLoader({
   return <EvLiveWrapper initial={initial} />
 }
 
-function EvSkeleton() {
-  return (
-    <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:min-h-[calc(100vh-12rem)]">
-      <div className="lg:w-[72%] w-full">
-        <div className="hidden lg:block mb-4">
-          <div className="h-5 w-40 rounded bg-nb-800 animate-pulse mb-2" />
-          <div className="h-3 w-64 rounded bg-nb-800/60 animate-pulse" />
-        </div>
-        <div className="rounded-xl border border-nb-800 bg-nb-900 px-8 py-24 flex flex-col items-center justify-center text-center gap-4">
-          <div className="h-12 w-12 rounded-full bg-nb-800 animate-pulse" />
-          <div className="h-4 w-48 rounded bg-nb-800 animate-pulse" />
-          <div className="h-3 w-64 rounded bg-nb-800/60 animate-pulse" />
-        </div>
-      </div>
-      <div className="lg:w-[28%] w-full space-y-2.5">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-[112px] rounded-xl border border-nb-800 bg-nb-900 animate-pulse" />
-        ))}
-      </div>
-    </div>
-  )
-}
