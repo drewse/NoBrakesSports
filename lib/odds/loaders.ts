@@ -161,6 +161,56 @@ function canonicalGameSlug(slug: string): string {
   return GAME_LINE_BOOK_ALIASES[slug] ?? slug
 }
 
+/** Fuzzy player-name key. Different books ship the same player with
+ *  different casing/initial conventions ("CJ McCollum" / "Cj
+ *  Mccollum" / "C.J. McCollum" / "OG Anunoby" / "Og Anunoby"); raw
+ *  player_name grouping splits them across multiple rows. This key
+ *  collapses all common variants into the same bucket while staying
+ *  conservative enough to never merge two distinct players.
+ *  Steps:
+ *    - ASCII-fold (strip accents)
+ *    - drop apostrophes & periods
+ *    - lowercase
+ *    - whitespace-collapse + trim
+ *    - last-name + first-initial when 2+ tokens, so "C.J. McCollum"
+ *      ↔ "CJ McCollum" ↔ "Cj Mccollum" all collapse to "c|mccollum".
+ *  Same shape used by the arb / EV loaders; keep them in sync. */
+function fuzzyPlayerKey(raw: string): string {
+  const base = (raw || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/'/g, '')
+    .replace(/\./g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!base) return ''
+  const parts = base.split(' ').filter(Boolean)
+  if (parts.length === 1) return parts[0]
+  const SUFFIX = /^(jr|sr|ii|iii|iv|v)$/i
+  let last = parts[parts.length - 1]
+  if (SUFFIX.test(last) && parts.length >= 2) last = parts[parts.length - 2]
+  return `${parts[0].charAt(0)}|${last}`
+}
+
+/** Pick the prettier of two display name variants for the same player.
+ *  Heuristic: more uppercase letters wins ("CJ McCollum" beats "Cj
+ *  Mccollum"); if tied, the one with more total characters wins
+ *  ("OG Anunoby" beats "Og Anunoby"). Stable: keeps the prior name on
+ *  exact ties. */
+function pickBetterName(prev: string | undefined, cand: string): string {
+  if (!prev) return cand
+  const score = (s: string) => {
+    let upper = 0
+    for (let i = 0; i < s.length; i++) {
+      const ch = s.charCodeAt(i)
+      if (ch >= 65 && ch <= 90) upper++
+    }
+    return upper * 1000 + s.length
+  }
+  return score(cand) > score(prev) ? cand : prev
+}
+
 export async function loadGameOdds(
   supabase: SupabaseClient,
   selection: MarketSelection,
@@ -362,7 +412,12 @@ export async function loadPropOdds(
   )
 
   const books: Map<string, BookColumn> = new Map()
+  // Group by FUZZY player key so casing variants ("CJ McCollum",
+  // "Cj Mccollum", "OG Anunoby", "Og Anunoby") collapse onto the
+  // same row. Track the prettiest display name per fuzzy key so the
+  // surfaced row reads as the cleanest variant the data contains.
   const byEvent = new Map<string, Map<string, Array<PlayerLineCell>>>()
+  const displayNameByFuzzy = new Map<string, string>()  // `${eventId}|${fuzzy}` → display name
 
   for (const r of allRows) {
     const src = r.source as { id: string; name: string; slug: string } | null
@@ -370,16 +425,21 @@ export async function loadPropOdds(
     if (!r.player_name) continue
     books.set(src.id, { id: src.id, name: src.name, slug: src.slug })
 
+    const fuzzy = fuzzyPlayerKey(String(r.player_name))
+    if (!fuzzy) continue
+    const displayKey = `${r.event_id}|${fuzzy}`
+    displayNameByFuzzy.set(displayKey, pickBetterName(displayNameByFuzzy.get(displayKey), String(r.player_name)))
+
     let byPlayer = byEvent.get(r.event_id)
     if (!byPlayer) { byPlayer = new Map(); byEvent.set(r.event_id, byPlayer) }
-    const cells = byPlayer.get(r.player_name) ?? []
+    const cells = byPlayer.get(fuzzy) ?? []
     cells.push({
       sourceId: src.id,
       line: r.line_value != null ? Number(r.line_value) : null,
       overPrice: r.over_price ?? null,
       underPrice: r.under_price ?? null,
     })
-    byPlayer.set(r.player_name, cells)
+    byPlayer.set(fuzzy, cells)
   }
 
   const rows: PropsGameRow[] = events
@@ -388,7 +448,10 @@ export async function loadPropOdds(
       if (!byPlayer || byPlayer.size === 0) return null
       const { home, away } = splitTitle(ev.title)
       const players: PlayerPropRow[] = []
-      for (const [playerName, cells] of byPlayer) {
+      for (const [fuzzy, cells] of byPlayer) {
+        // Resolve the fuzzy key back to a human-readable display name
+        // (the prettiest variant we saw across all books for this player).
+        const playerName = displayNameByFuzzy.get(`${ev.id}|${fuzzy}`) ?? fuzzy
         // Group raw cells by line value first — we'll build a summary
         // per (player, line) so the client can switch lines without
         // re-fetching.
