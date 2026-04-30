@@ -40,6 +40,17 @@ const BMG_REJECT_ALWAYS = /\b(takeaways|giveaways|faceoffs?|penalty\s*minutes|fa
 // the MLB "Hits" stat — would mis-pair against MLB hits otherwise.
 const BMG_REJECT_NHL = /\b(blocked\s*shots?|\bhits\b)\b/i
 
+// Combo separator: BetMGM ships combo props with any of these
+// joiners — "Points and Rebounds", "Points + Rebounds", "Points,
+// Rebounds", "Total Points, Rebounds and Assists". The previous
+// regex only matched "and", so "Rebounds + Assists" fell through
+// to the bare \brebounds?\b matcher and got mis-categorised as
+// pure rebounds. That paired against other books' actual rebounds
+// props at completely different lines, producing the +14%-+8%
+// phantom arbs the user reported on Sam Hauser, Kelly Oubre Jr,
+// Jakob Poeltl, Jarrett Allen Rebounds.
+const COMBO_SEP = '\\s*(?:and|[,+&/])\\s*'
+
 const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   // ── NHL-specific BEFORE generic NBA "points/assists/goals" ─────────
   // BetMGM ships hockey "Player (TB): points" / "(TB): assists" with
@@ -48,12 +59,20 @@ const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   // match before bare "points" or it'll be miscategorised as basketball.
   { re: /\bpower\s*play\s*points?\b|\bpp\s*points?\b/i, category: 'player_power_play_pts' },
   { re: /\bshots?\s*on\s*goal\b/i, category: 'player_shots_on_goal' },
-  // Combos must come first so single-stat substring checks don't swallow them
-  { re: /\bpoints?\s*[,+]?\s*rebounds?\s*[,+]?\s*(and\s+)?assists?\b/i, category: 'player_pts_reb_ast' },
-  { re: /\bpoints?\s*and\s*rebounds?\b/i, category: 'player_pts_reb' },
-  { re: /\bpoints?\s*and\s*assists?\b/i, category: 'player_pts_ast' },
-  { re: /\brebounds?\s*and\s*assists?\b/i, category: 'player_ast_reb' },
-  { re: /\bsteals?\s*and\s*blocks?\b/i, category: 'player_steals_blocks' },
+  // Combos must come first so single-stat substring checks don't
+  // swallow them. Each combo accepts "and"/"+"/","/"&"/"/" as the
+  // joiner (see COMBO_SEP). Three-stat combos try first.
+  { re: new RegExp(`\\bpoints?${COMBO_SEP}rebounds?${COMBO_SEP}(?:and\\s+)?assists?\\b`, 'i'), category: 'player_pts_reb_ast' },
+  { re: new RegExp(`\\bpoints?${COMBO_SEP}assists?${COMBO_SEP}(?:and\\s+)?rebounds?\\b`, 'i'), category: 'player_pts_reb_ast' },
+  { re: new RegExp(`\\brebounds?${COMBO_SEP}assists?${COMBO_SEP}(?:and\\s+)?points?\\b`, 'i'), category: 'player_pts_reb_ast' },
+  { re: new RegExp(`\\bpoints?${COMBO_SEP}rebounds?\\b`, 'i'), category: 'player_pts_reb' },
+  { re: new RegExp(`\\brebounds?${COMBO_SEP}points?\\b`, 'i'), category: 'player_pts_reb' },
+  { re: new RegExp(`\\bpoints?${COMBO_SEP}assists?\\b`, 'i'), category: 'player_pts_ast' },
+  { re: new RegExp(`\\bassists?${COMBO_SEP}points?\\b`, 'i'), category: 'player_pts_ast' },
+  { re: new RegExp(`\\brebounds?${COMBO_SEP}assists?\\b`, 'i'), category: 'player_ast_reb' },
+  { re: new RegExp(`\\bassists?${COMBO_SEP}rebounds?\\b`, 'i'), category: 'player_ast_reb' },
+  { re: new RegExp(`\\bsteals?${COMBO_SEP}blocks?\\b`, 'i'), category: 'player_steals_blocks' },
+  { re: new RegExp(`\\bblocks?${COMBO_SEP}steals?\\b`, 'i'), category: 'player_steals_blocks' },
   // NBA singles
   { re: /\bthree\s*pointers?\b|\b3-?pointers?\b/i, category: 'player_threes' },
   { re: /\bturnovers?\b/i, category: 'player_turnovers' },
@@ -230,7 +249,11 @@ function looksLikePlayerName(s: string): boolean {
   return true
 }
 
-function extractFixtureProps(fixture: BMGFixture, leagueSlug: string): NormalizedProp[] {
+function extractFixtureProps(
+  fixture: BMGFixture,
+  leagueSlug: string,
+  sampleByCategory?: Map<string, string>,
+): NormalizedProp[] {
   const out: NormalizedProp[] = []
   // Track (player, category, line) → prefer two-sided over one-sided
   const seen = new Map<string, NormalizedProp>()
@@ -302,6 +325,13 @@ function extractFixtureProps(fixture: BMGFixture, leagueSlug: string): Normalize
         noPrice: null,
         isBinary: false,
       })
+      // Capture one sample of the raw market name per category so the
+      // scrape summary log can show e.g. "player_rebounds: <example
+      // market name>". Lets us spot-check that "Rebounds + Assists"
+      // markets aren't leaking into player_rebounds anymore.
+      if (sampleByCategory && !sampleByCategory.has(category)) {
+        sampleByCategory.set(category, marketName)
+      }
     }
   }
   for (const p of seen.values()) out.push(p)
@@ -578,6 +608,7 @@ export const betmgmAdapter: BookAdapter = {
     return withPage(async (page) => {
       const errors: string[] = []
       const scraped: ScrapeResult['events'] = []
+      const propCategorySamples = new Map<string, string>()
 
       log.info('betmgm seeding session', { url: SEED_URL })
       try {
@@ -722,7 +753,7 @@ export const betmgmAdapter: BookAdapter = {
                 : null,
             }).slice(0, 3500)
           }
-          const props = extractFixtureProps(fixture, league.leagueSlug)
+          const props = extractFixtureProps(fixture, league.leagueSlug, propCategorySamples)
           scraped.push({
             event: {
               externalId: String(fixture.id),
@@ -751,6 +782,11 @@ export const betmgmAdapter: BookAdapter = {
         events: scraped.length,
         totalGameMkts: scraped.reduce((s, e) => s + e.gameMarkets.length, 0),
         totalProps: scraped.reduce((s, e) => s + e.props.length, 0),
+        // First raw market name accepted per category. If
+        // player_rebounds row contains text like "Rebounds + Assists"
+        // or "Rebounds, Assists", the combo regex isn't matching and
+        // a real player_ast_reb prop is leaking into player_rebounds.
+        propCategorySamples: Object.fromEntries(propCategorySamples),
       })
       return { events: scraped, errors }
     }, { useProxy: true })
