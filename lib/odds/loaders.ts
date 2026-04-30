@@ -144,6 +144,23 @@ function avgAmerican(prices: number[]): number {
   return ((1 - mean) / mean) * 100
 }
 
+// Slug aliases for game-line views ONLY. The Vercel sync-props
+// adapter writes BetMGM under slug `betmgm` while the Railway worker
+// writes the same Ontario data under slug `betmgm_on` — both pull
+// from www.on.betmgm.ca so the odds are identical. Showing both as
+// separate columns clutters the /odds table; merge them into a single
+// column. Per-prop /top-lines / arb pages keep them separate so we
+// don't lose granularity when the user wants to spot-check.
+const GAME_LINE_BOOK_ALIASES: Record<string, string> = {
+  betmgm_on: 'betmgm',
+}
+
+/** Return the canonical slug for game-line dedup. Identity for books
+ *  not in the alias map. */
+function canonicalGameSlug(slug: string): string {
+  return GAME_LINE_BOOK_ALIASES[slug] ?? slug
+}
+
 export async function loadGameOdds(
   supabase: SupabaseClient,
   selection: MarketSelection,
@@ -168,10 +185,40 @@ export async function loadGameOdds(
   const books: Map<string, BookColumn> = new Map()
   const byEvent = new Map<string, Record<string, OddsCell>>()
 
+  // Dedup pass for slug aliases (e.g. betmgm + betmgm_on → one column).
+  // Step 1: pick a canonical source UUID per canonical slug. We prefer
+  // the source whose own slug equals the canonical slug if present
+  // (`betmgm` over `betmgm_on`); otherwise fall back to the first one
+  // we encounter. Merged book column uses that source's UUID + name.
+  const canonicalIdBySlug = new Map<string, string>()  // canonical slug → source UUID
+  const canonicalBookBySlug = new Map<string, BookColumn>()
   for (const r of allRows) {
     const src = r.source as { id: string; name: string; slug: string } | null
     if (!src) continue
-    books.set(src.id, { id: src.id, name: src.name, slug: src.slug })
+    const canonicalSlug = canonicalGameSlug(src.slug)
+    if (canonicalSlug === src.slug) {
+      // This row is the canonical book — always wins.
+      canonicalIdBySlug.set(canonicalSlug, src.id)
+      canonicalBookBySlug.set(canonicalSlug, { id: src.id, name: src.name, slug: src.slug })
+    } else if (!canonicalIdBySlug.has(canonicalSlug)) {
+      // Aliased row, no canonical row seen yet — use this UUID as the
+      // merge anchor. If a canonical row appears later it'll overwrite.
+      canonicalIdBySlug.set(canonicalSlug, src.id)
+      canonicalBookBySlug.set(canonicalSlug, { id: src.id, name: src.name, slug: canonicalSlug })
+    }
+  }
+  // Track per-(event, canonicalId) the snapshot_time of the row we
+  // already wrote so a later row only overwrites if it's fresher.
+  const lastTime = new Map<string, string>()  // `${eventId}|${canonicalId}` → snapshot_time
+
+  for (const r of allRows) {
+    const src = r.source as { id: string; name: string; slug: string } | null
+    if (!src) continue
+    const canonicalSlug = canonicalGameSlug(src.slug)
+    const canonicalId = canonicalIdBySlug.get(canonicalSlug) ?? src.id
+    const canonicalBook = canonicalBookBySlug.get(canonicalSlug)
+      ?? { id: src.id, name: src.name, slug: canonicalSlug }
+    books.set(canonicalId, canonicalBook)
     const top =
       plan.sideShape === 'home_away' ? r.home_price
       : r.over_price ?? r.home_price
@@ -179,7 +226,14 @@ export async function loadGameOdds(
       plan.sideShape === 'home_away' ? r.away_price
       : r.under_price ?? r.away_price
     const map = byEvent.get(r.event_id) ?? {}
-    map[src.id] = { sourceId: src.id, homePrice: top ?? null, awayPrice: bottom ?? null }
+    // Freshness guard: when both `betmgm` and `betmgm_on` rows exist
+    // for the same event, keep whichever has the more recent snapshot.
+    const k = `${r.event_id}|${canonicalId}`
+    const prevTime = lastTime.get(k)
+    const thisTime: string = r.snapshot_time ?? ''
+    if (prevTime && thisTime && thisTime <= prevTime) continue
+    lastTime.set(k, thisTime)
+    map[canonicalId] = { sourceId: canonicalId, homePrice: top ?? null, awayPrice: bottom ?? null }
     byEvent.set(r.event_id, map)
   }
 
