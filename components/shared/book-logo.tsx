@@ -173,6 +173,15 @@ const NAME_TO_SLUG: Record<string, string> = {
 function resolveSlug(nameOrSlug: string): string {
   if (BOOK_CONFIG[nameOrSlug]) return nameOrSlug
   if (NAME_TO_SLUG[nameOrSlug]) return NAME_TO_SLUG[nameOrSlug]
+  // Defensive: strip "[discovery]" / "[stub]" trailing tags so older
+  // market_sources rows like "BetMGM (Ontario) [discovery]" still
+  // resolve. Migration 032 cleans these up in DB but this catches
+  // any drift that lands in production going forward.
+  const stripped = nameOrSlug.replace(/\s*\[(discovery|stub|wip)\]\s*$/i, '').trim()
+  if (stripped !== nameOrSlug) {
+    if (BOOK_CONFIG[stripped]) return stripped
+    if (NAME_TO_SLUG[stripped]) return NAME_TO_SLUG[stripped]
+  }
   return nameOrSlug.toLowerCase().replace(/\s+/g, '_')
 }
 

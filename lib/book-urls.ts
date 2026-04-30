@@ -120,5 +120,18 @@ export function getBookUrl(nameOrSlug: string | null | undefined): string | null
   for (const [k, v] of Object.entries(NAME_TO_SLUG)) {
     if (k.toLowerCase() === lc) return URL_BY_SLUG[v] ?? null
   }
+  // Defensive: strip "[discovery]" / "[stub]" suffix on a stale source
+  // name and re-try. Migration 032 normalizes these in DB but this
+  // covers any drift.
+  const stripped = nameOrSlug.replace(/\s*\[(discovery|stub|wip)\]\s*$/i, '').trim()
+  if (stripped !== nameOrSlug) {
+    if (URL_BY_SLUG[stripped]) return URL_BY_SLUG[stripped]
+    const slugFromStripped = NAME_TO_SLUG[stripped]
+    if (slugFromStripped && URL_BY_SLUG[slugFromStripped]) return URL_BY_SLUG[slugFromStripped]
+    const lcStripped = stripped.toLowerCase()
+    for (const [k, v] of Object.entries(NAME_TO_SLUG)) {
+      if (k.toLowerCase() === lcStripped) return URL_BY_SLUG[v] ?? null
+    }
+  }
   return null
 }
