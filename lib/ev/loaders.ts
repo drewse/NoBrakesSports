@@ -145,6 +145,36 @@ const PROP_LABELS: Record<string, string> = {
 const PROP_PAGE = 1000
 const TOP_N = 50
 
+// Maximum EV% we'll surface. Real cross-book +EV clusters in the
+// 1-8% band; anything above ~20% is essentially always a data-quality
+// issue on either side:
+//   * Stale longshot price on the "best" book (e.g. +800 frozen
+//     while the market moved to +250 — looks like 200% EV against a
+//     fair prob computed from the live consensus).
+//   * Single-book de-vig with a wide-vig book — fairOver/fairUnder
+//     come out wrong, downstream EV inflates.
+//   * Alt-line market collapsed onto the main line line_value
+//     (e.g. "20+ Points" threshold prop ingested at 19.5).
+//   * Phantom rows from a freshly-deployed parser still in the
+//     30-min freshness window (e.g. BetMGM "Dallas Stars" / period-
+//     scoped goals before the team/period filter landed).
+//
+// 20% matches AVO/OddsJam — they don't surface real EV plays above
+// this band either because they don't actually clear when wagered.
+const MAX_EV_PCT = 20
+
+// Minimum two-sided books required to compute a stable prop fair
+// prob. With only 1 two-sided book, fairOver/fairUnder is just that
+// book's de-vig — same as having no consensus at all, prone to a
+// single book's error.
+const MIN_PROP_TWO_SIDED_BOOKS = 2
+
+// If the "best price" is too far from the fair probability the
+// surrounding books imply, the price is almost certainly stale. Cap
+// the ratio between fair-implied-price and best-price implied so
+// we don't surface a +800 that's 4x wider than the live consensus.
+const MAX_PRICE_PROB_RATIO = 4
+
 export async function loadEv(
   supabase: SupabaseClient,
   enabledBooks: Set<string> | null,
@@ -320,6 +350,16 @@ export async function loadEv(
       allSources.sort((a, b) => b.evPct - a.evPct)
       if (allSources.length === 0) return
       const best = allSources[0]
+      // Cap EV% — anything > MAX_EV_PCT is virtually always a stale
+      // best-price or a wrong fair-prob.
+      if (!isFinite(best.evPct) || best.evPct > MAX_EV_PCT) return
+      // Reject when the best price implies a probability wildly off
+      // from the fair prob (stale longshot indicator).
+      const bestImplied = americanToImpliedProb(best.price)
+      if (bestImplied > 0 && fairProb > 0) {
+        const ratio = fairProb / bestImplied
+        if (ratio > MAX_PRICE_PROB_RATIO || (1 / ratio) > MAX_PRICE_PROB_RATIO) return
+      }
       evLines.push({
         eventId: snaps[0].event_id,
         eventTitle: event?.title ?? '—',
@@ -420,20 +460,41 @@ export async function loadEv(
     }
     for (const [groupKey, group] of propGroups.entries()) {
       const twoSidedBooks = group.filter((p: any) => p.over_price != null && p.under_price != null)
-      if (twoSidedBooks.length === 0) continue
-      let bestBalance = Infinity
-      let fairOver = 0.5, fairUnder = 0.5
+      // Require at least N two-sided books — single-book de-vig is
+      // unreliable and produced most of the 100%+ phantom EVs the
+      // user reported (e.g. one obscure book with stale +800 / -110
+      // generated a fair_over of 0.52, then any other book showing
+      // over +400 looked like 200% EV).
+      if (twoSidedBooks.length < MIN_PROP_TWO_SIDED_BOOKS) continue
+      // Reject when the two-sided books wildly disagree on the line —
+      // means the market hasn't settled or one book has alt-line data
+      // labelled as the main line. We measure spread of implied-over
+      // across books; > 20pp tells us the consensus isn't there.
+      const overProbs = twoSidedBooks.map((p: any) => americanToImpliedProb(p.over_price))
+      const minOver = Math.min(...overProbs)
+      const maxOver = Math.max(...overProbs)
+      if (maxOver - minOver > 0.20) continue
+      // Average the de-vigged fair probs across all two-sided books
+      // (weighted by overround tightness — tighter vig = sharper book).
+      // Replaces the old "pick the most-balanced single book" heuristic
+      // which was vulnerable to a single bad book.
+      let wOver = 0, wUnder = 0, wTotal = 0
       for (const p of twoSidedBooks) {
         const overProb = americanToImpliedProb(p.over_price)
         const underProb = americanToImpliedProb(p.under_price)
-        const balance = Math.abs(overProb - underProb)
-        if (balance < bestBalance) {
-          bestBalance = balance
-          const devigged = powerDevig([overProb, underProb])
-          fairOver = devigged[0]
-          fairUnder = devigged[1]
-        }
+        const overround = overProb + underProb
+        // Skip books with absurd vig (>15% — typically a one-sided
+        // alt market mislabeled as a main O/U).
+        if (overround > 1.15 || overround < 0.95) continue
+        const devigged = powerDevig([overProb, underProb])
+        const w = 1 / overround
+        wOver += w * devigged[0]
+        wUnder += w * devigged[1]
+        wTotal += w
       }
+      if (wTotal === 0) continue
+      const fairOver = wOver / wTotal
+      const fairUnder = wUnder / wTotal
       const ev = group[0].event
       const leagueAbbrev = ev?.league?.abbreviation ?? '—'
       const propCat = group[0].prop_category as string
@@ -454,7 +515,18 @@ export async function loadEv(
         if (allSources.length === 0) continue
         allSources.sort((a, b) => b.evPct - a.evPct)
         const best = allSources[0]
-        if (best.evPct > 0 && isFinite(best.evPct)) {
+        // Cap EV% (same threshold as game markets) — the single
+        // biggest source of phantom +EV was a stale longshot price
+        // surfacing as 100%+.
+        if (!isFinite(best.evPct) || best.evPct <= 0 || best.evPct > MAX_EV_PCT) continue
+        // Reject if the best price's implied prob is wildly off the
+        // fair prob — definite stale-price / alt-line indicator.
+        const bestImplied = americanToImpliedProb(best.price)
+        if (bestImplied > 0 && fairProb > 0) {
+          const ratio = fairProb / bestImplied
+          if (ratio > MAX_PRICE_PROB_RATIO || (1 / ratio) > MAX_PRICE_PROB_RATIO) continue
+        }
+        {
           evLines.push({
             eventId: group[0].event_id,
             eventTitle: ev?.title ?? '—',
