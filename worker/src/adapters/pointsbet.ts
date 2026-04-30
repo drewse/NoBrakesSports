@@ -15,7 +15,11 @@ const BASE_V2 = 'https://api.on.pointsbet.com/api/v2'
 const BASE_V3 = 'https://api.on.pointsbet.com/api/mes/v3'
 const SEED_URL = 'https://on.pointsbet.ca/sports/basketball'
 
-const SPORTS = ['basketball', 'baseball', 'icehockey', 'soccer'] as const
+// Sport slugs PB serves under /sports/<slug>/competitions. The Ontario
+// skin (on.pointsbet.ca) returns 0 results for `icehockey` even during
+// active NHL slates — try common slug aliases too. The first one that
+// returns competitions wins; non-matching slugs are silent no-ops.
+const SPORTS = ['basketball', 'baseball', 'icehockey', 'ice-hockey', 'hockey', 'soccer'] as const
 
 interface LeagueSlugMap { [competitionName: string]: { slug: string; sport: string } }
 
@@ -327,7 +331,33 @@ export const pointsbetAdapter: BookAdapter = {
       await page.goto(SEED_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
       await page.waitForTimeout(2_000) // let cf_bm settle
 
-      // 2. Fetch all competitions per sport
+      // 2. First, dump the canonical sport list so we can see what
+      // slugs PB serves. Helps diagnose missing NHL coverage when
+      // /sports/icehockey returns 0 — PB may use 'ice-hockey' or
+      // 'hockey' or have removed the sport entirely from the CA skin.
+      try {
+        const sportsList = await page.evaluate(async (url: string) => {
+          const r = await fetch(url, { headers: { Accept: 'application/json' } })
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.json()
+        }, `${BASE_V2}/sports`)
+        const items: any[] = Array.isArray((sportsList as any)?.locales?.[0]?.sports)
+          ? (sportsList as any).locales[0].sports
+          : Array.isArray(sportsList) ? sportsList
+          : []
+        log.info('pointsbet sports list', {
+          count: items.length,
+          sample: items.slice(0, 30).map((s: any) => ({
+            name: s?.name ?? s?.displayName,
+            key: s?.key ?? s?.slug ?? s?.id,
+            numberOfEvents: s?.numberOfEvents ?? null,
+          })),
+        })
+      } catch (e: any) {
+        log.warn('pointsbet sports list fetch failed', { message: e?.message ?? String(e) })
+      }
+
+      // 3. Fetch all competitions per sport
       const competitions: Array<{ key: string; name: string; sport: string }> = []
       const rawCompsBySport: Record<string, Array<{ name: string; numberOfEvents: number }>> = {}
       for (const sport of SPORTS) {
