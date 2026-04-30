@@ -145,23 +145,11 @@ const PROP_LABELS: Record<string, string> = {
 const PROP_PAGE = 1000
 const TOP_N = 50
 
-// Maximum EV% we'll surface. Real cross-book +EV clusters in the
-// 1-8% band; anything above ~20% is essentially always a data-quality
-// issue on either side:
-//   * Stale longshot price on the "best" book (e.g. +800 frozen
-//     while the market moved to +250 — looks like 200% EV against a
-//     fair prob computed from the live consensus).
-//   * Single-book de-vig with a wide-vig book — fairOver/fairUnder
-//     come out wrong, downstream EV inflates.
-//   * Alt-line market collapsed onto the main line line_value
-//     (e.g. "20+ Points" threshold prop ingested at 19.5).
-//   * Phantom rows from a freshly-deployed parser still in the
-//     30-min freshness window (e.g. BetMGM "Dallas Stars" / period-
-//     scoped goals before the team/period filter landed).
-//
-// 20% matches AVO/OddsJam — they don't surface real EV plays above
-// this band either because they don't actually clear when wagered.
-const MAX_EV_PCT = 20
+// Maximum EV% we'll surface. Cap is wide enough to allow rare
+// genuine longshot edges through; the price-prob ratio + multi-book
+// consensus filters below catch the obvious stale/single-book
+// phantoms without killing real edge in the 20-50% band.
+const MAX_EV_PCT = 50
 
 // Minimum two-sided books required to compute a stable prop fair
 // prob. With only 1 two-sided book, fairOver/fairUnder is just that
