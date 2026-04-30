@@ -73,6 +73,7 @@ const NAME_TO_SLUG: Record<string, string> = {
   'FanDuel':            'fanduel',
   'BetMGM':             'betmgm',
   'BetMGM ON':          'betmgm_on',
+  'BetMGM (Ontario)':   'betmgm_on',
   'Caesars':            'caesars',
   'PointsBet':          'pointsbet',
   'PointsBet ON':       'pointsbet_on',

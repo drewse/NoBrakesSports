@@ -30,6 +30,16 @@ import type { ScrapeResult, GameMarket, NormalizedProp } from '../lib/types.js'
 //   "Joel Embiid to record 5+ assists"              (binary threshold)
 //   "Joel Embiid to record 25+ Total Points and Rebounds"  (combo)
 
+// Cross-sport rejects — markets with no canonical category and/or
+// binary "yes/no" forms that don't pair against O/U props.
+const BMG_REJECT_ALWAYS = /\b(takeaways|giveaways|faceoffs?|penalty\s*minutes|fantasy\s*points|first\s*plate\s*appearance|to\s*hit\s*a\s*home\s*run)\b/i
+
+// NHL-only rejects. "Blocked Shots" must be rejected before the
+// generic \bshots?\b regex matches it as "Shots on Goal" — a
+// completely different stat. NHL "Hits" is a bodycheck count, not
+// the MLB "Hits" stat — would mis-pair against MLB hits otherwise.
+const BMG_REJECT_NHL = /\b(blocked\s*shots?|\bhits\b)\b/i
+
 const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   // ── NHL-specific BEFORE generic NBA "points/assists/goals" ─────────
   // BetMGM ships hockey "Player (TB): points" / "(TB): assists" with
@@ -57,6 +67,12 @@ const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   { re: /\btotal\s*bases?\b/i, category: 'player_total_bases' },
   { re: /\bhome\s*runs?\b/i, category: 'player_home_runs' },
   { re: /\brbis?\b/i, category: 'player_rbis' },
+  // Extra-base-hit splits (BetMGM ships these as "Player singles" /
+  // "Player triples" — DK uses `total singles` / `total triples` so
+  // the canonical categories already exist).
+  { re: /\bplayer\s*singles?\b|\btotal\s*singles?\b|\bsingles?\b/i, category: 'player_singles' },
+  { re: /\bplayer\s*triples?\b|\btotal\s*triples?\b|\btriples?\b/i, category: 'player_triples' },
+  { re: /\bplayer\s*doubles?\b|\btotal\s*doubles?\b|\bdoubles?\b/i, category: 'player_doubles' },
   { re: /\b(walks?\s*allowed|pitcher\s*walks)\b/i, category: 'player_walks' },
   { re: /\bwalks?\b/i, category: 'player_walks' },
   { re: /\bstrikeouts?\b/i, category: 'player_strikeouts_p' },
@@ -75,6 +91,11 @@ const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
 ]
 
 function detectBmgPropCategory(stat: string, leagueSlug: string): string | null {
+  // Reject markets we deliberately don't surface. Some rejects are
+  // sport-specific (NHL "Hits" = bodychecks, NOT the MLB "Hits"
+  // category — would create phantom cross-sport pairings).
+  if (BMG_REJECT_ALWAYS.test(stat)) return null
+  if (leagueSlug === 'nhl' && BMG_REJECT_NHL.test(stat)) return null
   for (const { re, category } of BMG_PROP_KEYWORDS) {
     if (re.test(stat)) {
       // Sport-context disambiguation. NHL uses bare "Points" / "Assists"

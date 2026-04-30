@@ -20,6 +20,8 @@ const BOOK_CONFIG: Record<string, BookConfig> = {
   draftkings:          { abbrev: 'DK',  bg: 'bg-[#53d337]',      text: 'text-black',        hasLogo: true },
   fanduel:             { abbrev: 'FD',  bg: 'bg-[#1493ff]',      text: 'text-white',        hasLogo: true },
   betmgm:              { abbrev: 'MG',  bg: 'bg-[#c5a44e]',      text: 'text-black',        hasLogo: true },
+  // Ontario regional sister-skin uses the same brand assets.
+  betmgm_on:           { abbrev: 'MG',  bg: 'bg-[#c5a44e]',      text: 'text-black',        hasLogo: true, logoSlug: 'betmgm' },
   caesars:             { abbrev: 'CZ',  bg: 'bg-[#0a3a2a]',      text: 'text-[#c5a44e]',   hasLogo: true },
   betrivers:           { abbrev: 'BR',  bg: 'bg-[#1a56db]',      text: 'text-white',        hasLogo: true },
   betrivers_on:        { abbrev: 'BR',  bg: 'bg-[#1a56db]',      text: 'text-white',        hasLogo: true, logoSlug: 'betrivers' },
@@ -88,6 +90,8 @@ const NAME_TO_SLUG: Record<string, string> = {
   'DraftKings':          'draftkings',
   'FanDuel':             'fanduel',
   'BetMGM':              'betmgm',
+  'BetMGM ON':           'betmgm_on',
+  'BetMGM (Ontario)':    'betmgm_on',
   'Caesars':             'caesars',
   'BetRivers':           'betrivers',
   'BetRivers ON':        'betrivers_on',
