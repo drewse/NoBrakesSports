@@ -31,13 +31,20 @@ import type { ScrapeResult, GameMarket, NormalizedProp } from '../lib/types.js'
 //   "Joel Embiid to record 25+ Total Points and Rebounds"  (combo)
 
 const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
+  // ── NHL-specific BEFORE generic NBA "points/assists/goals" ─────────
+  // BetMGM ships hockey "Player (TB): points" / "(TB): assists" with
+  // the same "points/assists" labels NBA uses. Detect hockey-specific
+  // stats first via more-specific keywords. "Powerplay Points" must
+  // match before bare "points" or it'll be miscategorised as basketball.
+  { re: /\bpower\s*play\s*points?\b|\bpp\s*points?\b/i, category: 'player_power_play_pts' },
+  { re: /\bshots?\s*on\s*goal\b/i, category: 'player_shots_on_goal' },
   // Combos must come first so single-stat substring checks don't swallow them
   { re: /\bpoints?\s*[,+]?\s*rebounds?\s*[,+]?\s*(and\s+)?assists?\b/i, category: 'player_pts_reb_ast' },
   { re: /\bpoints?\s*and\s*rebounds?\b/i, category: 'player_pts_reb' },
   { re: /\bpoints?\s*and\s*assists?\b/i, category: 'player_pts_ast' },
   { re: /\brebounds?\s*and\s*assists?\b/i, category: 'player_ast_reb' },
   { re: /\bsteals?\s*and\s*blocks?\b/i, category: 'player_steals_blocks' },
-  // Singles
+  // NBA singles
   { re: /\bthree\s*pointers?\b|\b3-?pointers?\b/i, category: 'player_threes' },
   { re: /\bturnovers?\b/i, category: 'player_turnovers' },
   { re: /\bsteals?\b/i, category: 'player_steals' },
@@ -45,7 +52,8 @@ const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   { re: /\brebounds?\b/i, category: 'player_rebounds' },
   { re: /\bassists?\b/i, category: 'player_assists' },
   { re: /\bpoints?\b/i, category: 'player_points' },
-  // MLB
+  // MLB — note "hits allowed" / "walks allowed" / "earned runs" must
+  // match before bare "hits" / "walks" / "runs"
   { re: /\btotal\s*bases?\b/i, category: 'player_total_bases' },
   { re: /\bhome\s*runs?\b/i, category: 'player_home_runs' },
   { re: /\brbis?\b/i, category: 'player_rbis' },
@@ -58,44 +66,141 @@ const BMG_PROP_KEYWORDS: Array<{ re: RegExp; category: string }> = [
   { re: /\bhits?\b/i, category: 'player_hits' },
   { re: /\bstolen\s*bases?\b/i, category: 'player_stolen_bases' },
   { re: /\bruns?\b/i, category: 'player_runs' },
-  // NHL
-  { re: /\bshots?\s*on\s*goal\b/i, category: 'player_shots_on_goal' },
+  // NHL singles AFTER MLB so "runs" / "hits" don't get hockey-coded.
+  // BetMGM hockey labels: "Shots" alone (= shots on goal), "Goals",
+  // "Saves", "Assists" (handled above).
+  { re: /\bshots?\b/i, category: 'player_shots_on_goal' },
   { re: /\bsaves?\b/i, category: 'player_saves' },
   { re: /\bgoals?\b/i, category: 'player_goals' },
 ]
 
-function detectBmgPropCategory(stat: string): string | null {
+function detectBmgPropCategory(stat: string, leagueSlug: string): string | null {
   for (const { re, category } of BMG_PROP_KEYWORDS) {
-    if (re.test(stat)) return category
+    if (re.test(stat)) {
+      // Sport-context disambiguation. NHL uses bare "Points" / "Assists"
+      // labels for hockey points/assists, but the regex above maps those
+      // to NBA categories. Remap to hockey equivalents when fixture is
+      // an NHL game so cross-book pairing works.
+      if (leagueSlug === 'nhl') {
+        if (category === 'player_points') return 'player_hockey_points'
+        if (category === 'player_assists') return 'player_hockey_assists'
+      }
+      return category
+    }
   }
   return null
 }
 
+// Period-scoped market markers — these are NOT full-game props and would
+// pair against full-game props from other books to produce phantom EV /
+// arbs. Reject before any further parsing.
+const BMG_PERIOD_SCOPED = /\b(1st|2nd|3rd|4th|first|second|third|fourth)\s+(period|half|quarter|inning|innings)\b|\bhalftime\b|\bfull\s*time\b|\bregular\s*time\b|\bot\s+only\b|\bfirst\s+\d+\s+(innings|periods|quarters|halves)\b|\b(periods?|halves|quarters|innings)\s*:\s*\d+\b/i
+
+// Known team-name suffixes that BetMGM uses for team-level props like
+// "Dallas Stars: 1st Period Goals". A real player name never ends with
+// one of these tokens. Covers NHL / NBA / MLB / NFL.
+const BMG_TEAM_SUFFIXES = new Set([
+  // NHL
+  'stars', 'wild', 'oilers', 'ducks', 'kings', 'sharks', 'flames', 'canucks',
+  'jets', 'avalanche', 'blackhawks', 'blues', 'predators', 'wings', 'jackets',
+  'penguins', 'flyers', 'rangers', 'islanders', 'devils', 'capitals', 'hurricanes',
+  'panthers', 'lightning', 'senators', 'leafs', 'canadiens', 'bruins', 'sabres',
+  'kraken', 'knights', 'club',
+  // NBA
+  'lakers', 'clippers', 'warriors', 'suns', 'nuggets', 'jazz', 'blazers',
+  'timberwolves', 'thunder', 'rockets', 'mavericks', 'spurs', 'pelicans',
+  'grizzlies', 'celtics', 'knicks', 'nets', '76ers', 'sixers', 'raptors',
+  'bucks', 'pacers', 'bulls', 'pistons', 'cavaliers', 'hawks', 'hornets',
+  'heat', 'magic', 'wizards',
+  // MLB
+  'yankees', 'mets', 'orioles', 'rays', 'jays', 'sox', 'guardians', 'tigers',
+  'royals', 'twins', 'astros', 'angels', 'athletics', 'mariners', 'rangers',
+  'braves', 'marlins', 'phillies', 'nationals', 'cubs', 'reds', 'brewers',
+  'pirates', 'cardinals', 'diamondbacks', 'rockies', 'dodgers', 'padres',
+  'giants',
+])
+
 /** Parse a BetMGM market name into (player, stat). Three shapes seen:
  *    "<Player> - <Stat>"           (most common O/U)
- *    "<Player>: <Stat>"            (colon variant)
+ *    "<Player> (XX): <Stat>"       (player-with-team-abbrev)
+ *    "<Player> (XX) : <Stat>"      (variant with space before colon)
+ *    "<Player>: <Stat>"            (no team abbrev)
  *    "<Player> to <verb> <N>+ <Stat>"  (threshold/binary)
+ *
+ * Returns null for period-scoped markets and team-level markets so we
+ * don't pollute prop_odds with phantom rows.
  */
 function parseBmgPropName(name: string): { player: string; stat: string; isThreshold: boolean } | null {
   if (!name) return null
+  // Reject period-scoped markets entirely. They aren't comparable to
+  // the full-game props other books ship and the +EV / arb scanners
+  // pair them as if they were. Logged from the live diag:
+  //   "1st period goals", "2nd period winner", "First 5 innings: Moneyline".
+  if (BMG_PERIOD_SCOPED.test(name)) return null
   // Threshold form first ("Player to record 25+ ...")
   const thresh = name.match(/^(.+?)\s+to\s+(?:get|score|record|make|throw|hit|have)\s+\d+\+\s+(.+)$/i)
-  if (thresh) return { player: thresh[1].trim(), stat: thresh[2].trim(), isThreshold: true }
+  if (thresh) {
+    const stripped = stripTeamAbbrev(thresh[1].trim())
+    return { player: stripped, stat: thresh[2].trim(), isThreshold: true }
+  }
   // Dash separator (last " - " in case stat contains dashes like "Three-Pointers Made")
   const dashIdx = name.lastIndexOf(' - ')
   if (dashIdx > 0) {
-    return { player: name.slice(0, dashIdx).trim(), stat: name.slice(dashIdx + 3).trim(), isThreshold: false }
+    const player = stripTeamAbbrev(name.slice(0, dashIdx).trim())
+    return { player, stat: name.slice(dashIdx + 3).trim(), isThreshold: false }
   }
-  // Colon separator
-  const colonIdx = name.indexOf(': ')
-  if (colonIdx > 0) {
-    return { player: name.slice(0, colonIdx).trim(), stat: name.slice(colonIdx + 2).trim(), isThreshold: false }
+  // Colon separator. Allow optional space before the colon since
+  // BetMGM ships both "Player (TB): Shots" and "Player (TB) : Shots".
+  const colonMatch = name.match(/^(.+?)\s*:\s+(.+)$/)
+  if (colonMatch) {
+    const player = stripTeamAbbrev(colonMatch[1].trim())
+    return { player, stat: colonMatch[2].trim(), isThreshold: false }
   }
   return null
+}
+
+/** Strip BetMGM's "(XXX)" team abbreviation suffix from a player name.
+ *  E.g. "Brayden Point (TB)" → "Brayden Point". */
+function stripTeamAbbrev(s: string): string {
+  return s.replace(/\s*\([A-Za-z]{2,5}\)\s*$/, '').trim()
+}
+
+/** Title-case a BetMGM player name. The diag log showed BetMGM ships
+ *  names lowercased ("cj mccollum"); other books ship "CJ McCollum",
+ *  so cross-book pairing fails on raw player_name. Title-case here so
+ *  DB rows match other books' normalization. Preserves "Mc"/"O'"/
+ *  suffix conventions. */
+function normalizeBmgPlayerName(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => {
+      if (/^mc/i.test(w) && w.length > 2) return 'Mc' + w.charAt(2).toUpperCase() + w.slice(3).toLowerCase()
+      if (/^o'/i.test(w) && w.length > 2) return "O'" + w.charAt(2).toUpperCase() + w.slice(3).toLowerCase()
+      if (/^(jr|sr|ii|iii|iv|v)\.?$/i.test(w)) return w.toUpperCase().replace(/\./g, '')
+      // CJ / TJ / DJ — preserve as initials when a 2-letter all-caps token appears
+      if (/^[a-z]{2}$/i.test(w) && w.length === 2) return w.toUpperCase()
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+    })
+    .join(' ')
 }
 
 function looksLikePlayerName(s: string): boolean {
   if (!s || s.length < 3 || s.length > 60) return false
+  // Reject team-level markets like "Dallas Stars" / "Edmonton Oilers"
+  // by checking the last word against a known team-suffix list.
+  const tokens = s.toLowerCase().split(/\s+/).filter(Boolean)
+  if (tokens.length >= 1) {
+    const last = tokens[tokens.length - 1]
+    if (BMG_TEAM_SUFFIXES.has(last)) return false
+    // Also reject "white sox" / "red sox" / "blue jays" kind of pairs
+    if (tokens.length >= 2) {
+      const lastTwo = tokens.slice(-2).join(' ')
+      if (/^(white sox|red sox|blue jays|maple leafs|trail blazers|golden knights|red wings|blue jackets)$/.test(lastTwo)) return false
+    }
+  }
   // Reject obvious non-player tokens
   if (/\b(home|away|over|under|yes|no|both|neither|tie|either|each|first|last|any|player|game)\b/i.test(s)
       && !/^[A-Z]/.test(s)) return false
@@ -104,7 +209,7 @@ function looksLikePlayerName(s: string): boolean {
   return true
 }
 
-function extractFixtureProps(fixture: BMGFixture): NormalizedProp[] {
+function extractFixtureProps(fixture: BMGFixture, leagueSlug: string): NormalizedProp[] {
   const out: NormalizedProp[] = []
   // Track (player, category, line) → prefer two-sided over one-sided
   const seen = new Map<string, NormalizedProp>()
@@ -123,7 +228,7 @@ function extractFixtureProps(fixture: BMGFixture): NormalizedProp[] {
     const parsed = parseBmgPropName(marketName)
     if (!parsed) continue
     if (!looksLikePlayerName(parsed.player)) continue
-    const category = detectBmgPropCategory(parsed.stat)
+    const category = detectBmgPropCategory(parsed.stat, leagueSlug)
     if (!category) continue
 
     const opts: any[] = m?.options ?? m?.results ?? []
@@ -160,14 +265,15 @@ function extractFixtureProps(fixture: BMGFixture): NormalizedProp[] {
     if (line == null) continue
     if (over == null && under == null) continue
 
-    const key = `${parsed.player}|${category}|${line}`
+    const normalizedPlayer = normalizeBmgPlayerName(parsed.player)
+    const key = `${normalizedPlayer}|${category}|${line}`
     const newBoth = over != null && under != null
     const existing = seen.get(key)
     const existingBoth = existing && existing.overPrice != null && existing.underPrice != null
     if (!existing || (newBoth && !existingBoth)) {
       seen.set(key, {
         propCategory: category,
-        playerName: parsed.player,
+        playerName: normalizedPlayer,
         lineValue: line,
         overPrice: over,
         underPrice: under,
@@ -595,7 +701,7 @@ export const betmgmAdapter: BookAdapter = {
                 : null,
             }).slice(0, 3500)
           }
-          const props = extractFixtureProps(fixture)
+          const props = extractFixtureProps(fixture, league.leagueSlug)
           scraped.push({
             event: {
               externalId: String(fixture.id),
