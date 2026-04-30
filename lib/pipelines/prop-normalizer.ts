@@ -32,6 +32,27 @@ const KAMBI_CATEGORY_MAP: Record<string, string> = {
   'assists by the player - including overtime': 'player_assists',
   '3-point field goals made by the player - including overtime': 'player_threes',
   '3-point field goals made by the player': 'player_threes',
+  // Blocks / steals / turnovers — Kambi white-labels (LeoVegas /
+  // Proline / BetRivers / NorthStar / BallyBet / Unibet) all post
+  // these but the map didn't catch them, so e.g. Mitchell Robinson
+  // Blocks 0.5 was missing across all six books and the user was
+  // seeing 9.6% blocks arbs on AVO that had no counterparty in our
+  // pipeline. Add full set.
+  'blocks by the player - including overtime': 'player_blocks',
+  'blocks by the player': 'player_blocks',
+  'steals by the player - including overtime': 'player_steals',
+  'steals by the player': 'player_steals',
+  'turnovers by the player - including overtime': 'player_turnovers',
+  'turnovers by the player': 'player_turnovers',
+  // Combos beyond pts+reb+ast
+  'points & rebounds by the player - including overtime': 'player_pts_reb',
+  'points & rebounds by the player': 'player_pts_reb',
+  'points & assists by the player - including overtime': 'player_pts_ast',
+  'points & assists by the player': 'player_pts_ast',
+  'rebounds & assists by the player - including overtime': 'player_ast_reb',
+  'rebounds & assists by the player': 'player_ast_reb',
+  'steals & blocks by the player - including overtime': 'player_steals_blocks',
+  'steals & blocks by the player': 'player_steals_blocks',
   'points, rebounds & assists by the player - including overtime': 'player_pts_reb_ast',
   'points, rebounds & assists by the player': 'player_pts_reb_ast',
   'to record a double-double - including overtime': 'player_double_double',

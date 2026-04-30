@@ -93,10 +93,16 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'double_double') return 'player_double_double'
   if (t === 'triple_double') return 'player_triple_double'
   if (t === 'first_basket') return 'player_first_basket'
-  if (t === 'points_rebounds_assists' || /pts_rebs_asts|player_pra/.test(t)) return 'player_pts_rebs_asts'
-  if (t === 'points_rebounds' || /pts_rebs/.test(t)) return 'player_pts_rebs'
-  if (t === 'points_assists' || /pts_asts/.test(t)) return 'player_pts_asts'
-  if (t === 'rebounds_assists' || /rebs_asts/.test(t)) return 'player_rebs_asts'
+  // Combo categories MUST use the canonical singular-stat strings
+  // (player_pts_reb_ast, player_pts_reb, etc.) — every other book
+  // (DK / FD / Betway / Bovada / Kambi / BetMGM) writes them this
+  // way. The previous spelling (player_pts_rebs_asts with extra
+  // "s") never paired against any other book's combo props.
+  if (t === 'points_rebounds_assists' || /pts_rebs_asts|player_pra/.test(t)) return 'player_pts_reb_ast'
+  if (t === 'points_rebounds' || /pts_rebs/.test(t)) return 'player_pts_reb'
+  if (t === 'points_assists' || /pts_asts/.test(t)) return 'player_pts_ast'
+  if (t === 'rebounds_assists' || /rebs_asts/.test(t)) return 'player_ast_reb'
+  if (t === 'steals_blocks' || /stls_blks/.test(t)) return 'player_steals_blocks'
 
   // Baseball
   if (t === 'home_runs' || /player_home_runs|player_hr/.test(t)) return 'player_home_runs'
@@ -124,7 +130,13 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'player_goals' || t === 'goals') return 'player_goals'
   if (t === 'shots_on_goal' || /player_shots/.test(t)) return 'player_shots_on_goal'
   if (t === 'saves' || t === 'player_saves') return 'player_saves'
-  if (/player_points_hockey|hockey_points/.test(t)) return 'player_points_hockey'
+  // Canonical hockey-stat categories use 'player_hockey_*' word
+  // order (matches Pinnacle / DK / Kambi). The previous
+  // 'player_points_hockey' / 'player_assists_hockey' string never
+  // paired with any other book.
+  if (/player_points_hockey|hockey_points/.test(t)) return 'player_hockey_points'
+  if (/player_assists_hockey|hockey_assists/.test(t)) return 'player_hockey_assists'
+  if (/power.?play.?points|powerplay_points|player_pp_points/.test(t)) return 'player_power_play_pts'
 
   // Football
   if (/passing_yards|pass_yards/.test(t)) return 'player_passing_yards'
