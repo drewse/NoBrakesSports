@@ -50,16 +50,25 @@ function resolveLeague(rawName: string): { slug: string; sport: string } | null 
   // sportsbook adapters use to avoid season-long props collapsing
   // onto game-level rows.
   if (/\b(futures?|outright|to win|championship|mvp|award|specials?)\b/.test(n)) return null
-  // Keyword fallbacks. Order matters — most specific first so
-  // "stanley cup playoffs" hits NHL before falling through.
-  if (/\b(nhl|stanley\s*cup|hockey)\b/.test(n)) return { slug: 'nhl', sport: 'ice_hockey' }
+  // Reject foreign / minor variants of the soccer top-flights so
+  // they don't false-positive match below. Diag from the live PB
+  // /sports/soccer/competitions response showed 159 competitions
+  // including "Armenia Premier League", "Czech 2.Bundesliga", etc.
+  // — these are NOT EPL / Bundesliga.
+  if (/\b(armenia|austria|bangladesh|canada|czech|egypt|ethiopia|hong\s*kong|ukrain|vodaf|brazil|argentina|mexico|chile|colombia|saudi|israel|cyprus|portugal|poland|finland|sweden|denmark|norway|russia|turkey|greece|nigeria|south\s*africa|china|korea|japan|india|indonesia|thailand|vietnam|qatar|uae|kuwait)\b/.test(n)) return null
+  if (/\b(2\.|second\s*division|2nd\s*division|reserves?|youth|u-?\d+|women|fem(?:enine|inine|enino))\b/.test(n)) return null
+  // Keyword fallbacks — strictly North American major leagues by
+  // 3-letter ticker ONLY (no fuzzy "premier league" since every
+  // country has one). Postseason variants (NHL Playoffs, NBA
+  // Finals, World Series) match unambiguously.
+  if (/\b(nhl|stanley\s*cup)\b/.test(n)) return { slug: 'nhl', sport: 'ice_hockey' }
   if (/\b(nba|nba\s*finals?|nba\s*playoffs?)\b/.test(n)) return { slug: 'nba', sport: 'basketball' }
-  if (/\b(mlb|world\s*series|major\s*league\s*baseball)\b/.test(n)) return { slug: 'mlb', sport: 'baseball' }
-  if (/\b(epl|premier\s*league|english\s*premier)\b/.test(n)) return { slug: 'epl', sport: 'soccer' }
-  if (/\bla\s*liga\b/.test(n)) return { slug: 'laliga', sport: 'soccer' }
-  if (/\bbundesliga\b/.test(n)) return { slug: 'bundesliga', sport: 'soccer' }
-  if (/\bserie\s*a\b/.test(n)) return { slug: 'seria_a', sport: 'soccer' }
-  if (/\bligue\s*1\b/.test(n)) return { slug: 'ligue_one', sport: 'soccer' }
+  if (/\b(mlb|world\s*series)\b/.test(n)) return { slug: 'mlb', sport: 'baseball' }
+  if (/\b(epl|english\s*premier\s*league)\b/.test(n)) return { slug: 'epl', sport: 'soccer' }
+  if (/\bla\s*liga\b/.test(n) && !/segunda|2/.test(n)) return { slug: 'laliga', sport: 'soccer' }
+  if (/\bgerman\s*bundesliga\b/.test(n)) return { slug: 'bundesliga', sport: 'soccer' }
+  if (/\bitalian\s*serie\s*a\b/.test(n)) return { slug: 'seria_a', sport: 'soccer' }
+  if (/\bfrench\s*ligue\s*1\b/.test(n)) return { slug: 'ligue_one', sport: 'soccer' }
   return null
 }
 
