@@ -19,6 +19,12 @@ const SPORTS = ['basketball', 'baseball', 'icehockey', 'soccer'] as const
 
 interface LeagueSlugMap { [competitionName: string]: { slug: string; sport: string } }
 
+// Exact-match competition names from PB's /sports/<sport>/competitions
+// listing. PB sometimes ships seasonal variants ("NHL Playoffs",
+// "Stanley Cup Playoffs", "NBA Finals") so the resolver below also
+// does substring/keyword matching as a fallback. Without that, NHL
+// playoff competitions ("NHL Playoffs") were silently skipped and
+// no NHL events / props ever flowed to the DB.
 const LEAGUE_MAP: LeagueSlugMap = {
   'nba':                      { slug: 'nba',         sport: 'basketball' },
   'mlb':                      { slug: 'mlb',         sport: 'baseball'   },
@@ -28,6 +34,33 @@ const LEAGUE_MAP: LeagueSlugMap = {
   'german bundesliga':        { slug: 'bundesliga',  sport: 'soccer'     },
   'italian serie a':          { slug: 'seria_a',     sport: 'soccer'     },
   'french ligue 1':           { slug: 'ligue_one',   sport: 'soccer'     },
+}
+
+// Resolve a PB competition name to our canonical league. Try direct
+// exact match first; then substring keyword match for seasonal
+// variants ("NHL Playoffs" → nhl, "NBA Finals" → nba, "Stanley Cup
+// Playoffs" → nhl). Returns null when the name doesn't belong to a
+// supported league.
+function resolveLeague(rawName: string): { slug: string; sport: string } | null {
+  const n = (rawName || '').toLowerCase().trim()
+  if (!n) return null
+  const direct = LEAGUE_MAP[n]
+  if (direct) return direct
+  // Reject futures / outright / award markets — same filter that
+  // sportsbook adapters use to avoid season-long props collapsing
+  // onto game-level rows.
+  if (/\b(futures?|outright|to win|championship|mvp|award|specials?)\b/.test(n)) return null
+  // Keyword fallbacks. Order matters — most specific first so
+  // "stanley cup playoffs" hits NHL before falling through.
+  if (/\b(nhl|stanley\s*cup|hockey)\b/.test(n)) return { slug: 'nhl', sport: 'ice_hockey' }
+  if (/\b(nba|nba\s*finals?|nba\s*playoffs?)\b/.test(n)) return { slug: 'nba', sport: 'basketball' }
+  if (/\b(mlb|world\s*series|major\s*league\s*baseball)\b/.test(n)) return { slug: 'mlb', sport: 'baseball' }
+  if (/\b(epl|premier\s*league|english\s*premier)\b/.test(n)) return { slug: 'epl', sport: 'soccer' }
+  if (/\bla\s*liga\b/.test(n)) return { slug: 'laliga', sport: 'soccer' }
+  if (/\bbundesliga\b/.test(n)) return { slug: 'bundesliga', sport: 'soccer' }
+  if (/\bserie\s*a\b/.test(n)) return { slug: 'seria_a', sport: 'soccer' }
+  if (/\bligue\s*1\b/.test(n)) return { slug: 'ligue_one', sport: 'soccer' }
+  return null
 }
 
 interface PBMarket {
@@ -130,11 +163,33 @@ const PROP_CATEGORY_MAP: Record<string, string> = {
   'pitcher strikeouts':         'player_strikeouts_p',
   'pitcher earned runs':        'player_earned_runs',
   'pitcher outs':               'pitcher_outs',
-  // Hockey
+  // Hockey — PointsBet ships several variants of the same stat;
+  // map them all so cross-book pairing actually pairs.
   'skater points':              'player_hockey_points',
+  'skater assists':             'player_hockey_assists',
+  'skater goals':               'player_goals',
+  'skater shots':               'player_shots_on_goal',
+  'skater shots on goal':       'player_shots_on_goal',
   'player shots on goal':       'player_shots_on_goal',
+  'player shots':               'player_shots_on_goal',
+  'alternate shots on goal':    'player_shots_on_goal',
+  'alternate skater shots':     'player_shots_on_goal',
   'player goals':               'player_goals',
+  'alternate skater goals':     'player_goals',
+  'alternate goals':            'player_goals',
   'player saves':               'player_saves',
+  'goalie saves':               'player_saves',
+  'alternate saves':            'player_saves',
+  'alternate goalie saves':     'player_saves',
+  'player powerplay points':    'player_power_play_pts',
+  'skater powerplay points':    'player_power_play_pts',
+  'player power play points':   'player_power_play_pts',
+  // NOTE: PB ships NHL assists as "Skater Assists" (mapped above) and
+  // NBA assists as "Player Assists" (mapped near the basketball
+  // section). The ambiguous "Player Assists" string sticks to NBA;
+  // hockey-context assists must use the "Skater" prefix.
+  'alternate skater points':    'player_hockey_points',
+  'alternate skater assists':   'player_hockey_assists',
   // Soccer
   'player shots on target':     'player_shots_target',
   'player total shots':         'player_shots',
@@ -295,7 +350,7 @@ export const pointsbetAdapter: BookAdapter = {
         if (signal.aborted) break
         const batch = competitions.slice(i, i + BATCH)
         const batchResults = await Promise.allSettled(batch.map(async (comp) => {
-          const info = LEAGUE_MAP[comp.name.toLowerCase()]
+          const info = resolveLeague(comp.name)
           if (!info) return null // unknown league — skip
 
           // Featured list gives game-level markets. For props, hit the per-event
