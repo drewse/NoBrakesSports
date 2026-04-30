@@ -1,12 +1,15 @@
 import { Suspense } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { FilterBar } from '@/components/odds/filter-bar'
 import { TimeFilter } from '@/components/odds/time-filter'
-import { timeRangeFromParam } from '@/lib/odds/time-range'
+import { timeRangeFromParam, type TimeRangeId } from '@/lib/odds/time-range'
 import { OddsClient } from '@/components/odds/odds-client'
+import { OddsSkeleton } from '@/components/odds/odds-skeleton'
 import {
   selectionFromParams, planForSelection,
+  type MarketSelection,
 } from '@/lib/odds/market-key'
 import { loadGameOdds, loadPropOdds, type Payload } from '@/lib/odds/loaders'
 
@@ -27,12 +30,16 @@ export default async function OddsPage({
   const plan = planForSelection(selection)
   const within = timeRangeFromParam(params.within)
 
-  let payload: Payload | null = null
-  if (plan) {
-    payload = plan.table === 'prop_odds'
-      ? await loadPropOdds(supabase as any, selection, plan, within)
-      : await loadGameOdds(supabase as any, selection, plan, within)
-  }
+  // Stable key that changes whenever the user picks a different
+  // sport / league / market / stat / period / time-range. React
+  // unmounts the OddsDataLoader subtree when this changes, which
+  // makes the Suspense fallback (OddsSkeleton) render until the
+  // new server-side query resolves. Without this, the page sits
+  // showing the previous market's data while the new query runs.
+  const selectionKey = [
+    selection.sport, selection.league, selection.market,
+    selection.stat ?? '', selection.period ?? '', within,
+  ].join('|')
 
   return (
     <div className="p-3 sm:p-4 lg:p-6 space-y-4">
@@ -56,10 +63,35 @@ export default async function OddsPage({
       )}
 
       {plan && (
-        <Suspense fallback={null}>
-          <OddsClient selection={selection} initialPayload={payload} />
+        <Suspense
+          key={selectionKey}
+          fallback={<OddsSkeleton kind={plan.table === 'prop_odds' ? 'props' : 'game'} />}
+        >
+          <OddsDataLoader selection={selection} plan={plan} within={within} />
         </Suspense>
       )}
     </div>
   )
+}
+
+/**
+ * Server component that owns the heavy data load. Suspending on this
+ * (rather than the parent page) means the Suspense boundary above
+ * gets to show the OddsSkeleton during the wait, and the rest of
+ * the page (header, FilterBar, TimeFilter) keeps rendering.
+ */
+async function OddsDataLoader({
+  selection,
+  plan,
+  within,
+}: {
+  selection: MarketSelection
+  plan: NonNullable<ReturnType<typeof planForSelection>>
+  within: TimeRangeId
+}) {
+  const supabase = await createClient()
+  const payload: Payload = plan.table === 'prop_odds'
+    ? await loadPropOdds(supabase as unknown as SupabaseClient, selection, plan, within)
+    : await loadGameOdds(supabase as unknown as SupabaseClient, selection, plan, within)
+  return <OddsClient selection={selection} initialPayload={payload} />
 }
