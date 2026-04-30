@@ -113,6 +113,15 @@ function classifyPropMarket(desc: string): string | null {
   // Reject period-scoped player props (1H/Q1/etc.) — those collapse onto
   // full-game arbs at the wrong line and would surface phantom edge.
   if (/(1st|2nd|3rd|4th)\s+(half|quarter|period|inning)|halftime/.test(lower)) return null
+  // Reject "Milestones" markets — Bovada ships one of these per player
+  // per stat (e.g. "Rebounds Milestones - Joel Embiid (PHI)"). They're
+  // binary "<N>+" threshold props, not real two-sided O/U lines, and
+  // were polluting prop_odds with one-sided rows that didn't pair
+  // against any other book's standard O/U.
+  if (/\bmilestones?\b/.test(lower)) return null
+  // Reject 1st-basket / first-to-score / hat-trick / anytime-scorer
+  // binary props for the same reason.
+  if (/\b(1st\s+basket|first\s+basket|to\s+score|hat[-\s]*trick|anytime\s+(?:goal\s*)?scorer)\b/.test(lower)) return null
   // Combos first (substring collisions on "points" / "rebounds" / "assists")
   const hasPts = /\bpoints?\b/.test(lower)
   const hasReb = /\brebounds?\b/.test(lower)
@@ -425,7 +434,18 @@ export async function scrapeBovada(
       }))
     }
 
-    console.log(`[Bovada:${lg.leagueSlug}] ${leagueResults.length} events, ${leagueResults.reduce((s, r) => s + r.gameMarkets.length, 0)} game markets, ${propTotal} props`)
+    // Per-category breakdown so we can see e.g. how many player_blocks
+    // rows actually flowed for NBA. Helps spot missing categories
+    // when a user reports "Bovada blocks not showing".
+    const catCounts: Record<string, number> = {}
+    for (const r of leagueResults) for (const p of (r.props ?? [])) {
+      catCounts[p.propCategory] = (catCounts[p.propCategory] ?? 0) + 1
+    }
+    const catBreakdown = Object.entries(catCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k}=${v}`)
+      .join(' ')
+    console.log(`[Bovada:${lg.leagueSlug}] ${leagueResults.length} events, ${leagueResults.reduce((s, r) => s + r.gameMarkets.length, 0)} game markets, ${propTotal} props :: ${catBreakdown}`)
     for (const r of leagueResults) {
       // Strip _link before emitting.
       const { _link, ...rest } = r

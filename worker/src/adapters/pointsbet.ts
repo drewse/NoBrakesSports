@@ -341,7 +341,21 @@ export const pointsbetAdapter: BookAdapter = {
           errors.push(`competitions ${sport}: ${e.message}`)
         }
       }
-      log.debug('competitions discovered', { count: competitions.length })
+      // Promoted from debug → info, and now logs the per-sport
+      // competition names + which ones our resolver matched. Lets us
+      // see at a glance whether NHL competitions ("NHL Playoffs",
+      // "Stanley Cup Playoffs") are landing in the resolved set.
+      const resolvedComps = competitions
+        .map(c => ({ name: c.name, league: resolveLeague(c.name)?.slug ?? null }))
+      log.info('pointsbet competitions discovered', {
+        total: competitions.length,
+        resolved: resolvedComps.filter(r => r.league).length,
+        skipped: resolvedComps.filter(r => !r.league).map(r => r.name).slice(0, 30),
+        bySlug: resolvedComps.reduce<Record<string, string[]>>((acc, r) => {
+          if (r.league) (acc[r.league] ??= []).push(r.name)
+          return acc
+        }, {}),
+      })
 
       // 3. Fetch events for each competition (batched)
       const BATCH = 8
