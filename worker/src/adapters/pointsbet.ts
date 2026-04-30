@@ -16,10 +16,9 @@ const BASE_V3 = 'https://api.on.pointsbet.com/api/mes/v3'
 const SEED_URL = 'https://on.pointsbet.ca/sports/basketball'
 
 // Sport slugs PB serves under /sports/<slug>/competitions. The Ontario
-// skin (on.pointsbet.ca) returns 0 results for `icehockey` even during
-// active NHL slates — try common slug aliases too. The first one that
-// returns competitions wins; non-matching slugs are silent no-ops.
-const SPORTS = ['basketball', 'baseball', 'icehockey', 'ice-hockey', 'hockey', 'soccer'] as const
+// skin (on.pointsbet.ca) uses HYPHENATED `ice-hockey` (verified via
+// raw competitions dump — `icehockey` and `hockey` both return 0).
+const SPORTS = ['basketball', 'baseball', 'ice-hockey', 'soccer'] as const
 
 interface LeagueSlugMap { [competitionName: string]: { slug: string; sport: string } }
 
