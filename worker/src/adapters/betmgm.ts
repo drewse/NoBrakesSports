@@ -596,7 +596,41 @@ function parseFixtureMarkets(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PARKED 2026-05-01 — proxy-cost cutover.
+//
+// The Vercel-side cron at app/api/cron/sync-props/route.ts pulls the
+// SAME BetMGM (Ontario) data via lib/pipelines/adapters/entain-shared.ts
+// (slug: 'betmgm') with bare fetch — no Playwright, no PacketStream,
+// effectively zero proxy cost. It already extracts game markets AND
+// player props (verified in prod prop_odds rows). The Railway adapter
+// below was paying for proxied Chromium 24/7 to ingest data the cron
+// already had — pure duplication.
+//
+// To revive: change `scrape` back to the full implementation
+// (the live function is preserved as `scrapeLive` below) and reset
+// pollIntervalSec / needsBrowser. The complete parser logic — sport-aware
+// NHL/NBA disambiguation, period-scoped rejects, team-suffix detection,
+// name title-casing — is still present in the file as dead code, ready
+// to swap back in if BetMGM's Akamai WAF starts 403'ing the unproxied
+// Vercel egress.
+// ─────────────────────────────────────────────────────────────────────────
 export const betmgmAdapter: BookAdapter = {
+  slug: 'betmgm_on',
+  name: 'BetMGM (Ontario) [parked]',
+  pollIntervalSec: 86400, // 24h — effectively never; scheduler still pings but scrape is a no-op
+  needsBrowser: false,
+  async scrape() {
+    return { events: [], errors: [] }
+  },
+}
+
+// Live implementation — preserved as dead code so the parser logic
+// (parseFixtureMarkets, extractFixtureProps, BMG_TEAM_SUFFIXES, etc.)
+// stays available for re-activation. To restore: change the
+// betmgmAdapter export above to point at this and re-set the original
+// pollIntervalSec/needsBrowser.
+const _betmgmAdapterLive: BookAdapter = {
   slug: 'betmgm_on',
   name: 'BetMGM (Ontario)',
   pollIntervalSec: 180,
