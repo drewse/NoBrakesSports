@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatOdds, formatRelativeTime, formatDateTime, cn } from '@/lib/utils'
-import { ChevronLeft, Clock, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
+import { ChevronLeft, Clock, ExternalLink, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
+import { getBookUrl } from '@/lib/book-urls'
 
 // Tailwind's `lg:` breakpoint is 1024px. Below that we use the mobile
 // two-view experience; ≥1024px keeps the existing desktop split-pane.
@@ -274,10 +275,41 @@ export function EvCalculatorClient({
               {/* Best book + stake */}
               <Card className="bg-nb-900 border-nb-800">
                 <CardContent className="p-5 flex flex-col items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <BookLogo name={selected.bestSource} size="sm" />
-                    <span className="text-sm font-semibold text-white">{selected.bestSource}</span>
-                  </div>
+                  {/* Best-book header — clickable when we know the
+                    * book's URL, otherwise a plain div. Mirrors the
+                    * arb page's BetCard pattern: whole element is
+                    * the link target, ExternalLink icon hints that
+                    * it opens in a new tab. Size bumped from sm
+                    * (20px) to md (24px) so the brand reads at a
+                    * glance from across the card. */}
+                  {(() => {
+                    const url = getBookUrl(selected.bestSource)
+                    const inner = (
+                      <>
+                        <BookLogo name={selected.bestSource} size="md" />
+                        <span className="text-base font-semibold text-white">{selected.bestSource}</span>
+                        {url && <ExternalLink className="h-3.5 w-3.5 text-nb-500" />}
+                      </>
+                    )
+                    if (url) {
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${selected.bestSource} in a new tab`}
+                          className="inline-flex items-center gap-2 px-2 py-1 rounded-md hover:bg-nb-800 transition-colors group"
+                        >
+                          {inner}
+                        </a>
+                      )
+                    }
+                    return (
+                      <div className="inline-flex items-center gap-2">
+                        {inner}
+                      </div>
+                    )
+                  })()}
                   <div className="text-[10px] text-nb-500 uppercase tracking-widest">
                     {selected.outcomeLabel.includes('Over') ? 'Over' : selected.outcomeLabel.includes('Under') ? 'Under' : 'Bet'}
                   </div>
