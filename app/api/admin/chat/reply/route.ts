@@ -43,7 +43,11 @@ export async function POST(req: NextRequest) {
   // Match the table CHECK on length.
   const trimmed = content.trim().slice(0, 4000)
 
-  const { error: insertErr } = await supabase
+  // Insert + return the inserted row. The admin inbox client uses
+  // the returned `message` to optimistically append, so admin replies
+  // appear in the thread immediately without waiting for the realtime
+  // INSERT echo (same UX fix as the user-facing chat).
+  const { data: inserted, error: insertErr } = await supabase
     .from('chat_messages')
     .insert({
       room_id: roomId,
@@ -51,8 +55,10 @@ export async function POST(req: NextRequest) {
       content: trimmed,
       is_admin_sender: true,
     })
-  if (insertErr) {
-    return NextResponse.json({ error: insertErr.message }, { status: 500 })
+    .select('id, room_id, sender_id, content, is_admin_sender, created_at')
+    .single()
+  if (insertErr || !inserted) {
+    return NextResponse.json({ error: insertErr?.message ?? 'insert failed' }, { status: 500 })
   }
 
   // Sending an admin reply implicitly marks the room as read by this
@@ -68,5 +74,5 @@ export async function POST(req: NextRequest) {
       // on chat_messages handles user-driven reopens).
     }, { onConflict: 'room_id' })
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, message: inserted })
 }

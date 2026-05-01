@@ -66,16 +66,30 @@ export function ChatInterface({ userId, userName, initialMessages }: Props) {
 
     startTransition(async () => {
       const supabase = createClient()
-      const { error: err } = await supabase.from('chat_messages').insert({
-        room_id: userId,
-        sender_id: userId,
-        content: text,
-        is_admin_sender: false,
-      })
-      if (err) {
-        setError(err.message)
+      // Insert AND return the inserted row so we can append it to
+      // local state immediately. Without this we depend entirely on
+      // the Realtime channel echoing the INSERT back — which works
+      // when realtime is healthy but produces a "message vanished
+      // until I refresh" UX whenever realtime is paused / delayed /
+      // not yet enabled on this project. Optimistic append + the
+      // dedup check in the Realtime handler below means we never
+      // double-render even if both code paths fire.
+      const { data, error: err } = await supabase
+        .from('chat_messages')
+        .insert({
+          room_id: userId,
+          sender_id: userId,
+          content: text,
+          is_admin_sender: false,
+        })
+        .select('id, sender_id, content, is_admin_sender, created_at')
+        .single()
+      if (err || !data) {
+        setError(err?.message ?? 'Failed to send')
         setInput(text)
+        return
       }
+      setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data as Message])
     })
   }
 

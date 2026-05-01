@@ -248,10 +248,33 @@ export function SupportInbox({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roomId: selectedRoomId, content: text }),
       })
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
         setSendError(body?.error ?? `send failed (${res.status})`)
         setDraft(text)
+        return
+      }
+      // Optimistic append — same fix as the user-facing chat. The
+      // realtime echo will eventually arrive but the dedup check
+      // (m.id ===) makes this safe.
+      const msg = body?.message as Message | undefined
+      if (msg && msg.room_id === selectedRoomId) {
+        setThread(prev => prev.some(m => m.id === msg.id) ? prev : [...prev, msg])
+      }
+      // Update the inbox row's preview immediately so the list
+      // doesn't lag behind realtime.
+      if (msg) {
+        setConversations(prev => prev.map(c =>
+          c.roomId === selectedRoomId
+            ? {
+                ...c,
+                lastMessagePreview: msg.content.slice(0, 200),
+                lastMessageAt: msg.created_at,
+                lastMessageFromAdmin: true,
+                needsResponse: false,
+              }
+            : c,
+        ))
       }
     })
   }, [draft, selectedRoomId, isSending])
