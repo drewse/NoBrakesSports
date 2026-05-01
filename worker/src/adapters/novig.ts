@@ -374,10 +374,29 @@ function walkForMarkets(body: any, out: Map<string, NovigMarket>) {
   }
 }
 
-/** Take best ask (price you'd buy at). Fall back to bid if ask missing. */
+/** Take best ask (price you'd buy this side at).
+ *
+ *  ⚠ NEVER fall back to bestBid. On an exchange, bestBid on side A is
+ *  the price someone would PAY you to take side A from them — which is
+ *  mathematically equivalent to backing side B at the inverse implied
+ *  probability. Converted to American odds it comes out as the
+ *  *mirrored sign* of side B's ask, NOT a takeable price on side A.
+ *
+ *  Concrete example that surfaced the bug: Marcus Smart Threes 0.5.
+ *  Novig had a real Under ask at +1463 (someone offering to sell the
+ *  Under at 6.4% implied) but no Over ask at all. The Over outcome's
+ *  ladder had only a bestBid ≈ 0.936 (the same depth, just expressed
+ *  from the buy-Over perspective). Our previous `bestAsk ?? bestBid`
+ *  fallback converted that 0.936 to American as -1463, then surfaced
+ *  it as the Over price. Pairing that fake -1463 against another
+ *  book's real Over -630 looked like a 7.88% arb that you couldn't
+ *  actually place because Novig has no Over offer to take.
+ *
+ *  If bestAsk is null, the side is unavailable. Return null. The
+ *  caller drops the prop side accordingly. */
 function pickPrice(l?: { bestBid: number | null; bestAsk: number | null }): number | null {
   if (!l) return null
-  const p = l.bestAsk ?? l.bestBid
+  const p = l.bestAsk
   return p != null ? probToAmerican(p) : null
 }
 
