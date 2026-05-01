@@ -314,31 +314,79 @@ export function ArbCalculatorClient({
                     )
                   }
 
+                  // Center button as its own piece — used in both 2-way
+                  // and 3-way layouts but positioned differently.
+                  const centerButton = (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        for (const u of urls) if (u) window.open(u, '_blank', 'noopener,noreferrer')
+                      }}
+                      disabled={!allKnown}
+                      title={allKnown ? `Opens ${sources.join(' + ')} in new tabs` : 'No web URL on file for one of these books'}
+                      className="inline-flex items-center justify-center gap-2 h-14 px-6 rounded-xl bg-green-500/15 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-500/25 hover:border-green-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {label}
+                      {/* 3-way arbs (soccer): show a small draw chip
+                        * inside the center button so all 3 books are
+                        * still discoverable from this row. */}
+                      {selected.bestDraw && urlDraw && (
+                        <span className="inline-flex items-center gap-1 ml-1.5 pl-2 border-l border-green-500/30">
+                          <BookLogo name={selected.bestDraw.source} size="sm" />
+                          <span className="text-[10px] uppercase tracking-wider opacity-70">Draw</span>
+                        </span>
+                      )}
+                    </button>
+                  )
+
+                  // ── Layout strategy ────────────────────────────────
+                  // Logos must center horizontally over their odds-box
+                  // columns below (which use grid-cols-1 sm:grid-cols-2
+                  // for 2-way and sm:grid-cols-3 for 3-way). Mirror that
+                  // grid here so each flank cell is the SAME width as
+                  // its card column. The center button sits absolutely
+                  // positioned over the row, hugging its content width
+                  // (px-6) instead of stretching to fill — fixes the
+                  // "button too wide" complaint.
+                  if (selected.bestDraw) {
+                    // 3-way: 3-column grid, logos in cells 1 and 3,
+                    // button absolutely centered (overlaps the draw
+                    // column visually but the draw chip inside the
+                    // button preserves discoverability).
+                    return (
+                      <div className="relative grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="flex justify-center">
+                          <Flank source={selected.bestSideA.source} url={urlA} />
+                        </div>
+                        <div className="hidden sm:block" aria-hidden />
+                        <div className="flex justify-center">
+                          <Flank source={selected.bestSideB.source} url={urlB} />
+                        </div>
+                        <div className="hidden sm:flex absolute inset-0 items-center justify-center pointer-events-none">
+                          <div className="pointer-events-auto">{centerButton}</div>
+                        </div>
+                        {/* Mobile fallback (single-column cards): button stacks below logos */}
+                        <div className="sm:hidden flex justify-center">{centerButton}</div>
+                      </div>
+                    )
+                  }
+                  // 2-way: 2-column grid mirrors the bet-card layout.
+                  // Each flank centered within its column. Center
+                  // button absolute-positioned dead-center.
                   return (
-                    <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-stretch">
-                      <Flank source={selected.bestSideA.source} url={urlA} />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          for (const u of urls) if (u) window.open(u, '_blank', 'noopener,noreferrer')
-                        }}
-                        disabled={!allKnown}
-                        title={allKnown ? `Opens ${sources.join(' + ')} in new tabs` : 'No web URL on file for one of these books'}
-                        className="inline-flex items-center justify-center gap-2 h-14 rounded-xl bg-green-500/15 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-500/25 hover:border-green-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <ExternalLink className="h-4 w-4" />
-                        {label}
-                        {/* 3-way arbs (soccer): show a small draw chip
-                          * inside the center button so all 3 books are
-                          * still discoverable from this row. */}
-                        {selected.bestDraw && urlDraw && (
-                          <span className="inline-flex items-center gap-1 ml-1.5 pl-2 border-l border-green-500/30">
-                            <BookLogo name={selected.bestDraw.source} size="sm" />
-                            <span className="text-[10px] uppercase tracking-wider opacity-70">Draw</span>
-                          </span>
-                        )}
-                      </button>
-                      <Flank source={selected.bestSideB.source} url={urlB} />
+                    <div className="relative grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="flex justify-center">
+                        <Flank source={selected.bestSideA.source} url={urlA} />
+                      </div>
+                      <div className="flex justify-center">
+                        <Flank source={selected.bestSideB.source} url={urlB} />
+                      </div>
+                      <div className="hidden sm:flex absolute inset-0 items-center justify-center pointer-events-none">
+                        <div className="pointer-events-auto">{centerButton}</div>
+                      </div>
+                      {/* Mobile fallback (single-column cards): button stacks below logos */}
+                      <div className="sm:hidden flex justify-center">{centerButton}</div>
                     </div>
                   )
                 })()}
