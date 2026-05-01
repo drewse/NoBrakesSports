@@ -191,12 +191,16 @@ function getConfig(slug: string): BookConfig {
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-type BookLogoSize = 'xs' | 'sm' | 'md'
+type BookLogoSize = 'xs' | 'sm' | 'md' | 'lg'
 
 const SIZE_CLASSES: Record<BookLogoSize, { wrapper: string; text: string; img: number }> = {
   xs: { wrapper: 'h-4 w-4 rounded',      text: 'text-[6px]',  img: 16 },
   sm: { wrapper: 'h-5 w-5 rounded',      text: 'text-[7px]',  img: 20 },
   md: { wrapper: 'h-6 w-6 rounded-md',   text: 'text-[8px]',  img: 24 },
+  // `lg` is the AVO-style flank size for the arb calculator's
+  // open-both-books row. Visibly larger than `md` so the book brand
+  // reads at a glance from the calculator card.
+  lg: { wrapper: 'h-10 w-10 rounded-md', text: 'text-[11px]', img: 40 },
 }
 
 interface BookLogoProps {

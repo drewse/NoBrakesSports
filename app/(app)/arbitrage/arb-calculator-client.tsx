@@ -260,10 +260,12 @@ export function ArbCalculatorClient({
                   </div>
                 </div>
 
-                {/* Open-both-books button — fires window.open for each side
-                  * so the user can place both legs simultaneously without
-                  * digging through their bookmarks. Opens the draw side too
-                  * for 3-way arbs. Disabled if any side has no known URL. */}
+                {/* Open-books row — flanks the central CTA with each
+                  * side's book logo. Tapping a flank opens just that
+                  * side; tapping the center opens both/all. AVO-style
+                  * layout: book brand visible at a glance, no need to
+                  * read the smaller bet-card headers below. Disabled
+                  * states cascade from URL availability per side. */}
                 {(() => {
                   const sources = [
                     selected.bestSideA.source,
@@ -273,19 +275,71 @@ export function ArbCalculatorClient({
                   const urls = sources.map(s => getBookUrl(s))
                   const allKnown = urls.every(u => u != null)
                   const label = sources.length === 3 ? 'Open All 3 Books' : 'Open Both Books'
+                  const urlA = getBookUrl(selected.bestSideA.source)
+                  const urlB = getBookUrl(selected.bestSideB.source)
+                  const urlDraw = selected.bestDraw ? getBookUrl(selected.bestDraw.source) : null
+
+                  // Each flank: a clickable rounded panel with the book
+                  // logo at lg size + an external-link icon. If we
+                  // don't have the URL on file, render as a non-clickable
+                  // div so the user still sees the brand but can't be
+                  // led to a dead link.
+                  const Flank = ({ source, url }: { source: string; url: string | null }) => {
+                    const inner = (
+                      <span className="inline-flex items-center gap-1.5">
+                        <BookLogo name={source} size="lg" />
+                        {url && <ExternalLink className="h-3.5 w-3.5 text-nb-400" />}
+                      </span>
+                    )
+                    if (url) {
+                      return (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={`Open ${source} in a new tab`}
+                          className="inline-flex h-14 px-3 rounded-xl bg-nb-800/60 border border-nb-700/50 hover:bg-nb-800 hover:border-nb-600 transition-colors items-center justify-center"
+                        >
+                          {inner}
+                        </a>
+                      )
+                    }
+                    return (
+                      <div
+                        title={`No web URL on file for ${source}`}
+                        className="inline-flex h-14 px-3 rounded-xl bg-nb-800/40 border border-nb-700/40 items-center justify-center opacity-60"
+                      >
+                        {inner}
+                      </div>
+                    )
+                  }
+
                   return (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        for (const u of urls) if (u) window.open(u, '_blank', 'noopener,noreferrer')
-                      }}
-                      disabled={!allKnown}
-                      title={allKnown ? `Opens ${sources.join(' + ')} in new tabs` : 'No web URL on file for one of these books'}
-                      className="inline-flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-green-500/15 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-500/25 hover:border-green-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <ExternalLink className="h-4 w-4" />
-                      {label}
-                    </button>
+                    <div className="grid grid-cols-[auto_1fr_auto] gap-2 items-stretch">
+                      <Flank source={selected.bestSideA.source} url={urlA} />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          for (const u of urls) if (u) window.open(u, '_blank', 'noopener,noreferrer')
+                        }}
+                        disabled={!allKnown}
+                        title={allKnown ? `Opens ${sources.join(' + ')} in new tabs` : 'No web URL on file for one of these books'}
+                        className="inline-flex items-center justify-center gap-2 h-14 rounded-xl bg-green-500/15 border border-green-500/30 text-green-400 text-sm font-semibold hover:bg-green-500/25 hover:border-green-500/50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        {label}
+                        {/* 3-way arbs (soccer): show a small draw chip
+                          * inside the center button so all 3 books are
+                          * still discoverable from this row. */}
+                        {selected.bestDraw && urlDraw && (
+                          <span className="inline-flex items-center gap-1 ml-1.5 pl-2 border-l border-green-500/30">
+                            <BookLogo name={selected.bestDraw.source} size="sm" />
+                            <span className="text-[10px] uppercase tracking-wider opacity-70">Draw</span>
+                          </span>
+                        )}
+                      </button>
+                      <Flank source={selected.bestSideB.source} url={urlB} />
+                    </div>
                   )
                 })()}
 
@@ -561,19 +615,19 @@ function BetCard({
   payout: number
   isPrimary?: boolean
 }) {
-  // Whole card click-through. The book logo + name in the header is the
-  // visual click target; the rest of the card is the same anchor so the
-  // user can hit anywhere in the card to deep-link to the book.
+  // Whole card click-through. The book brand is now rendered on the
+  // flanks of the Open Both Books row above, so the bet card header
+  // shows just the bet label + an unobtrusive open-in-new-tab icon
+  // when a URL is on file. Cleaner — no duplicate logo per side.
   const url = getBookUrl(source)
 
   const cardInner = (
     <>
       <div className="flex items-center justify-between">
         <span className={`text-sm font-bold ${isPrimary ? 'text-white' : 'text-nb-300'}`}>{label}</span>
-        <span className="inline-flex items-center gap-1.5 text-xs text-nb-200">
-          <BookLogo name={source} size="md" />
-          {url && <ExternalLink className="h-3 w-3 text-nb-500 group-hover:text-white transition-colors" />}
-        </span>
+        {url && (
+          <ExternalLink className="h-3.5 w-3.5 text-nb-500 group-hover:text-white transition-colors" />
+        )}
       </div>
       <div className="text-center py-1">
         <p className="font-mono text-3xl font-bold text-white">{formatOdds(price)}</p>
