@@ -114,7 +114,29 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'batting_strikeouts') return 'player_batting_strikeouts'
   if (t === 'earned_runs') return 'player_earned_runs'
   if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
-  if (t === 'pitcher_strikeouts' || t === 'pitcher_outs' || /player_strikeouts/.test(t)) {
+  // Pitcher strikeouts — Novig's API ships several variants depending
+  // on the operation. Bare `strikeouts` is the most common and was
+  // previously falling through to `null`, dropping every Novig
+  // pitcher-strikeouts prop before insert. Reproduced via Bryan Woo
+  // Strikeouts Thrown 5.5 — Betway had +125 over, Novig had +114 under,
+  // a real 9.7% arb that AVO surfaced but we missed because the Novig
+  // side never made it to the DB.
+  //
+  // Includes:
+  //   - `strikeouts` (bare — most common Novig MLB market type)
+  //   - `strikeouts_thrown` (Novig sometimes uses Betway-style wording)
+  //   - `pitcher_strikeouts` (legacy / explicit)
+  //   - `player_strikeouts*` (any prefixed variant)
+  // Excludes `batting_strikeouts` (handled above as a separate category)
+  // — that branch runs FIRST and short-circuits this fallthrough.
+  if (
+    t === 'pitcher_strikeouts' ||
+    t === 'pitcher_outs' ||
+    t === 'strikeouts' ||
+    t === 'strikeouts_thrown' ||
+    t === 'pitcher_strikeouts_thrown' ||
+    /player_strikeouts/.test(t)
+  ) {
     // Canonical category is 'pitcher_outs' (no player_ prefix) — every
     // other book writes it that way and the seed list / UI use it. The
     // prefixed 'player_pitcher_outs' value here was an oversight that
