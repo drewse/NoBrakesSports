@@ -114,37 +114,24 @@ function propCategoryFromType(type: string): string | null {
   if (t === 'batting_strikeouts') return 'player_batting_strikeouts'
   if (t === 'earned_runs') return 'player_earned_runs'
   if (t === 'rbis' || t === 'player_rbis') return 'player_rbis'
-  // Pitcher strikeouts — Novig's API ships several variants depending
-  // on the operation. Bare `strikeouts` is the most common and was
-  // previously falling through to `null`, dropping every Novig
-  // pitcher-strikeouts prop before insert. Reproduced via Bryan Woo
-  // Strikeouts Thrown 5.5 — Betway had +125 over, Novig had +114 under,
-  // a real 9.7% arb that AVO surfaced but we missed because the Novig
-  // side never made it to the DB.
-  //
-  // Includes:
-  //   - `strikeouts` (bare — most common Novig MLB market type)
-  //   - `strikeouts_thrown` (Novig sometimes uses Betway-style wording)
-  //   - `pitcher_strikeouts` (legacy / explicit)
-  //   - `player_strikeouts*` (any prefixed variant)
-  // Excludes `batting_strikeouts` (handled above as a separate category)
-  // — that branch runs FIRST and short-circuits this fallthrough.
-  if (
-    t === 'pitcher_strikeouts' ||
-    t === 'pitcher_outs' ||
-    t === 'strikeouts' ||
-    t === 'strikeouts_thrown' ||
-    t === 'pitcher_strikeouts_thrown' ||
-    /player_strikeouts/.test(t)
-  ) {
-    // Canonical category is 'pitcher_outs' (no player_ prefix) — every
-    // other book writes it that way and the seed list / UI use it. The
-    // prefixed 'player_pitcher_outs' value here was an oversight that
-    // silently filed Novig's outs lines under a category nobody else
-    // shared, so cross-book arbs (e.g. Davis Martin Outs 17.5 vs
-    // Proline / Caesars) never paired.
-    return t === 'pitcher_outs' ? 'pitcher_outs' : 'player_strikeouts_p'
+  // Pitcher outs — keep this branch separate since it returns a
+  // different canonical category ('pitcher_outs', not _strikeouts_p).
+  if (t === 'pitcher_outs') return 'pitcher_outs'
+
+  // Pitcher strikeouts — broad regex catches every variant Novig has
+  // ever shipped (or might ship) for this market: bare `strikeouts`,
+  // `strikeouts_thrown`, `pitcher_strikeouts`, `total_strikeouts`,
+  // `total_strikeouts_thrown`, `strikeouts_pitched`, `pitcher_ks`, etc.
+  // Explicitly excludes `batting_strikeouts` — that branch runs above
+  // this one and short-circuits, but we also exclude here so future
+  // re-orderings don't regress. Reproduced via Bryan Woo Strikeouts
+  // Thrown 5.5 — the previous narrow exact-match list missed whatever
+  // string Novig actually ships and silently dropped every K prop.
+  if (/strikeouts?\b/i.test(t) && !/batting/i.test(t)) {
+    return 'player_strikeouts_p'
   }
+  // Legacy explicit prefix from older Novig responses.
+  if (/player_strikeouts/.test(t)) return 'player_strikeouts_p'
   if (t === 'total_bases' || t === 'player_total_bases') return 'player_total_bases'
   if (t === 'stolen_bases' || t === 'player_stolen_bases') return 'player_stolen_bases'
 
@@ -847,6 +834,13 @@ export const novigAdapter: BookAdapter = {
       let unmatchedNoEventProp = 0
       let propsBuilt = 0
       let propsAttached = 0
+      // Silent buildProp drops — market matched an event but buildProp
+      // returned null (category unmapped, no player name, or no prices).
+      // Tracking these caught the strikeouts gap that AVO was surfacing
+      // arbs for but we weren't pairing. Without this counter, every
+      // unmapped MLB stat type was dropped invisibly between scrapes.
+      let buildPropNullCount = 0
+      const buildPropNullTypes = new Map<string, number>()
       const unmatchedPropSamples: Array<{ type: string; description: string; player?: string }> = []
 
       for (const market of markets.values()) {
@@ -892,6 +886,12 @@ export const novigAdapter: BookAdapter = {
           row.props.push(prop)
           perLeague[ls].props++
           propsAttached++
+        } else {
+          // Market matched an event but buildProp returned null — likely
+          // an unmapped type. Bump the per-type counter so we can see
+          // which strings are being dropped silently.
+          buildPropNullCount++
+          buildPropNullTypes.set(market.type, (buildPropNullTypes.get(market.type) ?? 0) + 1)
         }
       }
 
@@ -910,6 +910,11 @@ export const novigAdapter: BookAdapter = {
         propsBuilt,
         propsAttached,
         unmatchedPropSamples,
+        // Top 20 type strings that matched an event but failed buildProp.
+        // If `pitcher_strikeouts` (or any K variant) shows up here after
+        // deploy, the propCategoryFromType regex still doesn't catch it.
+        buildPropNullCount,
+        buildPropNullTopTypes: [...buildPropNullTypes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20),
       })
 
       // One-shot diagnostic: find the first unmatched prop market, locate
