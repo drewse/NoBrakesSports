@@ -142,12 +142,15 @@ const PROP_LABELS: Record<string, string> = {
   player_soccer_goals: 'Goals', player_shots_target: 'Shots On Target',
 }
 
-// 5000-row pages cut PostgREST round-trip count 5x. Production logs
-// showed `props=7658ms` for 19k rows at PROP_PAGE=1000 — 20 pages
-// queueing against the Supabase HTTP/2 connection limit. At 5000
-// rows/page we hit ~4 pages and the parallel fan-out actually parallelizes.
-// Same total row cap (40_000) preserved by halving MAX_PAGES proportionally.
-const PROP_PAGE = 5000
+// PROP_PAGE MUST match Supabase PostgREST's `db-max-rows` setting (default 1000).
+// We tried 5000 to cut round-trips, but PostgREST silently caps every response
+// at 1000 regardless of `.range()` / `.limit()`. With PROP_PAGE > cap, page 0
+// returns 1000 rows, the "is page full?" check (`firstRows.length < PROP_PAGE`)
+// reads `1000 < 5000` = true, the loader declares "done" and drops ~95% of
+// prop data — production showed 0 arbs and a heavily-truncated +EV list.
+// To raise this safely, raise Supabase's db-max-rows first (project settings),
+// otherwise leave at 1000.
+const PROP_PAGE = 1000
 const TOP_N = 50
 
 // Maximum EV% we'll surface. Cap is wide enough to allow rare
@@ -247,7 +250,7 @@ export async function loadEv(
   // Page 0 first; if it's full, fan out remaining pages in parallel.
   // With the (event_id, snapshot_time DESC) index the count(*) we
   // used to issue first is no longer worth its round trip.
-  const MAX_PAGES = 8    // 40_000 prop rows cap (EV uses 30-min window) — 8 × 5000-row pages
+  const MAX_PAGES = 40   // 40_000 prop rows cap (EV uses 30-min window) — 40 × 1000-row pages, matches PostgREST cap
   // FLAT select — same JOIN-stripping as the snapshots query above.
   const fetchPropPage = (i: number) =>
     supabase
