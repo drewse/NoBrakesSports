@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { sendBookingConfirmedMessage, sendBookingCancelledMessage } from '@/lib/coaching/notify'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -73,11 +74,46 @@ export async function PATCH(
     return NextResponse.json({ error: 'no updatable fields' }, { status: 400 })
   }
 
+  // We need the booking shape (user, time, topic, discord) to compose
+  // the auto-message AND the previous status to decide whether the
+  // status change actually crossed a notification boundary. Fetch
+  // before the update — Supabase doesn't return previous-state on
+  // .update() and we want to avoid a second round-trip.
+  const { data: before } = await supabase
+    .from('coaching_bookings')
+    .select('user_id, status, scheduled_at, duration_minutes, topic, discord_username')
+    .eq('id', id)
+    .single()
+
   const { error } = await supabase
     .from('coaching_bookings')
     .update(update)
     .eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Notify the user via chat when the status actually transitioned.
+  // Idempotent against double-clicks because we compare before.status
+  // to the new status — confirming an already-confirmed booking is a
+  // no-op for messaging.
+  if (before && update.status && before.status !== update.status) {
+    if (update.status === 'confirmed') {
+      await sendBookingConfirmedMessage(supabase, {
+        senderId: user.id,
+        roomId: before.user_id as string,
+        scheduledAt: before.scheduled_at as string,
+        durationMinutes: (before.duration_minutes as number) ?? 20,
+        topic: (before.topic as string | null) ?? null,
+        discordUsername: (before.discord_username as string | null) ?? null,
+      })
+    } else if (update.status === 'cancelled') {
+      await sendBookingCancelledMessage(supabase, {
+        senderId: user.id,
+        roomId: before.user_id as string,
+        scheduledAt: before.scheduled_at as string,
+        reason: 'declined',
+      })
+    }
+  }
 
   return NextResponse.json({ ok: true })
 }

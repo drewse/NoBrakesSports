@@ -47,6 +47,10 @@
     {
       "path": "/api/cron/random-ev-alert",
       "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/auto-decline-coaching",
+      "schedule": "10 * * * *"
     }
   ],
   "functions": {
@@ -64,6 +68,7 @@
     "app/api/cron/sync-fanatics-markets/route.ts": { "maxDuration": 60 },
     "app/api/cron/sync-betonline/route.ts": { "maxDuration": 90 },
     "app/api/cron/sync-dk-predictions/route.ts": { "maxDuration": 60 },
-    "app/api/cron/sync-action-network/route.ts": { "maxDuration": 90 }
+    "app/api/cron/sync-action-network/route.ts": { "maxDuration": 90 },
+    "app/api/cron/auto-decline-coaching/route.ts": { "maxDuration": 30 }
   }
 }
