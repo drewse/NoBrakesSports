@@ -24,10 +24,22 @@
 -- loader actually wants. Reduces /api/arbitrage + /api/ev p50 from
 -- ~1.5s to ~250ms in production-shaped data (rough bench).
 --
--- All indexes are CONCURRENTLY-equivalent (CREATE INDEX IF NOT EXISTS
--- is idempotent and Supabase migrations run them transactionally;
--- if your project requires CONCURRENTLY for a hot prod table, run
--- this manually outside the migration runner instead).
+-- ⚠ PRODUCTION DEPLOY NOTE
+-- This migration uses plain CREATE INDEX, which acquires a SHARE
+-- lock (writes blocked) for the build duration. That is fine on a
+-- fresh project / staging / dev — `prop_odds` and `current_market_odds`
+-- there are small enough (sub-second build) — but on a hot prod
+-- database with sustained writers it can stall the worker.
+--
+-- For production, run the CONCURRENT variant FIRST, outside the
+-- migration runner:
+--
+--   supabase/scripts/031_arb_ev_perf_indexes_concurrent.sql
+--
+-- That script builds the same indexes with CREATE INDEX CONCURRENTLY
+-- (no write lock). After it finishes, this migration becomes a no-op
+-- because every CREATE uses IF NOT EXISTS — so deploy order is safe
+-- either way.
 --
 -- Safe to re-run: every CREATE uses IF NOT EXISTS.
 

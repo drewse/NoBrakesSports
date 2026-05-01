@@ -38,17 +38,34 @@ export function ArbLiveWrapper({ initial }: { initial: ArbsResult }) {
     return () => clearTimeout(t)
   }, [])
 
-  const { data } = useSWR<ArbsResult>(pollEnabled ? '/api/arbitrage' : null, fetcher, {
-    refreshInterval: POLL_MS,
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    revalidateOnReconnect: true,
-    dedupingInterval: 5000,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: initial,
-    keepPreviousData: true,
-  })
+  // SWR polling config — read top-down:
+  //   refreshInterval     : every 10s during active use
+  //   refreshWhenHidden   : false → polling pauses when tab is in the
+  //                         background (visibilitychange handled by SWR)
+  //   refreshWhenOffline  : false → no retry storm if the network drops
+  //   dedupingInterval    : 5s window collapses concurrent identical
+  //                         requests, including from a remount (e.g.
+  //                         strict-mode double-mount in dev)
+  //   keepPreviousData    : old data stays rendered during revalidation
+  //                         so the user never sees a skeleton after the
+  //                         initial server-side load
+  //   revalidateOnFocus   : false — focus events are noisy on this page
+  //   revalidateIfStale   : false — fallbackData is server-fresh
+  const { data, isValidating, mutate } = useSWR<ArbsResult>(
+    pollEnabled ? '/api/arbitrage' : null,
+    fetcher,
+    {
+      refreshInterval: POLL_MS,
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5000,
+      refreshWhenHidden: false,
+      refreshWhenOffline: false,
+      fallbackData: initial,
+      keepPreviousData: true,
+    },
+  )
 
   const live = data ?? initial
   const [rendered, setRendered] = useState<ArbsResult>(initial)
@@ -126,12 +143,14 @@ export function ArbLiveWrapper({ initial }: { initial: ArbsResult }) {
   return (
     <>
       <div className="flex justify-end mb-2">
-        <LiveIndicator active={pollEnabled} />
+        <LiveIndicator active={pollEnabled} updating={isValidating} />
       </div>
       <ArbCalculatorClient
         arbs={rendered.arbs}
         totalArbs={rendered.totalArbs}
         uniqueBooks={rendered.uniqueBooks}
+        isRefreshing={isValidating}
+        onRetry={() => mutate()}
       />
     </>
   )

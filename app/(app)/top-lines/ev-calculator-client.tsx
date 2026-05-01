@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatOdds, formatRelativeTime, formatDateTime } from '@/lib/utils'
-import { Clock, Sparkles, DollarSign, Gauge, Target } from 'lucide-react'
+import { Clock, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -93,9 +93,15 @@ const BANKROLL_KEY = 'nb-ev-bankroll'
 export function EvCalculatorClient({
   lines,
   totalEvents,
+  isRefreshing = false,
+  onRetry,
 }: {
   lines: UnifiedEvLine[]
   totalEvents: number
+  /** SWR `isValidating` — used to disable retry button while a fetch is in flight. */
+  isRefreshing?: boolean
+  /** Bound to SWR `mutate()` from the live wrapper. Triggers an immediate revalidation. */
+  onRetry?: () => void
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(lines.length > 0 ? lines[0].id : null)
   const [stake, setStake] = useState(500)
@@ -462,10 +468,21 @@ export function EvCalculatorClient({
         {lines.length === 0 ? (
           <Card className="bg-nb-900 border-nb-800 flex-1">
             <CardContent className="px-6 py-16 flex flex-col items-center justify-center text-center gap-4 h-full">
-              <p className="text-white text-base font-semibold">No +EV lines found</p>
+              <p className="text-white text-base font-semibold">No +EV lines match your filters.</p>
               <p className="text-nb-400 text-sm max-w-sm">
-                Data syncs every 2 minutes. Check back soon.
+                Odds are still updating — try widening your filters or check back in a moment.
               </p>
+              {onRetry && (
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={isRefreshing}
+                  className="inline-flex items-center gap-1.5 mt-1 px-4 h-9 rounded-lg border border-nb-700 bg-nb-800 text-nb-200 text-xs font-semibold hover:bg-nb-700 hover:border-nb-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <RefreshCw className={`h-3.5 w-3.5 ${isRefreshing ? 'animate-spin' : ''}`} />
+                  {isRefreshing ? 'Refreshing…' : 'Refresh now'}
+                </button>
+              )}
             </CardContent>
           </Card>
         ) : (

@@ -10,6 +10,7 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 export async function GET(req: NextRequest) {
+  const t0 = Date.now()
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -43,8 +44,19 @@ export async function GET(req: NextRequest) {
   // Free-tier slice: same 10-line cap loadEv applies internally when
   // isPro=false. Done here so we don't re-run loadEv when the
   // tier check resolves second.
-  if (!isPro && result.lines.length > 10) {
-    return NextResponse.json({ ...result, lines: result.lines.slice(0, 10) })
+  const finalLines = !isPro && result.lines.length > 10
+    ? result.lines.slice(0, 10)
+    : result.lines
+
+  // One structured log line per request — production-safe (no PII),
+  // grep `[api.ev]` to slice. `lines` is the post-tier-slice count
+  // the user actually receives; `events` is the upstream cardinality.
+  console.log(
+    `[api.ev] tier=${isPro ? 'pro' : 'free'} league=${league} market=${market} lines=${finalLines.length} events=${result.totalEvents} ms=${Date.now() - t0}`,
+  )
+
+  if (finalLines !== result.lines) {
+    return NextResponse.json({ ...result, lines: finalLines })
   }
   return NextResponse.json(result)
 }

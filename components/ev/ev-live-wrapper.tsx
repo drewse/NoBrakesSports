@@ -44,17 +44,24 @@ export function EvLiveWrapper({ initial }: { initial: EvResult }) {
     return () => clearTimeout(t)
   }, [])
 
-  const { data } = useSWR<EvResult>(pollEnabled ? apiUrl : null, fetcher, {
-    refreshInterval: POLL_MS,
-    revalidateOnFocus: false,
-    revalidateIfStale: false,
-    revalidateOnReconnect: true,
-    dedupingInterval: 5000,
-    refreshWhenHidden: false,
-    refreshWhenOffline: false,
-    fallbackData: initial,
-    keepPreviousData: true,
-  })
+  // SWR polling config — see arb-live-wrapper.tsx for the same
+  // commented breakdown. Identical settings: pauses on hidden tab,
+  // dedupes remounts, keeps previous data during revalidation.
+  const { data, isValidating, mutate } = useSWR<EvResult>(
+    pollEnabled ? apiUrl : null,
+    fetcher,
+    {
+      refreshInterval: POLL_MS,
+      revalidateOnFocus: false,
+      revalidateIfStale: false,
+      revalidateOnReconnect: true,
+      dedupingInterval: 5000,
+      refreshWhenHidden: false,
+      refreshWhenOffline: false,
+      fallbackData: initial,
+      keepPreviousData: true,
+    },
+  )
 
   const live = data ?? initial
   const [rendered, setRendered] = useState<EvResult>(initial)
@@ -128,11 +135,13 @@ export function EvLiveWrapper({ initial }: { initial: EvResult }) {
   return (
     <>
       <div className="flex justify-end mb-2">
-        <LiveIndicator active={pollEnabled} />
+        <LiveIndicator active={pollEnabled} updating={isValidating} />
       </div>
       <EvCalculatorClient
         lines={rendered.lines}
         totalEvents={rendered.totalEvents}
+        isRefreshing={isValidating}
+        onRetry={() => mutate()}
       />
     </>
   )
