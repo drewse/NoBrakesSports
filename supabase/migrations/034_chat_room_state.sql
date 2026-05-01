@@ -66,8 +66,20 @@ CREATE POLICY "Admins update room state"
   );
 
 -- Realtime so the admin inbox count + status badges update without
--- polling whenever an admin marks read / closes.
-ALTER PUBLICATION supabase_realtime ADD TABLE chat_room_state;
+-- polling whenever an admin marks read / closes. Wrapped in a DO
+-- block so re-running the migration doesn't fail with "relation
+-- already member of publication".
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'chat_room_state'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_room_state;
+  END IF;
+END $$;
 
 -- Auto-bump updated_at on any change.
 CREATE OR REPLACE FUNCTION chat_room_state_touch_updated_at()
@@ -88,6 +100,14 @@ CREATE TRIGGER chat_room_state_updated_at
 -- flip the room state back to 'open' so the admin inbox surfaces it
 -- as a fresh conversation. Cleaner UX than blocking the user reply
 -- (the user wouldn't know why their message vanished).
+--
+-- Defensive: the chat_messages table is created in migration 006.
+-- If 006 hasn't been applied (Supabase migration runner skipped it,
+-- a fresh shadow DB, etc.) the trigger creation below would abort
+-- the whole migration. Wrap in a DO block guarded on table
+-- existence — function still gets created so a future migration /
+-- 006 application can attach the trigger by re-running 034 or
+-- manually executing the trigger creation block.
 CREATE OR REPLACE FUNCTION chat_messages_reopen_on_user_reply()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -104,8 +124,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-DROP TRIGGER IF EXISTS chat_messages_reopen_trigger ON chat_messages;
-CREATE TRIGGER chat_messages_reopen_trigger
-  AFTER INSERT ON chat_messages
-  FOR EACH ROW
-  EXECUTE FUNCTION chat_messages_reopen_on_user_reply();
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+    WHERE table_schema = 'public' AND table_name = 'chat_messages'
+  ) THEN
+    -- Re-runnable: drop + recreate so migration is idempotent.
+    DROP TRIGGER IF EXISTS chat_messages_reopen_trigger ON chat_messages;
+    CREATE TRIGGER chat_messages_reopen_trigger
+      AFTER INSERT ON chat_messages
+      FOR EACH ROW
+      EXECUTE FUNCTION chat_messages_reopen_on_user_reply();
+  ELSE
+    RAISE NOTICE 'chat_messages does not exist — skipping reopen trigger. '
+                 'Run migration 006 first, then re-run this block to attach the trigger.';
+  END IF;
+END $$;
