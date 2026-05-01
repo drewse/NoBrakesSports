@@ -107,6 +107,14 @@ export async function loadArbs(
   // Fix: fetch FLAT rows (no embedded joins) and look up event / source
   // metadata from small side queries we'd be running anyway. Then skip
   // count(*) and paginate until a short page tells us we're done.
+  //
+  // Instrumentation: this loader runs on the SSR page-render path AND
+  // the /api/arbitrage poll path. The /api/arbitrage route logs
+  // `[api.arbitrage] ... ms=...` already, but that ONLY covers the
+  // poll. SSR was uninstrumented, which hid a 6-8s page-load bottleneck
+  // for weeks. The `[loadArbs]` log below fires on BOTH paths, so the
+  // SSR cost is visible. Grep `[loadArbs]` in Vercel logs to slice.
+  const t0 = Date.now()
   const nowIso = new Date().toISOString()
   const staleCutoff = new Date(Date.now() - FRESHNESS_MS).toISOString()
 
@@ -126,9 +134,12 @@ export async function loadArbs(
       .select('id, name, slug'),
   ])
 
+  const tEvents = Date.now()
+
   const upcomingEvents = (eventsRes.data ?? []) as any[]
   const upcomingIds = upcomingEvents.map(e => e.id as string)
   if (upcomingIds.length === 0) {
+    console.log(`[loadArbs] events=${tEvents - t0}ms result=empty total=${Date.now() - t0}ms`)
     return { arbs: [], totalArbs: 0, uniqueBooks: 0 }
   }
   const eventById = new Map<string, any>(upcomingEvents.map(e => [e.id, e]))
@@ -187,6 +198,7 @@ export async function loadArbs(
   const propBatchPromises = fetchAllProps()
 
   const { data: snapshots } = await snapshotsPromise
+  const tSnapshots = Date.now()
 
   const filteredSnapshots = (snapshots ?? []).filter(s => {
     const slug: string = sourceById.get((s as any).source_id)?.slug ?? ''
@@ -361,6 +373,7 @@ export async function loadArbs(
   }> = []
 
   const propOddsRaw: any[] = await propBatchPromises
+  const tProps = Date.now()
   if (propOddsRaw && propOddsRaw.length > 0) {
     // DFS / pick-em platforms (Sleeper, PrizePicks, Underdog) are not
     // real two-sided money lines — their "odds" are projection leans
@@ -560,5 +573,20 @@ export async function loadArbs(
     ...allArbs.map(a => a.bestSideB.source),
   ]).size
 
+  // Single structured line — phases broken out so a slow phase is
+  // immediately attributable. Fields:
+  //   events    : initial events + sources parallel queries
+  //   snaps     : current_market_odds query
+  //   props     : full paginated prop_odds fetch (sequential page0 + parallel rest)
+  //   compute   : JS arb-pairing + dedup + sort
+  //   total     : end-to-end
+  //   eventsN/snapsN/propsN/arbsN : row counts that gate compute work
+  const tDone = Date.now()
+  console.log(
+    `[loadArbs] events=${tEvents - t0}ms snaps=${tSnapshots - tEvents}ms ` +
+    `props=${tProps - tSnapshots}ms compute=${tDone - tProps}ms total=${tDone - t0}ms ` +
+    `eventsN=${upcomingEvents.length} snapsN=${snapshots?.length ?? 0} ` +
+    `propsN=${propOddsRaw.length} arbsN=${totalArbs}`,
+  )
   return { arbs: allArbs, totalArbs, uniqueBooks }
 }

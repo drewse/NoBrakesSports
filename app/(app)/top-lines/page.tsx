@@ -29,16 +29,21 @@ export default async function TopEvLinesPage({
 }: {
   searchParams: Promise<{ league?: string; market?: string }>
 }) {
+  // ── SSR shell-render path ──────────────────────────────────────
+  // Only the auth + searchParams checks run outside <Suspense> —
+  // they're cheap (auth ~80-150ms, searchParams just unwraps the
+  // promise). The profile query + heavy loadEv() are pushed inside
+  // <Suspense> so the shell streams in <500ms.
+  //
+  // Production was showing 6-8s blank-page time because both
+  // profile and loadEv were awaited at the page level. The browser
+  // can't render anything until the page function returns, so the
+  // user saw an empty white page during the entire loadEv call.
+  // With the data fetch deferred inside Suspense, the skeleton
+  // paints immediately and the data arrives when it's ready.
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('subscription_tier, subscription_status')
-    .eq('id', user.id)
-    .single()
-  const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
 
   const params = await searchParams
   const leagueFilter = params.league ?? 'all'
@@ -82,22 +87,42 @@ export default async function TopEvLinesPage({
         </form>
       </div>
 
-      <ProGate isPro={isPro} featureName="Top EV Lines" blur={false}>
-        <Suspense key={`${leagueFilter}|${marketFilter}`} fallback={<EvSkeleton />}>
-          <EvDataLoader leagueFilter={leagueFilter} marketFilter={marketFilter} isPro={isPro} />
-        </Suspense>
-      </ProGate>
+      <Suspense key={`${leagueFilter}|${marketFilter}`} fallback={<EvSkeleton />}>
+        <EvDataLoader
+          userId={user.id}
+          leagueFilter={leagueFilter}
+          marketFilter={marketFilter}
+        />
+      </Suspense>
     </div>
   )
 }
 
 async function EvDataLoader({
-  leagueFilter, marketFilter, isPro,
+  userId, leagueFilter, marketFilter,
 }: {
-  leagueFilter: string; marketFilter: string; isPro: boolean
+  userId: string; leagueFilter: string; marketFilter: string
 }) {
+  // Deferred work: profile + cookies + heavy loadEv all run inside
+  // Suspense. Profile + cookies fire in parallel before loadEv since
+  // we need isPro to know whether to short-circuit to the gated state.
   const supabase = await createClient()
-  const cookieStore = await cookies()
+  const [profileRes, cookieStore] = await Promise.all([
+    supabase
+      .from('profiles')
+      .select('subscription_tier, subscription_status')
+      .eq('id', userId)
+      .single(),
+    cookies(),
+  ])
+  const isPro =
+    profileRes.data?.subscription_tier === 'pro' &&
+    profileRes.data?.subscription_status === 'active'
+
+  if (!isPro) {
+    return <ProGate isPro={false} featureName="Top EV Lines" blur={false}>{null}</ProGate>
+  }
+
   const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
   const enabledBooks = parseEnabledBooks(
     enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined,
@@ -110,4 +135,3 @@ async function EvDataLoader({
   )
   return <EvLiveWrapper initial={initial} />
 }
-
