@@ -1,12 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatOdds, formatRelativeTime } from '@/lib/utils'
-import { Calculator, Clock, DollarSign, ExternalLink, RefreshCw, Target, Wallet } from 'lucide-react'
+import { formatOdds, formatRelativeTime, cn } from '@/lib/utils'
+import { Calculator, ChevronLeft, Clock, DollarSign, ExternalLink, RefreshCw, Target, Wallet } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 import { getBookUrl } from '@/lib/book-urls'
+
+// Tailwind's `lg:` breakpoint is 1024px. Anything below is treated as
+// the mobile two-view experience; anything ≥1024px keeps the existing
+// split-pane desktop layout untouched. We use this constant in the
+// click handler that flips into the mobile calculator view so the
+// breakpoint stays in lock-step with the lg: utility classes.
+const LG_BREAKPOINT_PX = 1024
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -72,6 +79,19 @@ export function ArbCalculatorClient({
   const [bankroll, setBankroll] = useState(1000)
   const [useKelly, setUseKelly] = useState(false)
 
+  // ── Mobile two-view state ────────────────────────────────────────
+  // Below the lg: breakpoint we switch between a full-screen feed and
+  // a full-screen calculator. Desktop (>=1024px) ignores this state
+  // entirely — both panels are always visible via the lg: classes
+  // applied to the panel wrappers below.
+  // savedFeedScrollY captures window.scrollY before we navigate INTO
+  // the calculator view so we can restore the user's exact feed
+  // position when they hit Back. Window-scoped (not container-scoped)
+  // because on mobile the feed is part of the page scroll, not an
+  // overflow:auto container.
+  const [mobileView, setMobileView] = useState<'feed' | 'calculator'>('feed')
+  const savedFeedScrollY = useRef<number>(0)
+
   useEffect(() => {
     const stored = localStorage.getItem(BANKROLL_KEY)
     if (stored) {
@@ -93,6 +113,42 @@ export function ArbCalculatorClient({
       setTotalStake(Math.round(bankroll * kellyFraction * 100) / 100)
     }
   }, [useKelly, bankroll, selected])
+
+  // Mobile scroll restoration — when returning to the feed, scroll back
+  // to where the user tapped from. `requestAnimationFrame` fires AFTER
+  // the panel has switched display state so the scroll target exists.
+  // Going INTO the calculator we jump to top so the user sees the
+  // selected opportunity headline first, not whatever scroll-Y the
+  // feed left us at.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (mobileView === 'feed') {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: savedFeedScrollY.current, behavior: 'instant' as ScrollBehavior })
+      })
+    } else {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    }
+  }, [mobileView])
+
+  // Auto-return to the feed if the selected opportunity disappears
+  // (live polling drops it). Without this, mobile users would be
+  // stuck looking at an empty calculator panel with no exit.
+  useEffect(() => {
+    if (mobileView === 'calculator' && !selected) {
+      setMobileView('feed')
+    }
+  }, [mobileView, selected])
+
+  const selectOpportunity = useCallback((id: string) => {
+    setSelectedId(id)
+    if (typeof window !== 'undefined' && window.innerWidth < LG_BREAKPOINT_PX) {
+      // Capture scroll-Y BEFORE the view switch — once display flips
+      // the feed unmounts visually and scrollY collapses to 0.
+      savedFeedScrollY.current = window.scrollY
+      setMobileView('calculator')
+    }
+  }, [])
 
   const sides: { label: string; price: number; source: string }[] = selected
     ? [
@@ -121,8 +177,34 @@ export function ArbCalculatorClient({
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:min-h-[calc(100vh-12rem)]">
-      {/* ── Left Panel: Calculator ──────────────────────── */}
-      <div className="lg:w-[72%] w-full min-w-0 flex-shrink-0 order-2 lg:order-1">
+      {/* ── Left Panel: Calculator ────────────────────────
+        * Mobile: shown only when mobileView === 'calculator', with a
+        * gentle slide+fade to feel like a native push transition.
+        * Desktop (lg+): always visible — `lg:block` overrides `hidden`. */}
+      <div
+        className={cn(
+          'lg:w-[72%] w-full min-w-0 flex-shrink-0 order-2 lg:order-1',
+          mobileView === 'calculator'
+            ? 'block animate-in fade-in slide-in-from-right-4 duration-200'
+            : 'hidden lg:block',
+        )}
+      >
+        {/* Mobile-only sticky back bar. Anchors at the top of the
+          * viewport during scroll so the user always has an obvious
+          * exit. lg:hidden keeps it off desktop entirely. */}
+        {mobileView === 'calculator' && selected && (
+          <div className="lg:hidden sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-nb-950/95 backdrop-blur-sm border-b border-nb-800">
+            <button
+              type="button"
+              onClick={() => setMobileView('feed')}
+              className="inline-flex items-center gap-1.5 text-nb-200 text-sm font-medium hover:text-white transition-colors"
+              aria-label="Back to opportunities"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Back to opportunities
+            </button>
+          </div>
+        )}
         {/* Header — hidden on mobile because it's shown above the feed */}
         <div className="hidden lg:block mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -343,8 +425,15 @@ export function ArbCalculatorClient({
         </div>
       </div>
 
-      {/* ── Right Panel: Opportunity Feed ──────────────── */}
-      <div className="lg:w-[28%] w-full min-w-0 flex flex-col min-h-0 order-1 lg:order-2">
+      {/* ── Right Panel: Opportunity Feed ────────────────
+        * Mobile: shown only when mobileView === 'feed'.
+        * Desktop (lg+): always visible — `lg:flex` overrides `hidden`. */}
+      <div
+        className={cn(
+          'lg:w-[28%] w-full min-w-0 flex-col min-h-0 order-1 lg:order-2',
+          mobileView === 'feed' ? 'flex' : 'hidden lg:flex',
+        )}
+      >
         {/* Header — on mobile acts as the page header */}
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
@@ -401,7 +490,7 @@ export function ArbCalculatorClient({
               return (
               <button
                 key={arb.id}
-                onClick={() => { if (!disabled) setSelectedId(arb.id) }}
+                onClick={() => { if (!disabled) selectOpportunity(arb.id) }}
                 className={`w-full text-left rounded-xl border transition-all ${animCls} ${
                   selectedId === arb.id
                     ? 'bg-nb-800 border-nb-600 ring-2 ring-nb-500/50'

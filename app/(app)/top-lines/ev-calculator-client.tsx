@@ -1,11 +1,16 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatOdds, formatRelativeTime, formatDateTime } from '@/lib/utils'
-import { Clock, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
+import { formatOdds, formatRelativeTime, formatDateTime, cn } from '@/lib/utils'
+import { ChevronLeft, Clock, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
+
+// Tailwind's `lg:` breakpoint is 1024px. Below that we use the mobile
+// two-view experience; ≥1024px keeps the existing desktop split-pane.
+// See arb-calculator-client.tsx for the same constant — kept in sync.
+const LG_BREAKPOINT_PX = 1024
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -107,6 +112,16 @@ export function EvCalculatorClient({
   const [stake, setStake] = useState(500)
   const [bankroll, setBankroll] = useState(1000)
 
+  // ── Mobile two-view state ────────────────────────────────────────
+  // Same pattern as arb-calculator-client.tsx. Mobile renders one view
+  // at a time; desktop sees both panels via lg: classes. Note: the
+  // initial selectedId default above means mobile users land on the
+  // feed view (mobileView='feed') WITH a selection prepped — tapping
+  // an item flips the view, even if it's the same item already
+  // highlighted from the auto-default.
+  const [mobileView, setMobileView] = useState<'feed' | 'calculator'>('feed')
+  const savedFeedScrollY = useRef<number>(0)
+
   useEffect(() => {
     const stored = localStorage.getItem(BANKROLL_KEY)
     if (stored) {
@@ -118,6 +133,37 @@ export function EvCalculatorClient({
   const updateBankroll = useCallback((val: number) => {
     setBankroll(val)
     localStorage.setItem(BANKROLL_KEY, String(val))
+  }, [])
+
+  // Mobile scroll restoration — see arb-calculator-client.tsx for the
+  // full rationale. Saves window.scrollY before navigating into the
+  // calculator view, restores it on Back.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (mobileView === 'feed') {
+      requestAnimationFrame(() => {
+        window.scrollTo({ top: savedFeedScrollY.current, behavior: 'instant' as ScrollBehavior })
+      })
+    } else {
+      window.scrollTo({ top: 0, behavior: 'instant' as ScrollBehavior })
+    }
+  }, [mobileView])
+
+  // Auto-return to feed if the selection drops out of the live feed
+  // (poll removed it). Without this the user is stranded in a blank
+  // calculator view on mobile.
+  useEffect(() => {
+    if (mobileView === 'calculator' && selectedId && !lines.find(l => l.id === selectedId)) {
+      setMobileView('feed')
+    }
+  }, [mobileView, selectedId, lines])
+
+  const selectLine = useCallback((id: string) => {
+    setSelectedId(id)
+    if (typeof window !== 'undefined' && window.innerWidth < LG_BREAKPOINT_PX) {
+      savedFeedScrollY.current = window.scrollY
+      setMobileView('calculator')
+    }
   }, [])
 
   const selected = selectedId !== null ? (lines.find(l => l.id === selectedId) ?? null) : null
@@ -150,8 +196,32 @@ export function EvCalculatorClient({
 
   return (
     <div className="flex flex-col lg:flex-row gap-4 sm:gap-6 lg:min-h-[calc(100vh-12rem)]">
-      {/* ── Left Panel: Calculator ──────────────────────── */}
-      <div className="lg:w-[72%] w-full min-w-0 flex-shrink-0 order-2 lg:order-1">
+      {/* ── Left Panel: Calculator ────────────────────────
+        * Mobile: shown only when mobileView === 'calculator', with a
+        * gentle slide+fade. Desktop (lg+) always renders.  */}
+      <div
+        className={cn(
+          'lg:w-[72%] w-full min-w-0 flex-shrink-0 order-2 lg:order-1',
+          mobileView === 'calculator'
+            ? 'block animate-in fade-in slide-in-from-right-4 duration-200'
+            : 'hidden lg:block',
+        )}
+      >
+        {/* Mobile-only sticky back bar — anchors at top of viewport
+          * during scroll. lg:hidden keeps it off desktop. */}
+        {mobileView === 'calculator' && selected && (
+          <div className="lg:hidden sticky top-0 z-30 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-nb-950/95 backdrop-blur-sm border-b border-nb-800">
+            <button
+              type="button"
+              onClick={() => setMobileView('feed')}
+              className="inline-flex items-center gap-1.5 text-nb-200 text-sm font-medium hover:text-white transition-colors"
+              aria-label="Back to opportunities"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Back to opportunities
+            </button>
+          </div>
+        )}
         {/* Header (desktop) */}
         <div className="hidden lg:block mb-4">
           <div className="flex items-center gap-2 mb-1">
@@ -437,8 +507,15 @@ export function EvCalculatorClient({
         )}
       </div>
 
-      {/* ── Right Panel: Opportunity Feed ──────────────── */}
-      <div className="lg:w-[28%] w-full min-w-0 flex flex-col min-h-0 order-1 lg:order-2">
+      {/* ── Right Panel: Opportunity Feed ────────────────
+        * Mobile: shown only when mobileView === 'feed'.
+        * Desktop (lg+): always visible — `lg:flex` overrides `hidden`. */}
+      <div
+        className={cn(
+          'lg:w-[28%] w-full min-w-0 flex-col min-h-0 order-1 lg:order-2',
+          mobileView === 'feed' ? 'flex' : 'hidden lg:flex',
+        )}
+      >
         {/* Header — on mobile acts as page header */}
         <div className="mb-3 sm:mb-4">
           <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
@@ -495,7 +572,7 @@ export function EvCalculatorClient({
               return (
               <button
                 key={line.id}
-                onClick={() => { if (!disabled) setSelectedId(line.id) }}
+                onClick={() => { if (!disabled) selectLine(line.id) }}
                 className={`w-full text-left rounded-xl border transition-all ${animCls} ${
                   selectedId === line.id
                     ? 'bg-nb-800 border-nb-600 ring-2 ring-nb-500/50'
