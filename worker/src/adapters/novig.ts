@@ -677,16 +677,57 @@ export const novigAdapter: BookAdapter = {
         return { events: [], errors }
       }
 
+      // Per-league capture diagnostics. MLB silently dropped from
+      // novig output for hours despite NBA + NHL still flowing — top-20
+      // marketTypes contained zero baseball stats. Need to see whether
+      // `/mlb` is returning empty, redirecting, or producing a different
+      // GraphQL shape than `/nba` and `/nhl`. Log per-league deltas so
+      // a coverage drop on any single league becomes immediately visible.
+      const perLeagueCapture: Record<string, {
+        graphqlBefore: number; graphqlAfter: number;
+        batchBefore: number;   batchAfter: number;
+        eventsBefore: number;  eventsAfter: number;
+        marketIdsBefore: number; marketIdsAfter: number;
+        finalUrl: string; navStatus: 'ok' | 'error'; navError?: string;
+      }> = {}
       for (const lg of LEAGUES) {
         if (signal.aborted) break
+        const before = {
+          graphql: graphqlCount,
+          batch: batchCount,
+          events: events.size,
+          marketIds: marketIds.size,
+        }
+        let navStatus: 'ok' | 'error' = 'ok'
+        let navError: string | undefined
+        let finalUrl = SEED_URL + lg.path
         try {
-          await page.goto(SEED_URL + lg.path, { waitUntil: 'domcontentloaded', timeout: 20_000 })
-          // Wait for the app's GraphQL + batch XHRs to settle.
+          const resp = await page.goto(SEED_URL + lg.path, { waitUntil: 'domcontentloaded', timeout: 20_000 })
+          finalUrl = page.url()
+          if (resp && !resp.ok()) {
+            navStatus = 'error'
+            navError = `status=${resp.status()}`
+          }
           await page.waitForTimeout(4_000)
         } catch (e: any) {
-          errors.push(`${lg.leagueSlug} nav: ${e?.message ?? String(e)}`)
+          navStatus = 'error'
+          navError = e?.message ?? String(e)
+          errors.push(`${lg.leagueSlug} nav: ${navError}`)
+        }
+        perLeagueCapture[lg.leagueSlug] = {
+          graphqlBefore: before.graphql, graphqlAfter: graphqlCount,
+          batchBefore: before.batch,     batchAfter: batchCount,
+          eventsBefore: before.events,   eventsAfter: events.size,
+          marketIdsBefore: before.marketIds, marketIdsAfter: marketIds.size,
+          finalUrl, navStatus, navError,
         }
       }
+      // Single line — collapsed view of per-league activity. If any
+      // league shows graphqlAfter==graphqlBefore the page fired no
+      // GraphQL traffic at all (likely URL redirect / empty page).
+      // If graphql delta > 0 but eventsAfter==eventsBefore the page
+      // returned but contained no parseable events.
+      log.info('novig per-league', perLeagueCapture)
 
       const batchSample = batchSampleRef.value
       log.info('novig capture', {
