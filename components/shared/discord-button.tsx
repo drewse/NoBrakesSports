@@ -15,8 +15,8 @@ import { ArrowRight } from 'lucide-react'
  * one-liner instead of grepping the codebase.
  */
 
-// TODO: replace once the real invite is finalized.
-export const DISCORD_INVITE_URL = '#'
+// Permanent No Brakes Sports Discord invite.
+export const DISCORD_INVITE_URL = 'https://discord.gg/mBAMQK7F5e'
 
 export function DiscordIcon({ className = 'h-5 w-5' }: { className?: string }) {
   return (

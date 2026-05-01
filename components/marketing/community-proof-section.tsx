@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { BadgeCheck, TrendingUp, ArrowRight } from 'lucide-react'
+import { DISCORD_INVITE_URL } from '@/components/shared/discord-button'
 
 /**
  * Inline Discord brand glyph. Lucide doesn't ship a Discord-brand icon,
@@ -28,11 +29,9 @@ function DiscordIcon({ className }: { className?: string }) {
  * review cards. Pure CSS animation (keyframes in globals.css), pause
  * on hover, edges masked to fade.
  *
- * Discord invite is a placeholder href until DISCORD_INVITE_URL is
- * wired up.
+ * Discord invite imported from the shared button component so the
+ * URL stays in sync across the landing page + coaching page.
  */
-
-const DISCORD_INVITE_URL = '#'
 
 interface Review {
   name: string
