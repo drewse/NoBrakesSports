@@ -28,7 +28,10 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Promotions',    href: '/promotions',   icon: Tag },
   { label: '1on1 Coaching', href: '/coaching',     icon: Users },
   { label: 'Chat',          href: '/chat',         icon: MessageSquare },
-  { label: 'Watchlist',     href: '/watchlist',    icon: Bookmark },
+  // Watchlist parked 2026-05-01 — feature not ready, keep the page
+  // file in the repo so we can flip this entry back on without
+  // re-implementing. To revive: uncomment + ship.
+  // { label: 'Watchlist',     href: '/watchlist',    icon: Bookmark },
   { label: 'History',       href: '/history',      icon: History,        isPro: true },
 ]
 
