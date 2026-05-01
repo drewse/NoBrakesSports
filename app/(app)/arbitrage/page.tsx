@@ -31,7 +31,7 @@ export default async function ArbitragePage() {
   if (!user) redirect('/login')
 
   return (
-    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5 max-w-[1600px]">
+    <div className="p-3 sm:p-4 lg:p-6 space-y-4 sm:space-y-5">
       <Suspense fallback={<ArbSkeleton />}>
         <ArbDataLoader userId={user.id} />
       </Suspense>
