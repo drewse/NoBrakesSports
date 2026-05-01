@@ -24,7 +24,7 @@
  */
 
 import { withPage } from '../lib/browser.js'
-import { hydrateTeamName } from '../lib/team-abbr.js'
+import { hydrateTeamName, isCanonicalTeam } from '../lib/team-abbr.js'
 import type { BookAdapter } from '../lib/adapter.js'
 import type { ScrapeResult, GameMarket, ScrapedEvent } from '../lib/types.js'
 
@@ -226,6 +226,18 @@ function buildScraped(body: AltenarResponse): ScrapedEvent[] {
     // writer matches canonical events instead of auto-creating stubs.
     const hydratedHome = hydrateTeamName(homeName, meta.maybeLeague)
     const hydratedAway = hydrateTeamName(awayName, meta.maybeLeague)
+
+    // Altenar's sportId is the SPORT, not the league — sportId=67 covers
+    // NBA, WNBA, EuroLeague, NCAA, every basketball league. The
+    // SPORT_TO_SLUG map above hardcodes basketball→nba, so without this
+    // guard a "Minnesota Lynx vs Toronto Tempo Women" WNBA game would
+    // be written with leagueSlug='nba' and surface in the NBA odds tab.
+    // Drop any event whose teams aren't both canonical members of the
+    // claimed league.
+    if (!isCanonicalTeam(hydratedHome, meta.maybeLeague) ||
+        !isCanonicalTeam(hydratedAway, meta.maybeLeague)) {
+      continue
+    }
 
     out.push({
       event: {

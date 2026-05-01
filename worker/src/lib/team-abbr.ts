@@ -94,3 +94,25 @@ export function hydrateTeamName(name: string, league: string): string {
   }
   return name
 }
+
+/** Is this name one of the canonical full team names for the league?
+ *  Used by adapters that share a sport ID across leagues — e.g. Altenar
+ *  basketball (sportId 67) covers NBA AND WNBA AND EuroLeague. We want
+ *  to keep only NBA, so we filter on canonical names: "Minnesota Lynx"
+ *  fails the NBA check and the event is dropped before write. Avoids
+ *  WNBA games leaking into the NBA odds tab.
+ *
+ *  Case-insensitive. Returns false for unknown leagues so callers fail
+ *  closed. */
+const CANONICAL_NAME_SETS: Record<string, Set<string>> = {
+  nba: new Set(Object.values(NBA_ABBR_TO_FULL).map(s => s.toLowerCase())),
+  mlb: new Set(Object.values(MLB_ABBR_TO_FULL).map(s => s.toLowerCase())),
+  nhl: new Set(Object.values(NHL_ABBR_TO_FULL).map(s => s.toLowerCase())),
+  nfl: new Set(Object.values(NFL_ABBR_TO_FULL).map(s => s.toLowerCase())),
+}
+export function isCanonicalTeam(name: string, league: string): boolean {
+  if (!name) return false
+  const set = CANONICAL_NAME_SETS[league.toLowerCase()]
+  if (!set) return false
+  return set.has(name.toLowerCase())
+}
