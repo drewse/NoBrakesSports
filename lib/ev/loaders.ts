@@ -496,14 +496,50 @@ export async function loadEv(
     }
     const propGroups = new Map<string, any[]>()
     const groupDisplayName = new Map<string, string>()
+    // Inner map per group: source_id → kept row. A single book can land
+    // multiple rows in the same fuzzy group when upstream writes
+    // variants of the same prop (player_name with vs without stat
+    // suffix — e.g. "Ceddanne Rafaela" vs "Ceddanne Rafaela Singles" —
+    // OR adjacent prop_category strings like player_singles vs
+    // player_total_singles). The latestPropBySrc dedup uses raw
+    // player_name + raw category, so it keeps every variant. The fuzzy
+    // bucket then collapses them into one display group, and the
+    // calculator showed DraftKings 5-7x with different alt-line prices.
+    // Dedupe per-source within each group, keeping the row with the
+    // highest over_price (best for the bettor) so the displayed
+    // allSources list has at most one row per book.
+    const propGroupsRaw = new Map<string, Map<string, any>>()
     for (const p of latestPropBySrc.values()) {
       const fuzzy = fuzzyPlayerKey(String(p.player_name ?? ''))
       const key = `${p.event_id}|${p.prop_category}|${fuzzy}|${p.line_value}`
-      if (!propGroups.has(key)) propGroups.set(key, [])
-      propGroups.get(key)!.push(p)
+      if (!propGroupsRaw.has(key)) propGroupsRaw.set(key, new Map())
+      const bySource = propGroupsRaw.get(key)!
+      const existing = bySource.get(p.source_id)
+      if (!existing) {
+        bySource.set(p.source_id, p)
+      } else {
+        // Prefer the row with the higher over_price; fall back to
+        // higher under_price if neither has over. Ties go to the
+        // newer snapshot.
+        const exOver = existing.over_price ?? -Infinity
+        const npOver = p.over_price ?? -Infinity
+        if (npOver > exOver) bySource.set(p.source_id, p)
+        else if (npOver === exOver) {
+          const exUnder = existing.under_price ?? -Infinity
+          const npUnder = p.under_price ?? -Infinity
+          if (npUnder > exUnder) bySource.set(p.source_id, p)
+          else if (npUnder === exUnder && p.snapshot_time > existing.snapshot_time) {
+            bySource.set(p.source_id, p)
+          }
+        }
+      }
       const prev = groupDisplayName.get(key)
       const cand = String(p.player_name ?? '')
       if (!prev || cand.length > prev.length) groupDisplayName.set(key, cand)
+    }
+    // Materialize: one array per group, one row per source.
+    for (const [key, bySource] of propGroupsRaw.entries()) {
+      propGroups.set(key, [...bySource.values()])
     }
     for (const [groupKey, group] of propGroups.entries()) {
       const twoSidedBooks = group.filter((p: any) => p.over_price != null && p.under_price != null)
