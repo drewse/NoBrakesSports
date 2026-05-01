@@ -41,15 +41,13 @@ export interface ArbsResult {
 // "live" at minute 6, but the old 5-min cutoff was filtering them out and
 // hiding real arbs that AVO/OddsJam were surfacing).
 const FRESHNESS_MS = 15 * 60 * 1000
-// PROP_PAGE MUST match Supabase PostgREST's `db-max-rows` setting (default 1000).
-// We tried 5000 to cut round-trips, but PostgREST silently caps every response
-// at 1000 regardless of `.range()` / `.limit()`. With PROP_PAGE > cap, page 0
-// returns 1000 rows, the "is page full?" check (`firstRows.length < PROP_PAGE`)
-// reads `1000 < 5000` = true, the loader declares "done" and drops ~95% of
-// prop data — production showed 0 arbs and a heavily-truncated +EV list.
-// To raise this safely, raise Supabase's db-max-rows first (project settings),
-// otherwise leave at 1000.
-const PROP_PAGE = 1000
+// PROP_PAGE MUST match Supabase PostgREST's `db-max-rows` setting.
+// Project setting was raised from 1000 → 5000 on 2026-05-01 — see README /
+// Supabase project settings → API → Max Rows. With db-max-rows=5000, this
+// stays in step. If you ever lower db-max-rows, lower PROP_PAGE to match,
+// otherwise the page-full check (`firstRows.length < PROP_PAGE`) will fire
+// early and silently drop most of the prop data.
+const PROP_PAGE = 5000
 // Top-N truncation. The page header reports "N opportunities detected"
 // from the pre-truncation count, but only the top-N by profit% actually
 // render as cards. 50 was too tight — at peak slate we detect 200-300
@@ -170,7 +168,7 @@ export async function loadArbs(
   // page latency is ~50-150ms, so the count(*) round trip we used
   // to do is no longer worth it (~150ms saved on every cycle, and
   // we never wait for count when the data fits in one page).
-  const MAX_PAGES = 60   // hard cap = 60_000 prop rows (60 × 1000-row pages, matches PostgREST cap)
+  const MAX_PAGES = 12   // hard cap = 60_000 prop rows (12 × 5000-row pages, matches PostgREST cap)
   const fetchPropPage = (i: number) =>
     supabase
       .from('prop_odds')
