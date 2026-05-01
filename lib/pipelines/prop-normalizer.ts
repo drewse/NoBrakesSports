@@ -138,6 +138,30 @@ export function mapKambiCategory(label: string): { category: string; isBinary: b
     return { category: direct, isBinary }
   }
 
+  // Basketball O/U fallbacks — Kambi white-labels (LeoVegas / Proline /
+  // BetRivers / NorthStar / Bally / Unibet) occasionally ship label
+  // variants that don't match the canonical "X by the player" form
+  // hardcoded in KAMBI_CATEGORY_MAP. Reproduced via Payton Pritchard
+  // Threes 2.5 — Betway had the alt line in our DB but the LeoVegas
+  // side never landed because the label didn't hit the direct map.
+  // These regex fallbacks catch any reasonable phrasing variant.
+  // Order matters: combos before singles (substring collisions).
+  if (/three.?point|3.?point|^threes\b|threes?\s+made/i.test(lower)) {
+    return { category: 'player_threes', isBinary: false }
+  }
+  if (/points\s*[,&]\s*rebounds\s*[,&]\s*assists/i.test(lower)) {
+    return { category: 'player_pts_reb_ast', isBinary: false }
+  }
+  if (/points\s*[,&]\s*rebounds/i.test(lower) && !/assists/i.test(lower)) {
+    return { category: 'player_pts_reb', isBinary: false }
+  }
+  if (/points\s*[,&]\s*assists/i.test(lower) && !/rebounds/i.test(lower)) {
+    return { category: 'player_pts_ast', isBinary: false }
+  }
+  if (/rebounds\s*[,&]\s*assists/i.test(lower)) {
+    return { category: 'player_ast_reb', isBinary: false }
+  }
+
   // Baseball-specific patterns — Kambi uses "Total X by the Player" format
   if (/^total\s+hits\s+by\s+the\s+player/i.test(lower)) return { category: 'player_hits', isBinary: false }
   if (/^total\s+rbis\s+by\s+the\s+player/i.test(lower)) return { category: 'player_rbis', isBinary: false }
