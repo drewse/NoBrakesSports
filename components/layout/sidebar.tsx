@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import type { Profile } from '@/types'
+import { useSidebarBadges } from './use-sidebar-badges'
 
 interface NavItem {
   label: string
@@ -45,6 +46,7 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
   const pathname = usePathname()
   const isPro = profile?.subscription_tier === 'pro' && profile?.subscription_status === 'active'
   const isAdmin = profile?.is_admin
+  const badges = useSidebarBadges(profile)
 
   // Close drawer when navigating
   useEffect(() => {
@@ -102,7 +104,17 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
         {/* Main Nav */}
         <nav className="flex-1 overflow-y-auto p-3 space-y-0.5">
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.href} item={item} pathname={pathname} isPro={isPro} />
+            <NavLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              isPro={isPro}
+              // User-side: red dot + count next to /chat when admin
+              // has sent messages the user hasn't seen yet.
+              dots={item.href === '/chat' && badges.chatUnread > 0
+                ? [{ color: 'red', count: badges.chatUnread }]
+                : undefined}
+            />
           ))}
 
           <div className="my-3 border-t border-border" />
@@ -120,6 +132,18 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
                 item={{ label: 'Admin', href: '/admin', icon: Shield }}
                 pathname={pathname}
                 isPro={false}
+                // Admin tab gets two dots: red for unread user
+                // messages, blue for unconfirmed coaching bookings.
+                // Hidden when zero so the row stays clean during
+                // periods with no work to do.
+                dots={[
+                  ...(badges.adminChatUnread > 0
+                    ? [{ color: 'red' as const, count: badges.adminChatUnread }]
+                    : []),
+                  ...(badges.adminBookings > 0
+                    ? [{ color: 'blue' as const, count: badges.adminBookings }]
+                    : []),
+                ]}
               />
               <NavLink
                 item={{ label: 'Overview', href: '/dashboard', icon: LayoutDashboard }}
@@ -186,14 +210,21 @@ export function Sidebar({ profile, mobileOpen = false, onMobileClose }: SidebarP
   )
 }
 
+interface NavLinkDot {
+  color: 'red' | 'blue'
+  count: number
+}
+
 function NavLink({
   item,
   pathname,
   isPro,
+  dots,
 }: {
   item: NavItem
   pathname: string
   isPro: boolean
+  dots?: NavLinkDot[]
 }) {
   const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
   const isLocked = item.isPro && !isPro
@@ -216,6 +247,36 @@ function NavLink({
       {item.badge && (
         <Badge variant="muted" className="text-[10px] py-0">{item.badge}</Badge>
       )}
+      {dots && dots.length > 0 && (
+        <span className="flex items-center gap-1">
+          {dots.map((d, i) => (
+            <NavDot key={i} color={d.color} count={d.count} />
+          ))}
+        </span>
+      )}
     </Link>
+  )
+}
+
+/** Tiny rounded pill: colored circle + count. Pulses subtly so the
+ *  user notices it on first glance without being obnoxious. Capped
+ *  display at "99+" so the layout doesn't shift on a busy inbox. */
+function NavDot({ color, count }: { color: 'red' | 'blue'; count: number }) {
+  const palette = color === 'red'
+    ? 'bg-red-500/15 text-red-400 border-red-500/40'
+    : 'bg-blue-500/15 text-blue-400 border-blue-500/40'
+  const dotColor = color === 'red' ? 'bg-red-500' : 'bg-blue-500'
+  const display = count > 99 ? '99+' : String(count)
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-1.5 py-0 text-[9px] font-bold leading-tight',
+        palette,
+      )}
+      aria-label={`${count} ${color === 'red' ? 'unread' : 'pending'}`}
+    >
+      <span className={cn('h-1.5 w-1.5 rounded-full animate-pulse', dotColor)} aria-hidden />
+      {display}
+    </span>
   )
 }

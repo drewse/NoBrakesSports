@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useTransition } from 'react'
 import { Send, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { formatRelativeTime } from '@/lib/utils'
+import { markChatSeen } from '@/components/layout/use-sidebar-badges'
 
 interface Message {
   id: string
@@ -31,6 +32,14 @@ export function ChatInterface({ userId, userName, initialMessages }: Props) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Mark all messages as seen on mount + on every render where a new
+  // message lands. The localStorage marker drives the sidebar's
+  // unread badge — bumping on every message arrival means the user
+  // doesn't accumulate "unread" while sitting on /chat reading live.
+  useEffect(() => {
+    markChatSeen()
+  }, [messages.length])
 
   // Supabase Realtime subscription
   useEffect(() => {
