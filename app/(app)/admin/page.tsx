@@ -1,13 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Users, CreditCard, Activity, Flag, Database, ChevronRight, CheckCircle2, Clock, Wrench, AlertCircle, Gauge, Plug } from 'lucide-react'
+import { Users, CreditCard, Activity, Flag, Database, ChevronRight, CheckCircle2, Clock, Wrench, AlertCircle, Gauge, Plug, MessageSquare } from 'lucide-react'
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 
 export const metadata = { title: 'Admin' }
 
 const ADMIN_SECTIONS = [
+  { href: '/admin/support-chats', icon: MessageSquare, label: 'Support Chats', desc: 'Reply to user conversations · needs-response inbox' },
   { href: '/admin/users', icon: Users, label: 'User Management', desc: 'View and manage all user accounts' },
   { href: '/admin/subscriptions', icon: CreditCard, label: 'Subscriptions', desc: 'View subscription status and billing' },
   { href: '/admin/data-health', icon: Activity, label: 'Data Source Health', desc: 'Monitor market source status' },
