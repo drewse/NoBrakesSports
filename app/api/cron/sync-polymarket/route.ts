@@ -285,6 +285,21 @@ export async function GET(request: NextRequest) {
     return allowed.size > 0 ? allowed : null
   }
 
+  // WNBA team mascots. Used to reject DB events that were created with
+  // league_slug='nba' but are actually WNBA games — typically because a
+  // sibling adapter (Sportzino's pre-fix code path) auto-created the
+  // events row from a "basketball" sport id. Without this guard,
+  // Polymarket happily matches its WNBA event to the bogus NBA row by
+  // title overlap and the WNBA matchup shows up on the /odds NBA tab.
+  // Sportzino's own canonical-team filter in the worker (commit e7c8487)
+  // prevents NEW WNBA events from being created; this list catches the
+  // legacy ones until migration 036 clears them.
+  const WNBA_TEAM_NAMES = /\b(lynx|aces|liberty|fever|dream|mystics|storm|mercury|sparks|wings|sky|valkyries|tempo)\b/i
+  function looksLikeWnbaMatchup(title: string | null | undefined): boolean {
+    if (!title) return false
+    return WNBA_TEAM_NAMES.test(title)
+  }
+
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
     if (polyEvent.title && /\s+vs\.?\s+/i.test(polyEvent.title)) eventsWithVs++
@@ -294,6 +309,12 @@ export async function GET(request: NextRequest) {
     const allowedLeagues = allowedDbLeaguesForPolyEvent(polyEvent)
     const dbEvent = dbEvents?.find((e: any) => {
       if (allowedLeagues && !allowedLeagues.has(e.leagues?.slug)) return false
+      // Skip WNBA matchups even if the DB row has league_slug='nba' —
+      // see migration 036 / WNBA_TEAM_NAMES note above. Belt-and-
+      // suspenders: also reject if the poly event title itself looks
+      // WNBA, in case a Polymarket basketball tag eventually starts
+      // including WNBA games we'd match through some other DB row.
+      if (looksLikeWnbaMatchup(e.title) || looksLikeWnbaMatchup(polyEvent.title)) return false
       return titlesMatch(e.title, polyEvent.title)
     }) ?? null
     if (dbEvent) eventsMatchedDb++
