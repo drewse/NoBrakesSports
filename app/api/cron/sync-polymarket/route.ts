@@ -325,29 +325,61 @@ export async function GET(request: NextRequest) {
     return !/\s+vs\.?\s+/i.test(title)
   }
 
-  // Canonical MLB / NBA / NHL roster check. Same idea as the worker's
-  // isCanonicalTeam() helper but inlined here so this Vercel-side
-  // route doesn't need a worker-package import. We require BOTH
-  // halves of the DB event title (split on " vs ") to mention a
-  // canonical mascot — caught:
-  //   • NCAA "Clemson Tigers vs Boston College Eagles" — Eagles
-  //     isn't an MLB mascot, dropped.
-  //   • Any minor / international league we forgot to enumerate
-  //     above (NPB, Mexican League, etc.).
-  // See migration 038 for the matching DB-side cleanup.
-  const MLB_MASCOTS = ['diamondbacks','braves','orioles','red sox','cubs','white sox','reds','guardians','rockies','tigers','astros','royals','angels','dodgers','marlins','brewers','twins','mets','yankees','athletics','phillies','pirates','padres','mariners','giants','cardinals','rays','rangers','blue jays','nationals']
-  const NBA_MASCOTS = ['hawks','celtics','nets','hornets','bulls','cavaliers','mavericks','nuggets','pistons','warriors','rockets','pacers','clippers','lakers','grizzlies','heat','bucks','timberwolves','pelicans','knicks','thunder','magic','76ers','suns','trail blazers','kings','spurs','raptors','jazz','wizards']
-  const NHL_MASCOTS = ['ducks','bruins','sabres','flames','hurricanes','blackhawks','avalanche','blue jackets','stars','red wings','oilers','panthers','kings','wild','canadiens','predators','devils','islanders','rangers','senators','flyers','penguins','sharks','blues','kraken','lightning','maple leafs','canucks','golden knights','capitals','jets','utah hockey club']
+  // Canonical MLB / NBA / NHL EXACT-MATCH roster. Earlier we used
+  // a substring-mascot count check, but that admitted NPB ("Hanshin
+  // Tigers vs Yomiuri Giants" — both MLB mascots), NCAA (Cardinals
+  // / Tigers / Pirates), and concat-with-mid-vs malformed titles
+  // ("Los Angeles vs Angels New York Mets" — substring mascots
+  // present but halves are nonsense).
+  //
+  // Stricter rule: split DB event title on " vs ", require each
+  // half to EXACTLY match a canonical full name (city + mascot,
+  // case-insensitive, trimmed). See migration 039 for the matching
+  // DB-side cleanup.
+  const MLB_TEAMS = new Set([
+    'arizona diamondbacks','atlanta braves','baltimore orioles','boston red sox',
+    'chicago cubs','chicago white sox','cincinnati reds','cleveland guardians',
+    'colorado rockies','detroit tigers','houston astros','kansas city royals',
+    'los angeles angels','los angeles dodgers','miami marlins','milwaukee brewers',
+    'minnesota twins','new york mets','new york yankees','athletics',
+    'oakland athletics','sacramento athletics','las vegas athletics',
+    'philadelphia phillies','pittsburgh pirates','san diego padres',
+    'san francisco giants','seattle mariners','st. louis cardinals',
+    'st louis cardinals','tampa bay rays','texas rangers','toronto blue jays',
+    'washington nationals',
+  ])
+  const NBA_TEAMS = new Set([
+    'atlanta hawks','boston celtics','brooklyn nets','charlotte hornets',
+    'chicago bulls','cleveland cavaliers','dallas mavericks','denver nuggets',
+    'detroit pistons','golden state warriors','houston rockets','indiana pacers',
+    'los angeles clippers','los angeles lakers','memphis grizzlies','miami heat',
+    'milwaukee bucks','minnesota timberwolves','new orleans pelicans',
+    'new york knicks','oklahoma city thunder','orlando magic','philadelphia 76ers',
+    'phoenix suns','portland trail blazers','sacramento kings','san antonio spurs',
+    'toronto raptors','utah jazz','washington wizards',
+  ])
+  const NHL_TEAMS = new Set([
+    'anaheim ducks','boston bruins','buffalo sabres','calgary flames',
+    'carolina hurricanes','chicago blackhawks','colorado avalanche',
+    'columbus blue jackets','dallas stars','detroit red wings','edmonton oilers',
+    'florida panthers','los angeles kings','minnesota wild','montreal canadiens',
+    'nashville predators','new jersey devils','new york islanders','new york rangers',
+    'ottawa senators','philadelphia flyers','pittsburgh penguins','san jose sharks',
+    'seattle kraken','st. louis blues','st louis blues','tampa bay lightning',
+    'toronto maple leafs','utah hockey club','vancouver canucks','vegas golden knights',
+    'washington capitals','winnipeg jets',
+  ])
   function bothTeamsCanonical(title: string, leagueSlug: string): boolean {
-    const mascots =
-      leagueSlug === 'mlb' ? MLB_MASCOTS :
-      leagueSlug === 'nba' ? NBA_MASCOTS :
-      leagueSlug === 'nhl' ? NHL_MASCOTS : null
-    if (!mascots) return true   // soccer / others — skip strict check
+    const set =
+      leagueSlug === 'mlb' ? MLB_TEAMS :
+      leagueSlug === 'nba' ? NBA_TEAMS :
+      leagueSlug === 'nhl' ? NHL_TEAMS : null
+    if (!set) return true   // soccer / others — no strict canonical set
     const parts = title.toLowerCase().split(/\s+vs\.?\s+/)
     if (parts.length !== 2) return false
-    const [home, away] = parts
-    return mascots.some(m => home.includes(m)) && mascots.some(m => away.includes(m))
+    const home = parts[0].trim()
+    const away = parts[1].trim()
+    return set.has(home) && set.has(away)
   }
 
   // Sanity-bound for moneyline odds. Polymarket markets sometimes
