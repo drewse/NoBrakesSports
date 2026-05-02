@@ -228,16 +228,25 @@ export function OddsClient({
   }
 
   // ─── Render ─────────────────────────────────────────────────────────
+  // Flex column fills the parent's height (page.tsx provides a
+  // bounded height via h-full + flex-1 + overflow-hidden). The table
+  // is flex-1 so it claims all remaining vertical space and scrolls
+  // internally — keeping the sticky thead in view alongside the
+  // sticky filter bar above.
   return (
-    <>
-      <div className="flex justify-end">
+    <div className="flex flex-col h-full">
+      <div className="flex justify-end shrink-0 mb-2">
         <LiveIndicator active={pollEnabled} />
       </div>
       {rendered?.kind === 'game' && (
-        <OddsTable selection={selection} rows={rendered.rows} books={rendered.books} />
+        <div className="flex-1 min-h-0">
+          <OddsTable selection={selection} rows={rendered.rows} books={rendered.books} />
+        </div>
       )}
       {rendered?.kind === 'props' && (
-        <PropsTable rows={rendered.rows} books={rendered.books} />
+        <div className="flex-1 min-h-0">
+          <PropsTable rows={rendered.rows} books={rendered.books} />
+        </div>
       )}
       {!rendered && (
         <div className="rounded-lg border border-border bg-nb-900/40 px-6 py-16 text-center">
@@ -249,6 +258,6 @@ export function OddsClient({
           </p>
         </div>
       )}
-    </>
+    </div>
   )
 }

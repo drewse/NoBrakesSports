@@ -41,35 +41,51 @@ export default async function OddsPage({
     selection.stat ?? '', selection.period ?? '', within,
   ].join('|')
 
+  // Layout strategy: the page is a vertical flex container that fills
+  // the parent <main>'s height. The filter row is a fixed-height
+  // header that never scrolls — it stays put while the user explores
+  // the table below. The table region (flex-1 + overflow-hidden) hosts
+  // the OddsTable / PropsTable which scrolls internally on BOTH axes
+  // with a sticky thead. Net effect: filter bar AND book-logo header
+  // row are always visible while the user scrolls long event lists.
+  // Negative margins counteract <main>'s p-3 sm:p-4 lg:p-6 wrapper so
+  // the filter bar's bg + border-bottom span the full width.
   return (
-    <div className="p-3 sm:p-4 lg:p-6 space-y-4">
-      <div className="flex items-center justify-center gap-3 flex-wrap">
-        <FilterBar selection={selection} />
-        {/* useSearchParams in TimeFilter needs a Suspense boundary. */}
-        <Suspense fallback={null}>
-          <TimeFilter value={within} />
-        </Suspense>
+    <div className="flex flex-col h-full -m-3 sm:-m-4 lg:-m-6">
+      {/* Sticky filter bar (top of viewport — outside the scroll area) */}
+      <div className="shrink-0 bg-nb-950 border-b border-border px-3 sm:px-4 lg:px-6 py-3">
+        <div className="flex items-center justify-center gap-3 flex-wrap">
+          <FilterBar selection={selection} />
+          {/* useSearchParams in TimeFilter needs a Suspense boundary. */}
+          <Suspense fallback={null}>
+            <TimeFilter value={within} />
+          </Suspense>
+        </div>
       </div>
 
-      {!plan && (
-        <div className="rounded-lg border border-border bg-nb-900/40 px-6 py-16 text-center">
-          <p className="text-sm font-semibold text-white">Selection not yet supported</p>
-          <p className="text-xs text-nb-400 max-w-md mx-auto mt-2 leading-relaxed">
-            Period-specific player props and first-half team totals aren&apos;t
-            in the DB schema yet. Full-game variants work — pick a different
-            period or switch markets.
-          </p>
-        </div>
-      )}
+      {/* Scrollable region — the table below has its own internal
+        * x+y scroll with a sticky thead so book logos persist. */}
+      <div className="flex-1 min-h-0 overflow-hidden p-3 sm:p-4 lg:p-6">
+        {!plan && (
+          <div className="rounded-lg border border-border bg-nb-900/40 px-6 py-16 text-center">
+            <p className="text-sm font-semibold text-white">Selection not yet supported</p>
+            <p className="text-xs text-nb-400 max-w-md mx-auto mt-2 leading-relaxed">
+              Period-specific player props and first-half team totals aren&apos;t
+              in the DB schema yet. Full-game variants work — pick a different
+              period or switch markets.
+            </p>
+          </div>
+        )}
 
-      {plan && (
-        <Suspense
-          key={selectionKey}
-          fallback={<OddsSkeleton kind={plan.table === 'prop_odds' ? 'props' : 'game'} />}
-        >
-          <OddsDataLoader selection={selection} plan={plan} within={within} />
-        </Suspense>
-      )}
+        {plan && (
+          <Suspense
+            key={selectionKey}
+            fallback={<OddsSkeleton kind={plan.table === 'prop_odds' ? 'props' : 'game'} />}
+          >
+            <OddsDataLoader selection={selection} plan={plan} within={within} />
+          </Suspense>
+        )}
+      </div>
     </div>
   )
 }

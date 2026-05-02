@@ -77,17 +77,28 @@ export function OddsTable({
   const cellBest = { width: W_BEST, minWidth: W_BEST, maxWidth: W_BEST, left: W_GAME } as const
   const cellAvg  = { width: W_AVG,  minWidth: W_AVG,  maxWidth: W_AVG,  left: W_GAME + W_BEST } as const
 
+  // Layout: rounded outer card with internal scroll on BOTH axes.
+  // overflow-auto on the inner div is the scroll container; thead
+  // cells use position:sticky with `top: 0` to pin against vertical
+  // scroll inside the wrapper, AND existing `left: ...` inline
+  // styles for the leftmost three columns to pin horizontally. The
+  // book-logo header row stays visible while the user scrolls long
+  // game lists, matching the AVO-style data table pattern.
   return (
-    <div className="rounded-lg border border-border overflow-hidden bg-nb-950">
-      <div className="overflow-x-auto">
+    <div className="rounded-lg border border-border bg-nb-950 h-full">
+      <div className="overflow-auto h-full">
         <table className="text-sm border-separate" style={{ minWidth: '100%', borderSpacing: 0 }}>
           <thead>
             <tr className="border-b border-border bg-nb-950 text-[10px] font-semibold text-nb-500 uppercase tracking-wider">
-              <th className="sticky z-30 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0 }}>Game</th>
-              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-nb-700" style={cellBest}>Best Odds</th>
-              <th className="sticky z-30 bg-nb-950 px-3 py-3 text-center border-l border-r border-nb-700" style={cellAvg}>Avg Odds</th>
+              {/* z-40 on the corner (Game) so it stays above the
+                * adjacent vertically-sticky body cells; z-30 elsewhere
+                * for the two-axis sticky cells; book-logo cells get
+                * z-20 (vertical-only sticky). */}
+              <th className="sticky z-40 bg-nb-950 px-4 py-3 text-left" style={{ ...cellGame, left: 0, top: 0 }}>Game</th>
+              <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-nb-700" style={{ ...cellBest, top: 0 }}>Best Odds</th>
+              <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-r border-nb-700" style={{ ...cellAvg, top: 0 }}>Avg Odds</th>
               {books.map(b => (
-                <th key={b.id} className="px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92 }}>
+                <th key={b.id} className="sticky z-20 bg-nb-950 px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92, top: 0 }}>
                   <div className="flex justify-center">
                     <BookLogo name={b.slug} size="sm" />
                   </div>
