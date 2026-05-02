@@ -325,6 +325,42 @@ export async function GET(request: NextRequest) {
     return !/\s+vs\.?\s+/i.test(title)
   }
 
+  // Canonical MLB / NBA / NHL roster check. Same idea as the worker's
+  // isCanonicalTeam() helper but inlined here so this Vercel-side
+  // route doesn't need a worker-package import. We require BOTH
+  // halves of the DB event title (split on " vs ") to mention a
+  // canonical mascot — caught:
+  //   • NCAA "Clemson Tigers vs Boston College Eagles" — Eagles
+  //     isn't an MLB mascot, dropped.
+  //   • Any minor / international league we forgot to enumerate
+  //     above (NPB, Mexican League, etc.).
+  // See migration 038 for the matching DB-side cleanup.
+  const MLB_MASCOTS = ['diamondbacks','braves','orioles','red sox','cubs','white sox','reds','guardians','rockies','tigers','astros','royals','angels','dodgers','marlins','brewers','twins','mets','yankees','athletics','phillies','pirates','padres','mariners','giants','cardinals','rays','rangers','blue jays','nationals']
+  const NBA_MASCOTS = ['hawks','celtics','nets','hornets','bulls','cavaliers','mavericks','nuggets','pistons','warriors','rockets','pacers','clippers','lakers','grizzlies','heat','bucks','timberwolves','pelicans','knicks','thunder','magic','76ers','suns','trail blazers','kings','spurs','raptors','jazz','wizards']
+  const NHL_MASCOTS = ['ducks','bruins','sabres','flames','hurricanes','blackhawks','avalanche','blue jackets','stars','red wings','oilers','panthers','kings','wild','canadiens','predators','devils','islanders','rangers','senators','flyers','penguins','sharks','blues','kraken','lightning','maple leafs','canucks','golden knights','capitals','jets','utah hockey club']
+  function bothTeamsCanonical(title: string, leagueSlug: string): boolean {
+    const mascots =
+      leagueSlug === 'mlb' ? MLB_MASCOTS :
+      leagueSlug === 'nba' ? NBA_MASCOTS :
+      leagueSlug === 'nhl' ? NHL_MASCOTS : null
+    if (!mascots) return true   // soccer / others — skip strict check
+    const parts = title.toLowerCase().split(/\s+vs\.?\s+/)
+    if (parts.length !== 2) return false
+    const [home, away] = parts
+    return mascots.some(m => home.includes(m)) && mascots.some(m => away.includes(m))
+  }
+
+  // Sanity-bound for moneyline odds. Polymarket markets sometimes
+  // sit at near-1 / near-0 implied probability (a YES contract
+  // trading at $0.998 → American +199900 / -50000 territory).
+  // Those aren't real moneylines — usually a stale order book or
+  // a futures market that bled into the per-game pool. Anything
+  // outside [-3000, +3000] is junk and gets dropped.
+  function isPlausibleMoneyline(american: number | null): boolean {
+    if (american == null || !Number.isFinite(american)) return false
+    return Math.abs(american) <= 3000
+  }
+
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
     if (polyEvent.title && /\s+vs\.?\s+/i.test(polyEvent.title)) eventsWithVs++
@@ -346,6 +382,12 @@ export async function GET(request: NextRequest) {
       // Reject malformed-title duplicates (no "vs" in the DB row
       // title means upstream concatenation bug — never write to it).
       if (isMalformedTitle(e.title)) return false
+      // Strict canonical-team check: both halves of the DB event
+      // title must contain a canonical mascot for the league.
+      // Catches NCAA + any non-pro league we forgot to enumerate
+      // above ("Clemson Tigers vs Boston College Eagles" — only
+      // Tigers is canonical).
+      if (!bothTeamsCanonical(e.title, e.leagues?.slug)) return false
       return titlesMatch(e.title, polyEvent.title)
     }) ?? null
     if (dbEvent) eventsMatchedDb++
@@ -386,21 +428,28 @@ export async function GET(request: NextRequest) {
         else if (side === 'away' && awayYes === null) { awayYes = prices.yes; awayVolume = isNaN(v) ? 0 : v }
       }
       if (homeYes !== null && awayYes !== null) {
-        marketSnapshots.push({
-          event_id: dbEvent.id,
-          source_id: source.id,
-          market_type: 'moneyline',
-          home_price: probToAmerican(homeYes),
-          away_price: probToAmerican(awayYes),
-          home_implied_prob: Math.round(homeYes * 10000) / 10000,
-          away_implied_prob: Math.round(awayYes * 10000) / 10000,
-          snapshot_time: now,
-        })
-        insertedEventIds.add(dbEvent.id)
-        matchedToEvent++
-        const lg = ((dbEvent as any).leagues?.slug) ?? 'unknown'
-        insertedByLeague[lg] = (insertedByLeague[lg] ?? 0) + 1
-        if (sampleInsertedTitles.length < 10) sampleInsertedTitles.push(`[${lg}] ${dbEvent.title} ← ${polyEvent.title} (paired y/n)`)
+        const homeAmer = probToAmerican(homeYes)
+        const awayAmer = probToAmerican(awayYes)
+        // Drop the row if either side is implausible (e.g. +199900
+        // from a 0.0005-prob YES contract). See isPlausibleMoneyline
+        // note above — these aren't real moneylines.
+        if (isPlausibleMoneyline(homeAmer) && isPlausibleMoneyline(awayAmer)) {
+          marketSnapshots.push({
+            event_id: dbEvent.id,
+            source_id: source.id,
+            market_type: 'moneyline',
+            home_price: homeAmer,
+            away_price: awayAmer,
+            home_implied_prob: Math.round(homeYes * 10000) / 10000,
+            away_implied_prob: Math.round(awayYes * 10000) / 10000,
+            snapshot_time: now,
+          })
+          insertedEventIds.add(dbEvent.id)
+          matchedToEvent++
+          const lg = ((dbEvent as any).leagues?.slug) ?? 'unknown'
+          insertedByLeague[lg] = (insertedByLeague[lg] ?? 0) + 1
+          if (sampleInsertedTitles.length < 10) sampleInsertedTitles.push(`[${lg}] ${dbEvent.title} ← ${polyEvent.title} (paired y/n)`)
+        }
       }
     }
 
