@@ -7,6 +7,7 @@ import { formatOdds, formatRelativeTime, cn } from '@/lib/utils'
 import { Calculator, ChevronLeft, Clock, DollarSign, ExternalLink, RefreshCw, Target, Wallet } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 import { getBookUrl } from '@/lib/book-urls'
+import { useBankroll } from '@/lib/use-bankroll'
 
 // Tailwind's `lg:` breakpoint is 1024px. Anything below is treated as
 // the mobile two-view experience; anything ≥1024px keeps the existing
@@ -53,8 +54,6 @@ function calculateArbStakes(
   return { stakes, payouts, profit }
 }
 
-const BANKROLL_KEY = 'nb-arb-bankroll'
-
 // ── Main Client Component ────────────────────────────────────────────────────
 
 export function ArbCalculatorClient({
@@ -76,7 +75,10 @@ export function ArbCalculatorClient({
   // don't shift the highlighted opportunity when the list changes.
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [totalStake, setTotalStake] = useState(500)
-  const [bankroll, setBankroll] = useState(1000)
+  // Bankroll lives in a shared hook (lib/use-bankroll) so the value
+  // entered on /bankroll is used here AND on /top-lines without
+  // having to type it twice. Cross-tab sync is built into the hook.
+  const [bankroll, setBankroll] = useBankroll()
   const [useKelly, setUseKelly] = useState(false)
 
   // ── Mobile two-view state ────────────────────────────────────────
@@ -92,18 +94,9 @@ export function ArbCalculatorClient({
   const [mobileView, setMobileView] = useState<'feed' | 'calculator'>('feed')
   const savedFeedScrollY = useRef<number>(0)
 
-  useEffect(() => {
-    const stored = localStorage.getItem(BANKROLL_KEY)
-    if (stored) {
-      const val = parseFloat(stored)
-      if (!isNaN(val) && val > 0) setBankroll(val)
-    }
-  }, [])
-
-  const updateBankroll = useCallback((val: number) => {
-    setBankroll(val)
-    localStorage.setItem(BANKROLL_KEY, String(val))
-  }, [])
+  // useBankroll handles localStorage hydration + cross-tab sync.
+  // updateBankroll just delegates so existing call sites stay unchanged.
+  const updateBankroll = useCallback((val: number) => setBankroll(val), [setBankroll])
 
   const selected = selectedId !== null ? (arbs.find(a => a.id === selectedId) ?? null) : null
 

@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Bell, LogOut, User, CreditCard, Menu } from 'lucide-react'
+import Link from 'next/link'
+import { Search, Bell, LogOut, User, CreditCard, Menu, Wallet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -58,6 +59,18 @@ export function Topbar({ profile, title, sources = [], initialEnabledBooks = nul
         <Button variant="ghost" size="icon" className="hidden sm:inline-flex text-nb-400 hover:text-white" aria-label="Search">
           <Search className="h-4 w-4" />
         </Button>
+
+        {/* Bankroll — shortcut to /bankroll where the user manages
+          * the bankroll value used by Kelly sizing on /arbitrage and
+          * /top-lines. Sits to the LEFT of the books selector. */}
+        <Link
+          href="/bankroll"
+          aria-label="Bankroll"
+          className="inline-flex items-center gap-1.5 h-8 sm:h-9 px-2.5 sm:px-3 rounded-md border border-nb-800 bg-nb-900 text-xs font-medium text-nb-300 hover:border-nb-600 hover:text-white transition-colors"
+        >
+          <Wallet className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Bankroll</span>
+        </Link>
 
         {sources.length > 0 && (
           <BookSelector sources={sources} initialEnabled={initialEnabledBooks} canadianSlugs={canadianSlugs} />

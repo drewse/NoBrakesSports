@@ -7,6 +7,7 @@ import { formatOdds, formatRelativeTime, formatDateTime, cn } from '@/lib/utils'
 import { ChevronLeft, Clock, ExternalLink, Sparkles, DollarSign, Gauge, RefreshCw, Target } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 import { getBookUrl } from '@/lib/book-urls'
+import { useBankroll } from '@/lib/use-bankroll'
 
 // Tailwind's `lg:` breakpoint is 1024px. Below that we use the mobile
 // two-view experience; ≥1024px keeps the existing desktop split-pane.
@@ -92,8 +93,6 @@ function formatEv(ev: number): string {
   return `${sign}${ev.toFixed(2)}%`
 }
 
-const BANKROLL_KEY = 'nb-ev-bankroll'
-
 // ── Main Client Component ────────────────────────────────────────────────────
 
 export function EvCalculatorClient({
@@ -111,7 +110,13 @@ export function EvCalculatorClient({
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(lines.length > 0 ? lines[0].id : null)
   const [stake, setStake] = useState(500)
-  const [bankroll, setBankroll] = useState(1000)
+  // Shared bankroll — same value as /arbitrage and /bankroll. See
+  // lib/use-bankroll.ts for the localStorage key + cross-tab sync.
+  const [bankroll, setBankroll] = useBankroll()
+  // Kelly toggle. When ON, stake auto-sizes to (kellyPct% * bankroll)
+  // every time the selected line changes. When OFF, the user owns the
+  // stake input and we don't overwrite it.
+  const [useKelly, setUseKelly] = useState(false)
 
   // ── Mobile two-view state ────────────────────────────────────────
   // Same pattern as arb-calculator-client.tsx. Mobile renders one view
@@ -123,18 +128,16 @@ export function EvCalculatorClient({
   const [mobileView, setMobileView] = useState<'feed' | 'calculator'>('feed')
   const savedFeedScrollY = useRef<number>(0)
 
-  useEffect(() => {
-    const stored = localStorage.getItem(BANKROLL_KEY)
-    if (stored) {
-      const val = parseFloat(stored)
-      if (!isNaN(val) && val > 0) setBankroll(val)
-    }
-  }, [])
+  // useBankroll handles localStorage hydration + cross-tab sync.
+  // updateBankroll just delegates to the hook setter.
+  const updateBankroll = useCallback((val: number) => setBankroll(val), [setBankroll])
 
-  const updateBankroll = useCallback((val: number) => {
-    setBankroll(val)
-    localStorage.setItem(BANKROLL_KEY, String(val))
-  }, [])
+  // When Kelly is ON, recompute stake from the selected line's kellyPct
+  // every time the selection or bankroll changes. When OFF, leave stake
+  // alone so the user's manual entry isn't overwritten.
+  // (The selected reference is established later in the component; we
+  // declare the effect here but it runs after render so `selected` is
+  // in scope by the time the function body executes.)
 
   // Mobile scroll restoration — see arb-calculator-client.tsx for the
   // full rationale. Saves window.scrollY before navigating into the
@@ -168,6 +171,16 @@ export function EvCalculatorClient({
   }, [])
 
   const selected = selectedId !== null ? (lines.find(l => l.id === selectedId) ?? null) : null
+
+  // Kelly auto-size — only when toggled ON and we have a selection.
+  // Caps at 25% of bankroll as a sanity floor (full Kelly on a high-
+  // edge prop can recommend a wildly large bet).
+  useEffect(() => {
+    if (!useKelly || !selected || bankroll <= 0) return
+    const pct = Math.min(selected.kellyPct, 25) / 100
+    const recommended = Math.round(bankroll * pct * 100) / 100
+    if (recommended > 0) setStake(recommended)
+  }, [useKelly, bankroll, selected])
 
   const latestScan = lines.length > 0
     ? lines.reduce((latest, l) => (l.lastUpdated > latest ? l.lastUpdated : latest), lines[0].lastUpdated)
@@ -498,9 +511,9 @@ export function EvCalculatorClient({
               </CardContent>
             </Card>
 
-            {/* Stake / Bankroll inputs */}
+            {/* Stake / Bankroll / Kelly toggle */}
             <Card className="bg-nb-900 border-nb-800">
-              <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <CardContent className="p-4 grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 <div>
                   <p className="text-[10px] text-nb-500 uppercase tracking-widest mb-1.5">Total Stake</p>
                   <div className="relative">
@@ -510,6 +523,10 @@ export function EvCalculatorClient({
                       inputMode="decimal"
                       value={stake}
                       onChange={(e) => {
+                        // Manual stake edit implies the user wants to
+                        // own this number — turn off Kelly so the next
+                        // selection change doesn't overwrite their input.
+                        setUseKelly(false)
                         const v = parseFloat(e.target.value.replace(/[^0-9.]/g, ''))
                         setStake(isNaN(v) ? 0 : v)
                       }}
@@ -532,6 +549,26 @@ export function EvCalculatorClient({
                       className="w-full rounded-lg bg-nb-800 border border-nb-700 pl-7 pr-3 py-2.5 text-base font-mono text-white focus:outline-none focus:ring-1 focus:ring-nb-500"
                     />
                   </div>
+                </div>
+                <div>
+                  <p className="text-[10px] text-nb-500 uppercase tracking-widest mb-1.5 flex items-center gap-1">
+                    <Target className="h-3 w-3" /> Kelly Sizing
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setUseKelly(v => !v)}
+                    className={`w-full h-[42px] rounded-lg border text-sm font-semibold transition-colors ${
+                      useKelly
+                        ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300'
+                        : 'bg-nb-800 border-nb-700 text-nb-400 hover:text-nb-300 hover:border-nb-600'
+                    }`}
+                    aria-pressed={useKelly}
+                    title={useKelly
+                      ? 'Stake is auto-sized to a fraction of bankroll based on the selected line. Click to turn off and edit stake manually.'
+                      : 'Click to auto-size stake to a Kelly fraction of bankroll.'}
+                  >
+                    {useKelly ? 'Kelly ON' : 'Kelly OFF'}
+                  </button>
                 </div>
               </CardContent>
             </Card>
