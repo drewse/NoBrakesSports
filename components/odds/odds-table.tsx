@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { Clock } from 'lucide-react'
 import { BookLogo } from '@/components/shared/book-logo'
 import { formatOdds } from '@/lib/utils'
@@ -59,6 +60,13 @@ export function OddsTable({
   const topLabel = isOverUnder ? 'OVER' : 'HOME'
   const botLabel = isOverUnder ? 'UNDER' : 'AWAY'
 
+  // AVO-style hover affordance: hovering on any cell highlights the
+  // entire row blue (so the user can read across the row at a glance)
+  // AND the entire column blue (so they can see which book the odds
+  // belong to). Row highlight is pure CSS (tr:hover); column highlight
+  // requires JS state because cells in different rows aren't siblings.
+  const [hoveredCol, setHoveredCol] = useState<string | null>(null)
+
   if (rows.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-nb-900/40 px-6 py-16 text-center">
@@ -98,7 +106,15 @@ export function OddsTable({
               <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-nb-700" style={{ ...cellBest, top: 0 }}>Best Odds</th>
               <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-r border-nb-700" style={{ ...cellAvg, top: 0 }}>Avg Odds</th>
               {books.map(b => (
-                <th key={b.id} className="sticky z-20 bg-nb-950 px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92, top: 0 }}>
+                <th
+                  key={b.id}
+                  className={`sticky z-20 px-2 py-3 text-center border-l border-border/40 ${
+                    hoveredCol === b.id ? 'bg-blue-500/15' : 'bg-nb-950'
+                  }`}
+                  style={{ minWidth: 92, top: 0 }}
+                  onMouseEnter={() => setHoveredCol(b.id)}
+                  onMouseLeave={() => setHoveredCol(prev => prev === b.id ? null : prev)}
+                >
                   <div className="flex justify-center">
                     <BookLogo name={b.slug} size="sm" />
                   </div>
@@ -114,7 +130,13 @@ export function OddsTable({
               return (
                 <tr
                   key={r.eventId}
-                  className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'} ${animCls}`}
+                  // hover:bg-blue-500/10 — row-wide blue tint when
+                  // any cell in this row is under the cursor. Sticky
+                  // body cells (Game / Best / Avg) use bg-inherit so
+                  // they pick this up automatically; non-sticky cells
+                  // have transparent default bg and reveal the tr's
+                  // hover bg through.
+                  className={`border-b border-border/40 ${idx % 2 === 0 ? 'bg-nb-950' : 'bg-nb-900'} hover:bg-blue-500/10 ${animCls}`}
                 >
                   <td className="sticky z-20 bg-inherit px-4 py-3 align-middle" style={{ ...cellGame, left: 0 }}>
                     <div className="space-y-0.5">
@@ -137,11 +159,16 @@ export function OddsTable({
                     const isBestTop    = cell?.homePrice != null && r.bestHome != null && cell.homePrice === r.bestHome
                     const isBestBottom = cell?.awayPrice != null && r.bestAway != null && cell.awayPrice === r.bestAway
                     const move = r._flickerCells?.get(b.id)
+                    const isHoveredCol = hoveredCol === b.id
                     return (
                       <td
                         key={b.id}
-                        className="px-2 py-3 text-center align-middle border-l border-border/40"
+                        className={`px-2 py-3 text-center align-middle border-l border-border/40 ${
+                          isHoveredCol ? 'bg-blue-500/15' : ''
+                        }`}
                         style={{ minWidth: 92 }}
+                        onMouseEnter={() => setHoveredCol(b.id)}
+                        onMouseLeave={() => setHoveredCol(prev => prev === b.id ? null : prev)}
                       >
                         <OddsStack
                           top={cell?.homePrice ?? null}

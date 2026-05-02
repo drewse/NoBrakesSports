@@ -75,6 +75,10 @@ export function PropsTable({
   books: BookColumn[]
 }) {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set())
+  // Same row+column hover affordance as OddsTable — see notes there.
+  // hoveredCol tracks the book id under the cursor; row hover is
+  // pure CSS (tr:hover) on each player row.
+  const [hoveredCol, setHoveredCol] = useState<string | null>(null)
 
   if (rows.length === 0) {
     return (
@@ -122,7 +126,15 @@ export function PropsTable({
               <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-nb-700" style={{ ...cellBest, top: 0 }}>Best Odds</th>
               <th className="sticky z-40 bg-nb-950 px-3 py-3 text-center border-l border-r border-nb-700" style={{ ...cellAvg, top: 0 }}>Avg Odds</th>
               {books.map(b => (
-                <th key={b.id} className="sticky z-20 bg-nb-950 px-2 py-3 text-center border-l border-border/40" style={{ minWidth: 92, top: 0 }}>
+                <th
+                  key={b.id}
+                  className={`sticky z-20 px-2 py-3 text-center border-l border-border/40 ${
+                    hoveredCol === b.id ? 'bg-blue-500/15' : 'bg-nb-950'
+                  }`}
+                  style={{ minWidth: 92, top: 0 }}
+                  onMouseEnter={() => setHoveredCol(b.id)}
+                  onMouseLeave={() => setHoveredCol(prev => prev === b.id ? null : prev)}
+                >
                   <div className="flex justify-center">
                     <BookLogo name={b.slug} size="sm" />
                   </div>
@@ -144,6 +156,8 @@ export function PropsTable({
                   cellGame={cellGame}
                   cellBest={cellBest}
                   cellAvg={cellAvg}
+                  hoveredCol={hoveredCol}
+                  onHoverCol={setHoveredCol}
                 />
               )
             })}
@@ -166,6 +180,7 @@ export function PropsTable({
 
 function GameBlock({
   game, books, isOpen, onToggle, colSpan, cellGame, cellBest, cellAvg,
+  hoveredCol, onHoverCol,
 }: {
   game: PropsGameRow
   books: BookColumn[]
@@ -175,6 +190,9 @@ function GameBlock({
   cellGame: React.CSSProperties
   cellBest: React.CSSProperties
   cellAvg:  React.CSSProperties
+  /** AVO-style column highlight — see PropsTable for the source of truth. */
+  hoveredCol: string | null
+  onHoverCol: (id: string | null) => void
 }) {
   const animCls =
     game._anim === 'leaving' ? 'live-leaving' :
@@ -220,6 +238,8 @@ function GameBlock({
           cellGame={cellGame}
           cellBest={cellBest}
           cellAvg={cellAvg}
+          hoveredCol={hoveredCol}
+          onHoverCol={onHoverCol}
         />
       ))}
 
@@ -238,13 +258,15 @@ function GameBlock({
 // Memoized so switching one player's line doesn't re-render siblings.
 // Owns its `selectedLine` state — null = "Auto" (consensus from loader).
 const PlayerRow = memo(function PlayerRow({
-  player, books, cellGame, cellBest, cellAvg,
+  player, books, cellGame, cellBest, cellAvg, hoveredCol, onHoverCol,
 }: {
   player: PlayerPropRow
   books: BookColumn[]
   cellGame: React.CSSProperties
   cellBest: React.CSSProperties
   cellAvg: React.CSSProperties
+  hoveredCol: string | null
+  onHoverCol: (id: string | null) => void
 }) {
   // null = Auto (resolves to consensusLine from the loader)
   const [selectedLine, setSelectedLine] = useState<number | null>(null)
@@ -283,7 +305,7 @@ const PlayerRow = memo(function PlayerRow({
   const { byBook, bestOver, bestUnder, avgOver, avgUnder } = summary
 
   return (
-    <tr className="border-b border-border/30 bg-nb-950 hover:bg-nb-900">
+    <tr className="border-b border-border/30 bg-nb-950 hover:bg-blue-500/10">
       <td className="sticky z-20 bg-inherit px-4 py-2.5 align-middle" style={{ ...cellGame, left: 0 }}>
         <div className="space-y-1">
           <div className="text-xs font-medium text-white truncate">{player.playerName}</div>
@@ -313,11 +335,16 @@ const PlayerRow = memo(function PlayerRow({
         // alt line shows static prices until the next poll.
         const onConsensus = selectedLine == null || selectedLine === player.consensusLine
         const move = onConsensus ? player._flickerCells?.get(b.id) : undefined
+        const isHoveredCol = hoveredCol === b.id
         return (
           <td
             key={b.id}
-            className="px-2 py-2.5 text-center align-middle border-l border-border/40"
+            className={`px-2 py-2.5 text-center align-middle border-l border-border/40 ${
+              isHoveredCol ? 'bg-blue-500/15' : ''
+            }`}
             style={{ minWidth: 92 }}
+            onMouseEnter={() => onHoverCol(b.id)}
+            onMouseLeave={() => onHoverCol(b.id === hoveredCol ? null : hoveredCol)}
           >
             <OUStack
               over={cell?.overPrice ?? null}

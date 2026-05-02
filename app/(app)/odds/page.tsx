@@ -52,8 +52,13 @@ export default async function OddsPage({
   // the filter bar's bg + border-bottom span the full width.
   return (
     <div className="flex flex-col h-full -m-3 sm:-m-4 lg:-m-6">
-      {/* Sticky filter bar (top of viewport — outside the scroll area) */}
-      <div className="shrink-0 bg-nb-950 border-b border-border px-3 sm:px-4 lg:px-6 py-3">
+      {/* Sticky filter bar (top of viewport — outside the scroll area).
+        * py-4 (was py-3) gives the rounded-full pill button enough
+        * vertical breathing room so the search icon at its right edge
+        * doesn't visually crowd the bottom border. overflow-visible is
+        * explicit insurance against any ancestor clipping the pill's
+        * rounded edges. */}
+      <div className="shrink-0 bg-nb-950 border-b border-border px-3 sm:px-4 lg:px-6 py-4 overflow-visible">
         <div className="flex items-center justify-center gap-3 flex-wrap">
           <FilterBar selection={selection} />
           {/* useSearchParams in TimeFilter needs a Suspense boundary. */}
