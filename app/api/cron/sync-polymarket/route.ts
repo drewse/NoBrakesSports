@@ -300,6 +300,31 @@ export async function GET(request: NextRequest) {
     return WNBA_TEAM_NAMES.test(title)
   }
 
+  // KBO (Korean Baseball Organization) team mascots. Same shape of
+  // bug as WNBA→NBA: Polymarket tags KBO games as `baseball`, our
+  // POLY_TAG_TO_LEAGUES maps baseball→['mlb'], DB has the bogus
+  // KBO event under league_slug='mlb' from another adapter, and we
+  // happily write Polymarket snapshots into it. Result: "LG Twins
+  // vs NC Dinos" appearing on /odds MLB tab.
+  // Anchor on distinctly-KBO city prefixes / two-word combos to
+  // avoid colliding with MLB mascots ("Twins", "Tigers", "Giants").
+  const KBO_TEAM_NAMES = /\b(lg twins|nc dinos|kt wiz|kia tigers|lotte giants|samsung lions|ssg landers|doosan bears|hanwha eagles|kiwoom heroes)\b/i
+  function looksLikeKboMatchup(title: string | null | undefined): boolean {
+    if (!title) return false
+    return KBO_TEAM_NAMES.test(title)
+  }
+
+  // Malformed-title guard. Healthy MLB events in our pipeline are
+  // titled "Home vs Away". Anything without " vs " is upstream
+  // garbage — happens when an adapter mis-parses a concatenated
+  // title (e.g. "San Diego Padres Chicago White Sox" → home="San
+  // Diego" away="Padres Chicago White Sox"). Don't pair Polymarket
+  // events with these duplicates.
+  function isMalformedTitle(title: string | null | undefined): boolean {
+    if (!title) return false
+    return !/\s+vs\.?\s+/i.test(title)
+  }
+
   for (const polyEvent of polyEvents) {
     if (!polyEvent.markets?.length) { skippedNoMarkets++; continue }
     if (polyEvent.title && /\s+vs\.?\s+/i.test(polyEvent.title)) eventsWithVs++
@@ -315,6 +340,12 @@ export async function GET(request: NextRequest) {
       // WNBA, in case a Polymarket basketball tag eventually starts
       // including WNBA games we'd match through some other DB row.
       if (looksLikeWnbaMatchup(e.title) || looksLikeWnbaMatchup(polyEvent.title)) return false
+      // Same guard for KBO games tagged as MLB — see KBO_TEAM_NAMES
+      // note above + migration 037.
+      if (looksLikeKboMatchup(e.title) || looksLikeKboMatchup(polyEvent.title)) return false
+      // Reject malformed-title duplicates (no "vs" in the DB row
+      // title means upstream concatenation bug — never write to it).
+      if (isMalformedTitle(e.title)) return false
       return titlesMatch(e.title, polyEvent.title)
     }) ?? null
     if (dbEvent) eventsMatchedDb++
