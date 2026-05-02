@@ -43,15 +43,19 @@ export default async function OddsPage({
 
   // Layout strategy: the page is a vertical flex container that fills
   // the parent <main>'s height. The filter row is a fixed-height
-  // header that never scrolls — it stays put while the user explores
-  // the table below. The table region (flex-1 + overflow-hidden) hosts
-  // the OddsTable / PropsTable which scrolls internally on BOTH axes
-  // with a sticky thead. Net effect: filter bar AND book-logo header
-  // row are always visible while the user scrolls long event lists.
-  // Negative margins counteract <main>'s p-3 sm:p-4 lg:p-6 wrapper so
-  // the filter bar's bg + border-bottom span the full width.
+  // header that never scrolls; the table region (flex-1 + overflow-
+  // hidden) below has its own internal scroll with a sticky thead.
+  //
+  // Earlier versions of this wrapper used `-m-3 sm:-m-4 lg:-m-6` to
+  // force the filter bar's bg + border-bottom edge-to-edge — but
+  // <main> in the app shell has NO padding, so the negative margin
+  // pulled content past <main>'s right edge, where overflow-x-hidden
+  // clipped it. Visible symptom: the right end of the filter pill +
+  // time-filter row was cut off. Wrapper now sits flush with <main>
+  // and the filter bar's px-3/px-4/px-6 supplies its own internal
+  // horizontal padding.
   return (
-    <div className="flex flex-col h-full -m-3 sm:-m-4 lg:-m-6">
+    <div className="flex flex-col h-full">
       {/* Sticky filter bar (top of viewport — outside the scroll area).
         * py-4 (was py-3) gives the rounded-full pill button enough
         * vertical breathing room so the search icon at its right edge
