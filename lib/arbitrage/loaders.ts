@@ -32,15 +32,15 @@ export interface ArbsResult {
   uniqueBooks: number
 }
 
-// 15 min, not 5. sync-props + sync-odds run on a 5-min cron, so a 5-min
-// cutoff means *every* row from the previous cycle drops out exactly when
-// the next cycle is mid-flight — arbs flicker in and out depending on
-// where in the cron interval the page loads. 15 min = ~3 cycles, comfortably
-// excludes books that have actually missed a sync without strangling fresh
-// pairings (e.g., Betway+FanDuel rows captured at minute 0 are still
-// "live" at minute 6, but the old 5-min cutoff was filtering them out and
-// hiding real arbs that AVO/OddsJam were surfacing).
-const FRESHNESS_MS = 15 * 60 * 1000
+// 8 min — calibrated to a 3-min sync-props cadence (was 5). At 3-min
+// ticks, 8 min = ~2.5 cycles of buffer, enough to ride out one missed
+// tick without strangling fresh pairings, but tight enough that
+// genuinely stale rows (e.g. a book that hasn't refreshed for 20+ min)
+// fall out before they can cause phantom arbs. The earlier 15-min
+// window was sized for the old 5-min cron and made stale-vs-fresh
+// pairing too easy — Payton Pritchard threes 2.5 was paired against
+// 21-min-old Betway data once, surfacing an arb that no longer existed.
+const FRESHNESS_MS = 8 * 60 * 1000
 // PROP_PAGE MUST match Supabase PostgREST's `db-max-rows` setting.
 // Project setting was raised from 1000 → 5000 on 2026-05-01 — see README /
 // Supabase project settings → API → Max Rows. With db-max-rows=5000, this

@@ -228,7 +228,11 @@ export async function loadEv(
     ((sourcesRes.data ?? []) as any[]).map(s => [s.id, s]),
   )
 
-  const cutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+  // Game-line freshness: 1h. Was 6h originally, which let stale
+  // moneylines from a half-day ago pair against fresh props during
+  // EV calc and produce misleading edges. Game lines move slower
+  // than props but not THAT slow — 1h is plenty.
+  const cutoff = new Date(Date.now() - 60 * 60 * 1000).toISOString()
   // FLAT select — no embedded joins. event/source metadata comes from
   // eventById / sourceById maps populated from the side queries above.
   const snapshotsPromise = supabase
@@ -243,7 +247,12 @@ export async function loadEv(
     .in('market_type', ['moneyline', 'spread', 'total'])
     .limit(10000)
 
-  const propCutoff = new Date(Date.now() - 30 * 60 * 1000).toISOString()
+  // Prop freshness: 15 min. Was 30 — same reasoning as the arb
+  // FRESHNESS_MS bump (15→8 min): 3-min sync-props cadence means
+  // 15 min = 5 cycles of buffer, generous enough for missed ticks
+  // but tight enough that stale prop rows don't bias the de-vig
+  // consensus calculation.
+  const propCutoff = new Date(Date.now() - 15 * 60 * 1000).toISOString()
   // Adaptive paging — same approach as lib/arbitrage/loaders.ts.
   // Page 0 first; if it's full, fan out remaining pages in parallel.
   // With the (event_id, snapshot_time DESC) index the count(*) we
