@@ -98,7 +98,9 @@ export function SiteHeader() {
               fixed-width placeholder so the header doesn't reflow when
               the auth check finishes. */}
           {user === null ? (
-            <div aria-hidden className="h-9 w-[152px]" />
+            // Placeholder kept narrow on mobile so the right edge
+            // doesn't shift when the auth check resolves.
+            <div aria-hidden className="h-8 w-[112px] sm:h-9 sm:w-[152px]" />
           ) : user === false ? (
             <>
               <Link
@@ -110,17 +112,22 @@ export function SiteHeader() {
               <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
                 <Link
                   href="/signup"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-nb-950 shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
+                  // Smaller mobile footprint: h-8 / px-3 / text-xs at base,
+                  // step up to h-9 / px-4 / text-sm at sm+. Rounded-lg
+                  // (less aggressive than rounded-xl) reads better at the
+                  // smaller size. whitespace-nowrap prevents the label
+                  // from wrapping on very narrow viewports.
+                  className="inline-flex h-8 sm:h-9 items-center gap-1.5 rounded-lg sm:rounded-xl bg-white px-3 sm:px-4 text-xs sm:text-sm font-semibold text-nb-950 whitespace-nowrap shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
                 >
                   Get started
                 </Link>
               </motion.div>
             </>
           ) : (
-            <div className="flex items-center gap-2 sm:gap-2.5">
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
               <Link
                 href="/account/profile"
-                className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-nb-800 text-xs font-semibold text-white hover:border-white/40 transition-colors"
+                className="flex h-7 w-7 sm:h-8 sm:w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-nb-800 text-xs font-semibold text-white hover:border-white/40 transition-colors"
                 aria-label="Account"
               >
                 {user.avatarUrl ? (
@@ -138,7 +145,9 @@ export function SiteHeader() {
               <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.98 }}>
                 <Link
                   href="/odds"
-                  className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-white px-4 text-sm font-semibold text-nb-950 shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
+                  // Same shrink as Get started — fits cleanly in the
+                  // header at 375px viewport width without wrapping.
+                  className="inline-flex h-8 sm:h-9 items-center gap-1.5 rounded-lg sm:rounded-xl bg-white px-3 sm:px-4 text-xs sm:text-sm font-semibold text-nb-950 whitespace-nowrap shadow-[0_0_24px_rgba(255,255,255,0.18)] hover:shadow-[0_0_32px_rgba(255,255,255,0.28)] transition-shadow"
                 >
                   Launch app
                 </Link>

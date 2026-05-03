@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import useSWR from 'swr'
 import { OddsTable, type OddsRow, type BookColumn } from './odds-table'
 import { PropsTable, type PropsGameRow, type PlayerPropRow } from './props-table'
+import { MobileGameOddsCards, MobilePropOddsCards } from './mobile-odds-cards'
 import { LiveIndicator } from '@/components/shared/live-indicator'
 import {
   diffGameRows, isGameDiffEmpty,
@@ -238,14 +239,29 @@ export function OddsClient({
       <div className="flex justify-end shrink-0 mb-2">
         <LiveIndicator active={pollEnabled} />
       </div>
+      {/* Desktop (lg+): wide comparison table with all sportsbook
+        * columns. Mobile (<lg): vertical card list with per-game
+        * expansion that shows every book in a single column. Both
+        * consume the same `rendered.rows` / `rendered.books` —
+        * presentation-only switch, no duplicate data fetching. */}
       {rendered?.kind === 'game' && (
         <div className="flex-1 min-h-0">
-          <OddsTable selection={selection} rows={rendered.rows} books={rendered.books} />
+          <div className="hidden lg:block h-full">
+            <OddsTable selection={selection} rows={rendered.rows} books={rendered.books} />
+          </div>
+          <div className="lg:hidden h-full overflow-y-auto">
+            <MobileGameOddsCards selection={selection} rows={rendered.rows} books={rendered.books} />
+          </div>
         </div>
       )}
       {rendered?.kind === 'props' && (
         <div className="flex-1 min-h-0">
-          <PropsTable rows={rendered.rows} books={rendered.books} />
+          <div className="hidden lg:block h-full">
+            <PropsTable rows={rendered.rows} books={rendered.books} />
+          </div>
+          <div className="lg:hidden h-full overflow-y-auto">
+            <MobilePropOddsCards rows={rendered.rows} books={rendered.books} />
+          </div>
         </div>
       )}
       {!rendered && (
