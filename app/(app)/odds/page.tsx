@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { cookies } from 'next/headers'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -12,6 +13,7 @@ import {
   type MarketSelection,
 } from '@/lib/odds/market-key'
 import { loadGameOdds, loadPropOdds, type Payload } from '@/lib/odds/loaders'
+import { BOOK_FILTER_COOKIE, parseEnabledBooks } from '@/lib/book-filter'
 
 export const metadata = { title: 'Odds' }
 export const dynamic = 'force-dynamic'
@@ -115,8 +117,14 @@ async function OddsDataLoader({
   within: TimeRangeId
 }) {
   const supabase = await createClient()
+  // Read enabled-books cookie so the loader can include every enabled
+  // book as a column even if a given sport / market has no rows from
+  // that book — coverage diagnostic. See loader notes.
+  const cookieStore = await cookies()
+  const enabledBooksRaw = cookieStore.get(BOOK_FILTER_COOKIE)?.value
+  const enabledBooks = parseEnabledBooks(enabledBooksRaw ? decodeURIComponent(enabledBooksRaw) : undefined)
   const payload: Payload = plan.table === 'prop_odds'
-    ? await loadPropOdds(supabase as unknown as SupabaseClient, selection, plan, within)
-    : await loadGameOdds(supabase as unknown as SupabaseClient, selection, plan, within)
+    ? await loadPropOdds(supabase as unknown as SupabaseClient, selection, plan, within, enabledBooks)
+    : await loadGameOdds(supabase as unknown as SupabaseClient, selection, plan, within, enabledBooks)
   return <OddsClient selection={selection} initialPayload={payload} />
 }

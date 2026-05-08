@@ -198,6 +198,26 @@ function fuzzyPlayerKey(raw: string): string {
  *  Mccollum"); if tied, the one with more total characters wins
  *  ("OG Anunoby" beats "Og Anunoby"). Stable: keeps the prior name on
  *  exact ties. */
+/** Fetch all active market_sources whose slug is in `enabledBooks`,
+ *  shaped as BookColumn rows for the column list. Used to seed the
+ *  /odds table with empty columns for books the user has enabled but
+ *  that haven't quoted any markets in the current sport/freshness
+ *  window — so missing coverage is visible at a glance. */
+async function loadEnabledBookColumns(
+  supabase: SupabaseClient,
+  enabledBooks: Set<string>,
+): Promise<BookColumn[]> {
+  if (enabledBooks.size === 0) return []
+  const slugs = [...enabledBooks]
+  const { data } = await supabase
+    .from('market_sources')
+    .select('id, name, slug')
+    .in('slug', slugs)
+    .eq('is_active', true)
+  return (data ?? []).map((s: { id: string; name: string; slug: string }) =>
+    ({ id: s.id, name: s.name, slug: s.slug }))
+}
+
 function pickBetterName(prev: string | undefined, cand: string): string {
   if (!prev) return cand
   const score = (s: string) => {
@@ -216,10 +236,26 @@ export async function loadGameOdds(
   selection: MarketSelection,
   plan: NonNullable<ReturnType<typeof planForSelection>>,
   within: TimeRangeId,
+  // When provided, the column list is forced to include every slug
+  // in the set — even books with zero rows in the freshness window.
+  // This gives the user a clear coverage view: missing books surface
+  // as columns full of dashes instead of being hidden, so it's
+  // obvious which books need backfilling on a given sport/market.
+  // null = previous behavior (only books with data appear).
+  enabledBooks: Set<string> | null = null,
 ): Promise<GamePayload> {
   const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const events = await loadEvents(supabase, selection.league, within)
-  if (events.length === 0) return { kind: 'game', rows: [], books: [] }
+  if (events.length === 0) {
+    // Even with no events, we want the column list populated when
+    // the user has explicit enabled-books — preserves the coverage
+    // diagnostic on empty-state pages too.
+    if (enabledBooks) {
+      const stub = await loadEnabledBookColumns(supabase, enabledBooks)
+      return { kind: 'game', rows: [], books: stub }
+    }
+    return { kind: 'game', rows: [], books: [] }
+  }
   const eventIds = events.map(e => e.id)
 
   const allRows = await fetchPages<any>((from, to) =>
@@ -381,6 +417,31 @@ export async function loadGameOdds(
   for (const r of deduped) for (const id of Object.keys(r.byBook)) {
     bookCoverage.set(id, (bookCoverage.get(id) ?? 0) + 1)
   }
+
+  // Coverage-diagnostic mode: when the user has set explicit enabled
+  // books via the topbar selector, force their entire enabled set to
+  // appear as columns even if some of those books haven't quoted
+  // anything yet. Empty cells render as dashes so the user can see
+  // exactly which books need backfilling on this sport/market.
+  // Books NOT in the enabled set are filtered out (preserves the
+  // user's selection). When enabledBooks is null, fall back to the
+  // earlier behavior (every book that has data).
+  if (enabledBooks) {
+    const stubs = await loadEnabledBookColumns(supabase, enabledBooks)
+    for (const stub of stubs) {
+      // Don't clobber rows that came through canonical-slug merging
+      // (betmgm + betmgm_on collapse). A stub is only added if no
+      // canonical book with that slug already exists.
+      const existing = [...books.values()].find(b => b.slug === stub.slug)
+      if (!existing) books.set(stub.id, stub)
+    }
+    // Trim columns to the enabled set — books that ended up in the
+    // map but aren't enabled (e.g. via canonical merge) get dropped.
+    for (const [id, b] of books) {
+      if (!enabledBooks.has(b.slug)) books.delete(id)
+    }
+  }
+
   const bookList = [...books.values()].sort((a, b) => {
     const ca = bookCoverage.get(a.id) ?? 0
     const cb = bookCoverage.get(b.id) ?? 0
@@ -395,10 +456,18 @@ export async function loadPropOdds(
   selection: MarketSelection,
   plan: NonNullable<ReturnType<typeof planForSelection>>,
   within: TimeRangeId,
+  // See loadGameOdds for rationale — coverage-diagnostic column seed.
+  enabledBooks: Set<string> | null = null,
 ): Promise<PropsPayload> {
   const snapshotCutoff = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
   const events = await loadEvents(supabase, selection.league, within)
-  if (events.length === 0) return { kind: 'props', rows: [], books: [] }
+  if (events.length === 0) {
+    if (enabledBooks) {
+      const stub = await loadEnabledBookColumns(supabase, enabledBooks)
+      return { kind: 'props', rows: [], books: stub }
+    }
+    return { kind: 'props', rows: [], books: [] }
+  }
   const eventIds = events.map(e => e.id)
 
   const allRows = await fetchPages<any>((from, to) =>
@@ -571,6 +640,19 @@ export async function loadPropOdds(
   for (const g of dedupedProps) for (const p of g.players) for (const id of Object.keys(p.byBook)) {
     bookCoverage.set(id, (bookCoverage.get(id) ?? 0) + 1)
   }
+
+  // Coverage-diagnostic seed — see loadGameOdds for the same logic.
+  if (enabledBooks) {
+    const stubs = await loadEnabledBookColumns(supabase, enabledBooks)
+    for (const stub of stubs) {
+      const existing = [...books.values()].find(b => b.slug === stub.slug)
+      if (!existing) books.set(stub.id, stub)
+    }
+    for (const [id, b] of books) {
+      if (!enabledBooks.has(b.slug)) books.delete(id)
+    }
+  }
+
   const bookList = [...books.values()].sort((a, b) => {
     const ca = bookCoverage.get(a.id) ?? 0
     const cb = bookCoverage.get(b.id) ?? 0
