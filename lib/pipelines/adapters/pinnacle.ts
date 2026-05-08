@@ -119,11 +119,28 @@ const LEAGUE_SLUG_MAP: Record<string, string> = {
 
 function toLeagueSlug(leagueName: string): string | null {
   const n = (leagueName ?? '').toLowerCase().trim()
+  if (!n) return null
+
+  // Explicit blocklist: leagues whose name shares a substring with one
+  // of our canonical keys but is NOT what we want. The earlier
+  // .includes(key) partial match was tagging Pinnacle's "WNBA" /
+  // "USA. WNBA" league as our 'nba' slug because "wnba".includes("nba")
+  // — every WNBA matchup ended up on the /odds NBA tab. Same shape of
+  // bug for any other "X NBA / NHL / NFL" leagues we don't track.
+  if (/\bwnba\b/.test(n)) return null
+  // Add other deny-list patterns here as we discover them.
+
   // Exact match first
   if (LEAGUE_SLUG_MAP[n]) return LEAGUE_SLUG_MAP[n]
-  // Partial match — Pinnacle often prefixes with country (e.g., "USA. NBA")
+
+  // Partial match — Pinnacle often prefixes with country (e.g.,
+  // "USA. NBA" or "USA - NBA"). Use word-boundary regex so "nba" only
+  // matches as a standalone token, not inside "wnba" / "wnba g league"
+  // / etc. \b matches between word and non-word characters; "wnba" has
+  // no word break between 'w' and 'n', so the regex correctly fails.
   for (const [key, slug] of Object.entries(LEAGUE_SLUG_MAP)) {
-    if (n.includes(key) || n.endsWith('. ' + key)) return slug
+    const re = new RegExp(`\\b${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
+    if (re.test(n)) return slug
   }
   return null
 }
