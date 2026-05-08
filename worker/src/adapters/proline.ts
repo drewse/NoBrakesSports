@@ -82,7 +82,30 @@ function kambiToAmerican(o: KOutcome | undefined): number | null {
   return null
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// PARKED — Proline now ingested by the Vercel-side Kambi adapter
+// (lib/pipelines/adapters/kambi-props.ts KAMBI_OPERATORS). That path
+// gives us BOTH game lines AND player props in a single cron run,
+// while the live implementation below is game-lines-only. Running
+// both would double-write game-line rows.
+//
+// To revive (e.g. if Vercel egress starts hitting Kambi US host
+// 429s and we want a browser fallback): swap the export back to
+// `_prolineAdapterLive` and remove Proline from KAMBI_OPERATORS.
+// The live parser below is preserved as dead code so the toggle is
+// a 30-second change.
+// ─────────────────────────────────────────────────────────────────────────
 export const prolineAdapter: BookAdapter = {
+  slug: 'proline',
+  name: 'PROLINE+ (Ontario) [parked]',
+  pollIntervalSec: 86400, // effectively never; scrape returns empty
+  needsBrowser: false,
+  async scrape() {
+    return { events: [], errors: [] }
+  },
+}
+
+const _prolineAdapterLive: BookAdapter = {
   slug: 'proline',
   name: 'PROLINE+ (Ontario)',
   pollIntervalSec: 180,

@@ -51,6 +51,23 @@ export const KAMBI_OPERATORS: KambiOperator[] = [
   { clientId: 'rsicaon',      sourceSlug: 'betrivers',    displayName: 'BetRivers (Ontario)' },
   { clientId: 'leose',        sourceSlug: 'leovegas',     displayName: 'LeoVegas' },
   { clientId: 'torstarcaon',  sourceSlug: 'northstarbets', displayName: 'NorthStar Bets' },
+  // PROLINE+ (OLG Ontario). Different Kambi host than the other CA
+  // operators (US host) and an OLG-specific Origin. Confirmed via
+  // worker/src/adapters/proline.ts which scrapes the same client
+  // for game lines via Playwright. Adding it here gives MLB / NBA /
+  // NHL game lines AND player props from the Vercel cron without a
+  // browser session. Worker proline adapter parked once this lands
+  // so we don't double-write game lines (see commit message).
+  {
+    clientId:    'olgsportscaon',
+    sourceSlug:  'proline',
+    displayName: 'PROLINE+ (Ontario)',
+    host:        'https://us.offering-api.kambicdn.com',
+    origin:      'https://www.olg.ca',
+    // No proxy by default — direct fetch from Vercel works on the
+    // CA-ON market endpoints. If we see persistent 429s in the cron
+    // logs, flip to `proxied: 'ca'` (PacketStream CA pool).
+  },
 
   // ── US Kambi regionals (PARKED, needs browser session) ────────────
   // BetParx tested from all three IP classes — Vercel serverless,
